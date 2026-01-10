@@ -1,0 +1,311 @@
+//
+//  DesignSystem.swift
+//  Velo
+//
+//  AI-Powered Terminal - Futuristic Design System
+//
+
+import SwiftUI
+
+// MARK: - Design Tokens
+enum VeloDesign {
+    
+    // MARK: - Colors
+    enum Colors {
+        // Primary
+        static let neonCyan = Color(hex: "00F5FF")
+        static let neonPurple = Color(hex: "BF40BF")
+        static let neonGreen = Color(hex: "00FF88")
+        
+        // Backgrounds
+        static let deepSpace = Color(hex: "0A0A14")
+        static let darkSurface = Color(hex: "12121C")
+        static let cardBackground = Color(hex: "1A1A28")
+        static let elevatedSurface = Color(hex: "22222F")
+        
+        // Text
+        static let textPrimary = Color.white
+        static let textSecondary = Color(hex: "A0A0B0")
+        static let textMuted = Color(hex: "606070")
+        
+        // Semantic
+        static let success = Color(hex: "00FF88")
+        static let warning = Color(hex: "FFD60A")
+        static let error = Color(hex: "FF6B6B")
+        static let info = Color(hex: "6B9BFF")
+        
+        // Glass
+        static let glassWhite = Color.white.opacity(0.05)
+        static let glassBorder = Color.white.opacity(0.1)
+        static let glassHighlight = Color.white.opacity(0.15)
+    }
+    
+    // MARK: - Typography
+    enum Typography {
+        static let monoFont = Font.system(.body, design: .monospaced)
+        static let monoSmall = Font.system(.caption, design: .monospaced)
+        static let monoLarge = Font.system(.title3, design: .monospaced)
+        
+        static let headline = Font.system(.headline, design: .rounded).weight(.semibold)
+        static let subheadline = Font.system(.subheadline, design: .rounded)
+        static let caption = Font.system(.caption, design: .rounded)
+    }
+    
+    // MARK: - Spacing
+    enum Spacing {
+        static let xs: CGFloat = 4
+        static let sm: CGFloat = 8
+        static let md: CGFloat = 12
+        static let lg: CGFloat = 16
+        static let xl: CGFloat = 24
+        static let xxl: CGFloat = 32
+    }
+    
+    // MARK: - Radius
+    enum Radius {
+        static let small: CGFloat = 6
+        static let medium: CGFloat = 10
+        static let large: CGFloat = 14
+        static let xl: CGFloat = 20
+    }
+    
+    // MARK: - Shadows
+    enum Shadows {
+        static func glow(color: Color, radius: CGFloat = 20) -> some View {
+            Circle()
+                .fill(color.opacity(0.3))
+                .blur(radius: radius)
+        }
+        
+        static let cardShadow = Color.black.opacity(0.5)
+    }
+    
+    // MARK: - Animations
+    enum Animation {
+        static let quick = SwiftUI.Animation.easeOut(duration: 0.15)
+        static let smooth = SwiftUI.Animation.easeInOut(duration: 0.25)
+        static let spring = SwiftUI.Animation.spring(response: 0.35, dampingFraction: 0.7)
+        static let bounce = SwiftUI.Animation.spring(response: 0.4, dampingFraction: 0.6)
+    }
+    
+    // MARK: - Gradients
+    enum Gradients {
+        static let cyanPurple = LinearGradient(
+            colors: [Colors.neonCyan, Colors.neonPurple],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+        
+        static let glassShimmer = LinearGradient(
+            colors: [
+                Color.white.opacity(0.1),
+                Color.white.opacity(0.05),
+                Color.white.opacity(0.1)
+            ],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+        
+        static let darkFade = LinearGradient(
+            colors: [Colors.deepSpace, Colors.deepSpace.opacity(0)],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+    }
+}
+
+// MARK: - Glassmorphism Modifier
+struct GlassmorphismModifier: ViewModifier {
+    var cornerRadius: CGFloat = VeloDesign.Radius.medium
+    var borderOpacity: Double = 0.1
+    var blurRadius: CGFloat = 20
+    var glowColor: Color? = nil
+    
+    func body(content: Content) -> some View {
+        content
+            .background(
+                ZStack {
+                    // Blur background
+                    VeloDesign.Colors.cardBackground.opacity(0.6)
+                    
+                    // Glass layer
+                    VeloDesign.Gradients.glassShimmer
+                }
+            )
+            .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .stroke(Color.white.opacity(borderOpacity), lineWidth: 1)
+            )
+            .shadow(color: VeloDesign.Shadows.cardShadow, radius: 10, y: 5)
+            .overlay(
+                Group {
+                    if let glow = glowColor {
+                        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                            .stroke(glow.opacity(0.3), lineWidth: 1)
+                            .blur(radius: 4)
+                    }
+                }
+            )
+    }
+}
+
+extension View {
+    func glassCard(
+        cornerRadius: CGFloat = VeloDesign.Radius.medium,
+        borderOpacity: Double = 0.1,
+        glowColor: Color? = nil
+    ) -> some View {
+        modifier(GlassmorphismModifier(
+            cornerRadius: cornerRadius,
+            borderOpacity: borderOpacity,
+            glowColor: glowColor
+        ))
+    }
+}
+
+// MARK: - Glow Effect Modifier
+struct GlowModifier: ViewModifier {
+    let color: Color
+    let radius: CGFloat
+    let isActive: Bool
+    
+    func body(content: Content) -> some View {
+        content
+            .shadow(color: isActive ? color.opacity(0.5) : .clear, radius: radius / 2)
+            .shadow(color: isActive ? color.opacity(0.3) : .clear, radius: radius)
+    }
+}
+
+extension View {
+    func glow(_ color: Color, radius: CGFloat = 10, isActive: Bool = true) -> some View {
+        modifier(GlowModifier(color: color, radius: radius, isActive: isActive))
+    }
+}
+
+// MARK: - Neon Border Modifier
+struct NeonBorderModifier: ViewModifier {
+    let color: Color
+    let cornerRadius: CGFloat
+    let isActive: Bool
+    
+    @State private var animationPhase: CGFloat = 0
+    
+    func body(content: Content) -> some View {
+        content
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .stroke(
+                        isActive ? color : Color.clear,
+                        lineWidth: 1.5
+                    )
+                    .blur(radius: isActive ? 2 : 0)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .stroke(
+                        isActive ? color : Color.clear,
+                        lineWidth: 1
+                    )
+            )
+    }
+}
+
+extension View {
+    func neonBorder(
+        _ color: Color,
+        cornerRadius: CGFloat = VeloDesign.Radius.medium,
+        isActive: Bool = true
+    ) -> some View {
+        modifier(NeonBorderModifier(color: color, cornerRadius: cornerRadius, isActive: isActive))
+    }
+}
+
+// MARK: - Hover Effect Modifier
+struct HoverEffectModifier: ViewModifier {
+    @State private var isHovered = false
+    let scaleAmount: CGFloat
+    let glowColor: Color
+    
+    func body(content: Content) -> some View {
+        content
+            .scaleEffect(isHovered ? scaleAmount : 1.0)
+            .glow(glowColor, radius: 15, isActive: isHovered)
+            .animation(VeloDesign.Animation.quick, value: isHovered)
+            .onHover { hovering in
+                isHovered = hovering
+            }
+    }
+}
+
+extension View {
+    func hoverEffect(
+        scale: CGFloat = 1.02,
+        glowColor: Color = VeloDesign.Colors.neonCyan
+    ) -> some View {
+        modifier(HoverEffectModifier(scaleAmount: scale, glowColor: glowColor))
+    }
+}
+
+// MARK: - Status Indicator
+struct StatusDot: View {
+    let status: CommandStatus
+    
+    var body: some View {
+        Circle()
+            .fill(status.color)
+            .frame(width: 8, height: 8)
+            .glow(status.color, radius: 5)
+    }
+}
+
+enum CommandStatus {
+    case success, error, running, idle
+    
+    var color: Color {
+        switch self {
+        case .success: return VeloDesign.Colors.success
+        case .error: return VeloDesign.Colors.error
+        case .running: return VeloDesign.Colors.warning
+        case .idle: return VeloDesign.Colors.textMuted
+        }
+    }
+}
+
+// MARK: - Icon Button Style
+struct IconButtonStyle: ButtonStyle {
+    let color: Color
+    
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .padding(VeloDesign.Spacing.sm)
+            .background(
+                Circle()
+                    .fill(color.opacity(configuration.isPressed ? 0.3 : 0.1))
+            )
+            .scaleEffect(configuration.isPressed ? 0.95 : 1.0)
+            .animation(VeloDesign.Animation.quick, value: configuration.isPressed)
+    }
+}
+
+// MARK: - Pill Tag
+struct PillTag: View {
+    let text: String
+    let color: Color
+    
+    var body: some View {
+        Text(text)
+            .font(VeloDesign.Typography.caption)
+            .foregroundColor(color)
+            .padding(.horizontal, VeloDesign.Spacing.sm)
+            .padding(.vertical, VeloDesign.Spacing.xs)
+            .background(
+                Capsule()
+                    .fill(color.opacity(0.15))
+            )
+            .overlay(
+                Capsule()
+                    .stroke(color.opacity(0.3), lineWidth: 0.5)
+            )
+    }
+}

@@ -1,0 +1,91 @@
+//
+//  VeloApp.swift
+//  Velo
+//
+//  AI-Powered Terminal Application
+//
+
+import SwiftUI
+
+@main
+struct VeloApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+    
+    var body: some Scene {
+        WindowGroup {
+            TerminalWallView()
+                .frame(minWidth: 900, minHeight: 600)
+                .preferredColorScheme(.dark)
+        }
+        .windowStyle(.hiddenTitleBar)
+        .windowToolbarStyle(.unified(showsTitle: false))
+        .commands {
+            // Terminal commands
+            CommandGroup(replacing: .newItem) {
+                Button("New Tab") {
+                    // TODO: Multi-tab support
+                }
+                .keyboardShortcut("t", modifiers: .command)
+            }
+            
+            CommandGroup(after: .newItem) {
+                Divider()
+                
+                Button("Clear Screen") {
+                    NotificationCenter.default.post(name: .clearScreen, object: nil)
+                }
+                .keyboardShortcut("k", modifiers: .command)
+                
+                Button("Interrupt") {
+                    NotificationCenter.default.post(name: .interrupt, object: nil)
+                }
+                .keyboardShortcut("c", modifiers: .control)
+            }
+            
+            // View commands
+            CommandGroup(after: .toolbar) {
+                Button("Toggle History Sidebar") {
+                    NotificationCenter.default.post(name: .toggleHistorySidebar, object: nil)
+                }
+                .keyboardShortcut("[", modifiers: .command)
+                
+                Button("Toggle AI Panel") {
+                    NotificationCenter.default.post(name: .toggleAIPanel, object: nil)
+                }
+                .keyboardShortcut("]", modifiers: .command)
+            }
+        }
+        
+        Settings {
+            SettingsView()
+        }
+    }
+}
+
+// MARK: - App Delegate
+class AppDelegate: NSObject, NSApplicationDelegate {
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        // Configure window appearance
+        if let window = NSApplication.shared.windows.first {
+            window.titlebarAppearsTransparent = true
+            window.titleVisibility = .hidden
+            window.backgroundColor = NSColor(VeloDesign.Colors.deepSpace)
+            window.isMovableByWindowBackground = true
+            
+            // Add vibrancy
+            window.contentView?.wantsLayer = true
+        }
+    }
+    
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        return true
+    }
+}
+
+// MARK: - Notification Names
+extension Notification.Name {
+    static let clearScreen = Notification.Name("clearScreen")
+    static let interrupt = Notification.Name("interrupt")
+    static let toggleHistorySidebar = Notification.Name("toggleHistorySidebar")
+    static let toggleAIPanel = Notification.Name("toggleAIPanel")
+}
