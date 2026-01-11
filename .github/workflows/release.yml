@@ -1,0 +1,88 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'  # Triggers on version tags like v1.0.0
+  workflow_dispatch:  # Allow manual trigger
+
+jobs:
+  build:
+    runs-on: macos-14  # Use latest macOS runner
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '15.2'
+      
+      - name: Get version from tag
+        id: get_version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+      
+      - name: Build app
+        run: |
+          xcodebuild -scheme Velo \
+            -configuration Release \
+            -archivePath build/Velo.xcarchive \
+            archive
+      
+      - name: Export app
+        run: |
+          xcodebuild -exportArchive \
+            -archivePath build/Velo.xcarchive \
+            -exportPath build/Release \
+            -exportOptionsPlist exportOptions.plist
+      
+      - name: Create DMG
+        run: |
+          # Install create-dmg if needed
+          brew install create-dmg || true
+          
+          # Create beautiful DMG with app icon and background
+          create-dmg \
+            --volname "Velo" \
+            --window-pos 200 120 \
+            --window-size 800 450 \
+            --icon-size 100 \
+            --icon "Velo.app" 200 190 \
+            --hide-extension "Velo.app" \
+            --app-drop-link 600 185 \
+            --no-internet-enable \
+            "Velo-${{ steps.get_version.outputs.VERSION }}.dmg" \
+            "build/Release/Velo.app"
+      
+      - name: Calculate checksums
+        run: |
+          shasum -a 256 "Velo-${{ steps.get_version.outputs.VERSION }}.dmg" > checksums.txt
+          cat checksums.txt
+      
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            Velo-${{ steps.get_version.outputs.VERSION }}.dmg
+            checksums.txt
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          body: |
+            ## 🚀 Velo ${{ steps.get_version.outputs.VERSION }}
+            
+            ### Installation
+            1. Download `Velo-${{ steps.get_version.outputs.VERSION }}.dmg`
+            2. Open the DMG and drag Velo to Applications
+            3. Launch Velo from Applications
+            
+            ### SHA-256 Checksum
+            ```
+            $(cat checksums.txt)
+            ```
+            
+            ### What's New
+            See the full changelog below.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
