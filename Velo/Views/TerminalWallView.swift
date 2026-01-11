@@ -63,7 +63,7 @@ struct TerminalWallView: View {
             // Center: Tabbed Interface
             VStack(spacing: 0) {
                 // Tab Bar
-                TabBarView(tabManager: tabManager)
+                TabBarView(tabManager: tabManager, showSettings: $showSettings)
                 
                 // Active Tab Content
                 if let session = tabManager.activeSession {

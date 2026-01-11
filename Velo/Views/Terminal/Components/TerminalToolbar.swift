@@ -12,7 +12,6 @@ struct TerminalToolbar: View {
     let currentDirectory: String
     @Binding var showHistorySidebar: Bool
     @Binding var showInsightPanel: Bool
-    @Binding var showSettings: Bool
     let onInterrupt: () -> Void
     let onClear: () -> Void
     
@@ -33,77 +32,43 @@ struct TerminalToolbar: View {
             // App title
             HStack(spacing: VeloDesign.Spacing.sm) {
                 Image(systemName: "terminal.fill")
-                    .font(.system(size: 14))
-                    .foregroundColor(VeloDesign.Colors.neonCyan)
+                .font(.system(size: 14))
+                .foregroundColor(VeloDesign.Colors.neonCyan)
                 
-                Text("VELO")
-                    .font(.system(size: 16, weight: .black, design: .rounded))
-                    .foregroundStyle(VeloDesign.Gradients.cyanPurple)
+                Text("Velo")
+                    .font(VeloDesign.Typography.headline)
+                    .foregroundColor(VeloDesign.Colors.textPrimary)
                     .fixedSize()
             }
-            .padding(.trailing, 10)
             
             Spacer()
             
             // Current path
-            HStack {
-                Text(displayPath)
-                    .font(VeloDesign.Typography.monoSmall)
-                    .foregroundColor(VeloDesign.Colors.textMuted)
-                    .lineLimit(1)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 4)
-                    .background(Color.white.opacity(0.05))
-                    .cornerRadius(4)
-            }
+            Text(displayPath)
+                .font(VeloDesign.Typography.monoSmall)
+                .foregroundColor(VeloDesign.Colors.textMuted)
+                .lineLimit(1)
             
             Spacer()
             
-            // Actions Cluster
-            HStack(spacing: 8) {
-                if isExecuting {
-                    ToolbarButton(
-                        icon: "stop.fill",
-                        isActive: true,
-                        color: VeloDesign.Colors.error
-                    ) {
-                        onInterrupt()
-                    }
-                }
-                
+            // Actions
+            if isExecuting {
                 ToolbarButton(
-                    icon: "trash",
-                    isActive: false,
-                    color: VeloDesign.Colors.textSecondary
+                    icon: "stop.fill",
+                    isActive: true,
+                    color: VeloDesign.Colors.error
                 ) {
-                    onClear()
+                    onInterrupt()
                 }
-                
-                // Settings Bar Button
-                Button(action: { showSettings.toggle() }) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "gearshape.fill")
-                            .font(.system(size: 11))
-                        Text("Settings")
-                            .font(.system(size: 11, weight: .bold))
-                    }
-                    .foregroundColor(showSettings ? VeloDesign.Colors.neonCyan : VeloDesign.Colors.textSecondary)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(
-                        RoundedRectangle(cornerRadius: 6)
-                            .fill(showSettings ? VeloDesign.Colors.neonCyan.opacity(0.15) : Color.white.opacity(0.08))
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 6)
-                            .stroke(showSettings ? VeloDesign.Colors.neonCyan.opacity(0.3) : Color.clear, lineWidth: 1)
-                    )
-                }
-                .buttonStyle(.plain)
             }
-            .padding(4)
-            .background(Color.black.opacity(0.2))
-            .cornerRadius(8)
+            
+            ToolbarButton(
+                icon: "trash",
+                isActive: false,
+                color: VeloDesign.Colors.textSecondary
+            ) {
+                onClear()
+            }
             
             Divider()
                 .frame(height: 16)

@@ -10,9 +10,11 @@ import SwiftUI
 
 struct TabBarView: View {
     @ObservedObject var tabManager: TabManager
+    @Binding var showSettings: Bool
     
     var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
+        HStack(spacing: 0) {
+            ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 2) {
                 ForEach(tabManager.sessions) { session in
                     TabItemView(
@@ -39,6 +41,25 @@ struct TabBarView: View {
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
+            }
+            
+            Spacer()
+            
+            // Global Settings Button in the Tab Bar
+            Button(action: {
+                withAnimation(VeloDesign.Animation.smooth) {
+                    showSettings.toggle()
+                }
+            }) {
+                Image(systemName: "gearshape.fill")
+                    .font(.system(size: 14))
+                    .foregroundColor(showSettings ? VeloDesign.Colors.neonCyan : VeloDesign.Colors.textSecondary)
+                    .frame(width: 32, height: 32)
+                    .background(showSettings ? VeloDesign.Colors.neonCyan.opacity(0.15) : Color.white.opacity(0.05))
+                    .cornerRadius(6)
+            }
+            .buttonStyle(.plain)
+            .padding(.trailing, 10)
         }
         .frame(height: 38)
         .background(VeloDesign.Colors.deepSpace.opacity(0.8))

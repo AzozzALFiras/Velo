@@ -30,7 +30,6 @@ struct TerminalTabContent: View {
                     currentDirectory: terminalVM.currentDirectory,
                     showHistorySidebar: $showHistorySidebar,
                     showInsightPanel: $showInsightPanel,
-                    showSettings: $showSettings,
                     onInterrupt: terminalVM.interrupt,
                     onClear: terminalVM.clearScreen
                 )
