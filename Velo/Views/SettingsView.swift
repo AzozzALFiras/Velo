@@ -30,6 +30,16 @@ struct SettingsView: View {
     private let xURL = URL(string: "https://x.com/dev_3zozz")!
     private let websiteURL = URL(string: "https://dev.3zozz.com")!
     
+    // Updates
+    @State private var isCheckingUpdate = false
+    @State private var updateStatus: UpdateStatus? = nil
+    
+    struct UpdateStatus {
+        let isUpdateAvailable: Bool
+        let message: String
+        let updateURL: String
+    }
+    
     var body: some View {
         ZStack {
             VeloDesign.Colors.deepSpace.ignoresSafeArea()
@@ -144,26 +154,63 @@ struct SettingsView: View {
                             .glassCard()
                         }
 
-                        // MARK: - Versions
+                        // MARK: - App Version & Updates
                         VStack(alignment: .leading, spacing: VeloDesign.Spacing.md) {
-                            SectionHeader(title: "Version")
+                            SectionHeader(title: "Version & Updates")
                             
-                            HStack {
-                                Image(systemName: "cube.box.fill")
-                                    .foregroundColor(VeloDesign.Colors.neonCyan)
+                            VStack(spacing: VeloDesign.Spacing.md) {
+                                HStack {
+                                    Image(systemName: "cube.box.fill")
+                                        .foregroundColor(VeloDesign.Colors.neonCyan)
+                                    
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text("Velo Terminal")
+                                            .font(VeloDesign.Typography.subheadline)
+                                            .foregroundColor(VeloDesign.Colors.textPrimary)
+                                        Text("v\(ApiService.shared.appVersion)")
+                                            .font(VeloDesign.Typography.monoSmall)
+                                            .foregroundColor(VeloDesign.Colors.textMuted)
+                                    }
+                                    
+                                    Spacer()
+                                    
+                                    Button(action: checkUpdate) {
+                                        if isCheckingUpdate {
+                                            ProgressView()
+                                                .controlSize(.small)
+                                        } else {
+                                            Text("Check for Update")
+                                                .font(.system(size: 11, weight: .bold))
+                                                .foregroundColor(VeloDesign.Colors.neonCyan)
+                                                .padding(.horizontal, 10)
+                                                .padding(.vertical, 5)
+                                                .background(VeloDesign.Colors.neonCyan.opacity(0.1))
+                                                .cornerRadius(6)
+                                        }
+                                    }
+                                    .buttonStyle(.plain)
+                                    .disabled(isCheckingUpdate)
+                                }
                                 
-                                Text("Velo Terminal")
-                                    .font(VeloDesign.Typography.subheadline)
-                                    .foregroundColor(VeloDesign.Colors.textPrimary)
-                                
-                                Spacer()
-                                
-                                Text("v1.0.0 (Beta)")
-                                    .font(VeloDesign.Typography.monoSmall)
-                                    .foregroundColor(VeloDesign.Colors.textMuted)
-                                    .padding(.horizontal, 8)
-                                    .padding(.vertical, 4)
-                                    .background(Capsule().fill(VeloDesign.Colors.glassWhite))
+                                if let status = updateStatus {
+                                    Divider().background(VeloDesign.Colors.glassBorder)
+                                    
+                                    HStack {
+                                        Image(systemName: status.isUpdateAvailable ? "arrow.up.circle.fill" : "checkmark.circle.fill")
+                                            .foregroundColor(status.isUpdateAvailable ? VeloDesign.Colors.warning : VeloDesign.Colors.success)
+                                        
+                                        Text(status.message)
+                                            .font(VeloDesign.Typography.caption)
+                                            .foregroundColor(VeloDesign.Colors.textSecondary)
+                                        
+                                        if status.isUpdateAvailable {
+                                            Spacer()
+                                            Link("Update", destination: URL(string: status.updateURL) ?? websiteURL)
+                                                .font(.system(size: 11, weight: .bold))
+                                                .foregroundColor(VeloDesign.Colors.neonPurple)
+                                        }
+                                    }
+                                }
                             }
                             .padding()
                             .glassCard()
@@ -209,6 +256,39 @@ struct SettingsView: View {
             }
         }
         .frame(width: 450, height: 600)
+    private func checkUpdate() {
+        isCheckingUpdate = true
+        
+        Task {
+            do {
+                let info = try await ApiService.shared.checkForUpdates()
+                await MainActor.run {
+                    isCheckingUpdate = false
+                    if info.latestVersion != ApiService.shared.appVersion {
+                        updateStatus = UpdateStatus(
+                            isUpdateAvailable: true,
+                            message: "New version v\(info.latestVersion) available!",
+                            updateURL: info.pageUpdate
+                        )
+                    } else {
+                        updateStatus = UpdateStatus(
+                            isUpdateAvailable: false,
+                            message: "You are on the latest version.",
+                            updateURL: ""
+                        )
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    isCheckingUpdate = false
+                    updateStatus = UpdateStatus(
+                        isUpdateAvailable: false,
+                        message: "Failed to check for updates.",
+                        updateURL: ""
+                    )
+                }
+            }
+        }
     }
 }
 

@@ -43,69 +43,132 @@ struct TerminalWallView: View {
         _predictionVM = StateObject(wrappedValue: PredictionViewModel(predictionEngine: PredictionEngine(historyManager: history)))
     }
     
+    // Update State
+    @State private var requiredUpdate: VeloUpdateInfo? = nil
+    
     var body: some View {
-        HStack(spacing: 0) {
-            // Left: Command History Wall (Shared across tabs)
-            if showHistorySidebar {
-                HistoryWallView(
-                    viewModel: historyVM,
-                    onRunCommand: { command in
-                        tabManager.activeSession?.rerunCommand(command)
-                    },
-                    onEditCommand: { command in
-                        tabManager.activeSession?.editCommand(command)
-                    }
-                )
-                .frame(width: sidebarWidth)
-                .transition(.move(edge: .leading))
-            }
-            
-            // Center: Tabbed Interface
-            VStack(spacing: 0) {
-                // Tab Bar
-                TabBarView(tabManager: tabManager, showSettings: $showSettings)
-                
-                // Active Tab Content
-                if let session = tabManager.activeSession {
-                    TerminalTabContent(
-                        terminalVM: session,
-                        historyVM: historyVM,
-                        predictionVM: predictionVM,
-                        showHistorySidebar: $showHistorySidebar,
-                        showInsightPanel: $showInsightPanel,
-                        showSettings: $showSettings,
-                        insightPanelWidth: $insightPanelWidth
+        ZStack {
+            HStack(spacing: 0) {
+                // Left: Command History Wall (Shared across tabs)
+                if showHistorySidebar {
+                    HistoryWallView(
+                        viewModel: historyVM,
+                        onRunCommand: { command in
+                            tabManager.activeSession?.rerunCommand(command)
+                        },
+                        onEditCommand: { command in
+                            tabManager.activeSession?.editCommand(command)
+                        }
                     )
-                    .id(session.id) // Ensure complete view rebuild on tab switch to avoid state pollution
-                } else {
-                    // Empty state (shouldn't happen with default tab)
-                    Text("No Active Session")
-                        .foregroundColor(VeloDesign.Colors.textMuted)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .frame(width: sidebarWidth)
+                    .transition(.move(edge: .leading))
                 }
+                
+                // Center: Tabbed Interface
+                VStack(spacing: 0) {
+                    // Tab Bar
+                    TabBarView(tabManager: tabManager, showSettings: $showSettings)
+                    
+                    // Active Tab Content
+                    if let session = tabManager.activeSession {
+                        TerminalTabContent(
+                            terminalVM: session,
+                            historyVM: historyVM,
+                            predictionVM: predictionVM,
+                            showHistorySidebar: $showHistorySidebar,
+                            showInsightPanel: $showInsightPanel,
+                            showSettings: $showSettings,
+                            insightPanelWidth: $insightPanelWidth
+                        )
+                        .id(session.id) // Ensure complete view rebuild on tab switch to avoid state pollution
+                    } else {
+                        // Empty state (shouldn't happen with default tab)
+                        Text("No Active Session")
+                            .foregroundColor(VeloDesign.Colors.textMuted)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    }
+                }
+            }
+            .background(VeloDesign.Colors.deepSpace)
+            .overlay(
+                Group {
+                    if showSettings {
+                        ZStack {
+                            Color.black.opacity(0.6)
+                                .ignoresSafeArea()
+                                .onTapGesture { showSettings = false }
+                            
+                            SettingsView(onClose: {
+                                withAnimation(VeloDesign.Animation.smooth) {
+                                    showSettings = false
+                                }
+                            })
+                            .transition(.scale(scale: 0.95).combined(with: .opacity))
+                        }
+                    }
+                }
+            )
+            
+            // Required Update Overlay
+            if let update = requiredUpdate {
+                ZStack {
+                    Color.black.opacity(0.8)
+                        .ignoresSafeArea()
+                    
+                    VStack(spacing: VeloDesign.Spacing.lg) {
+                        Image(systemName: "arrow.up.circle.fill")
+                            .font(.system(size: 60))
+                            .foregroundColor(VeloDesign.Colors.neonCyan)
+                            .shadow(color: VeloDesign.Colors.neonCyan.opacity(0.5), radius: 20)
+                        
+                        VStack(spacing: 8) {
+                            Text("Update Required")
+                                .font(.system(size: 28, weight: .bold))
+                                .foregroundColor(.white)
+                            
+                            Text("A new version (v\(update.latestVersion)) of Velo is required to continue using the services.")
+                                .font(VeloDesign.Typography.subheadline)
+                                .foregroundColor(VeloDesign.Colors.textSecondary)
+                                .multilineTextAlignment(.center)
+                                .padding(.horizontal)
+                        }
+                        
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("Release Notes:")
+                                .font(VeloDesign.Typography.monoSmall)
+                                .foregroundColor(VeloDesign.Colors.neonPurple)
+                            
+                            Text(update.releaseNotes)
+                                .font(VeloDesign.Typography.caption)
+                                .foregroundColor(VeloDesign.Colors.textPrimary)
+                                .padding()
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(VeloDesign.Colors.cardBackground)
+                                .cornerRadius(10)
+                        }
+                        .frame(width: 400)
+                        
+                        Link(destination: URL(string: update.pageUpdate) ?? URL(string: "https://velo.3zozz.com")!) {
+                            Text("Update Velo Now")
+                                .font(.headline)
+                                .foregroundColor(.black)
+                                .padding(.horizontal, 40)
+                                .padding(.vertical, 15)
+                                .background(VeloDesign.Colors.neonCyan)
+                                .cornerRadius(12)
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.top)
+                    }
+                    .padding(40)
+                    .glassCard()
+                }
+                .transition(.opacity.combined(with: .scale))
             }
         }
-        .background(VeloDesign.Colors.deepSpace)
-        .overlay(
-            Group {
-                if showSettings {
-                    ZStack {
-                        Color.black.opacity(0.6)
-                            .ignoresSafeArea()
-                            .onTapGesture { showSettings = false }
-                        
-                        SettingsView(onClose: {
-                            withAnimation(VeloDesign.Animation.smooth) {
-                                showSettings = false
-                            }
-                        })
-                        .transition(.scale(scale: 0.95).combined(with: .opacity))
-                    }
-                }
-            }
-        )
         .animation(VeloDesign.Animation.smooth, value: showHistorySidebar)
         .animation(VeloDesign.Animation.smooth, value: showInsightPanel)
+        .animation(VeloDesign.Animation.smooth, value: requiredUpdate != nil)
         // The sheet modifier is replaced by the overlay in the provided snippet.
         // .sheet(isPresented: $showSettings) {
         //      SettingsView()
@@ -130,6 +193,13 @@ struct TerminalWallView: View {
                     // Give recursion/animation a moment to settle
                     try? await Task.sleep(nanoseconds: 200_000_000)
                     tabManager.activeSession?.askAI(query: query)
+                }
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .requiredUpdateDetected)) { notification in
+            if let update = notification.object as? VeloUpdateInfo {
+                withAnimation(.spring()) {
+                    requiredUpdate = update
                 }
             }
         }
