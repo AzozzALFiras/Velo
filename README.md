@@ -4,8 +4,7 @@
 
 Velo is a next-generation terminal emulator built for macOS, designed to bridge the gap between classic command-line power and modern AI intelligence. It features a futuristic "glassmorphism" UI, intelligent command prediction, multi-tab support, cloud AI integration, and a high-performance rendering engine that eliminates UI blocking.
 
-![Velo Terminal UI](https://via.placeholder.com/800x450?text=Velo+UI+Concept) -> *Replace with actual screenshot*
-
+![Velo Terminal UI](https://raw.githubusercontent.com/AzozzALFiras/Velo/refs/heads/main/Velo/screenshots/1.png)
 ## ✨ Key Features
 
 ### 🧠 AI & Intelligence
