@@ -18,6 +18,11 @@ struct TerminalWallView: View {
     @State private var showInsightPanel = true
     @State private var sidebarWidth: CGFloat = 320
     @State private var insightPanelWidth: CGFloat = 280
+    @State private var showSettings = false
+    
+    // Preferences
+    @AppStorage("autoOpenHistory") private var autoOpenHistory = true
+    @AppStorage("autoOpenAIPanel") private var autoOpenAIPanel = true
     
     init() {
         let terminalVM = TerminalViewModel()
@@ -51,6 +56,7 @@ struct TerminalWallView: View {
                     currentDirectory: terminalVM.currentDirectory,
                     showHistorySidebar: $showHistorySidebar,
                     showInsightPanel: $showInsightPanel,
+                    showSettings: $showSettings,
                     onInterrupt: terminalVM.interrupt,
                     onClear: terminalVM.clearScreen
                 )
@@ -79,7 +85,13 @@ struct TerminalWallView: View {
         .background(VeloDesign.Colors.deepSpace)
         .animation(VeloDesign.Animation.smooth, value: showHistorySidebar)
         .animation(VeloDesign.Animation.smooth, value: showInsightPanel)
+        .sheet(isPresented: $showSettings) {
+             SettingsView()
+        }
+
         .onAppear {
+            showHistorySidebar = autoOpenHistory
+            showInsightPanel = autoOpenAIPanel
             setupKeyboardHandlers()
         }
     }
@@ -146,6 +158,7 @@ struct TerminalToolbar: View {
     let currentDirectory: String
     @Binding var showHistorySidebar: Bool
     @Binding var showInsightPanel: Bool
+    @Binding var showSettings: Bool
     let onInterrupt: () -> Void
     let onClear: () -> Void
     
@@ -201,6 +214,14 @@ struct TerminalToolbar: View {
                 color: VeloDesign.Colors.textSecondary
             ) {
                 onClear()
+            }
+            
+            ToolbarButton(
+                icon: "gearshape.fill",
+                isActive: showSettings,
+                color: VeloDesign.Colors.textSecondary
+            ) {
+                showSettings.toggle()
             }
             
             Divider()
@@ -261,31 +282,7 @@ struct ToolbarButton: View {
     }
 }
 
-// MARK: - Settings View Placeholder
-struct SettingsView: View {
-    var body: some View {
-        VStack(spacing: VeloDesign.Spacing.lg) {
-            Text("Velo Settings")
-                .font(VeloDesign.Typography.headline)
-            
-            Form {
-                Section("Appearance") {
-                    Toggle("Show History Sidebar", isOn: .constant(true))
-                    Toggle("Show AI Panel", isOn: .constant(true))
-                }
-                
-                Section("Terminal") {
-                    Picker("Shell", selection: .constant("zsh")) {
-                        Text("zsh").tag("zsh")
-                        Text("bash").tag("bash")
-                    }
-                }
-            }
-        }
-        .frame(width: 400, height: 300)
-        .padding()
-    }
-}
+
 
 // MARK: - Preview
 #Preview {

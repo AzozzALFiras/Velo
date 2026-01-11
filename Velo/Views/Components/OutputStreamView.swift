@@ -16,6 +16,10 @@ struct OutputStreamView: View {
     @State private var isSearching = false
     @State private var hoveredLineId: UUID?
     
+    // Preferences
+    @AppStorage("isInteractiveOutputEnabled") private var isInteractiveOutputEnabled = true
+    @AppStorage("isDeepFileParsingEnabled") private var isDeepFileParsingEnabled = true
+    
     var filteredLines: [OutputLine] {
         if searchQuery.isEmpty {
             return viewModel.outputLines
@@ -58,6 +62,8 @@ struct OutputStreamView: View {
                                 line: line,
                                 searchQuery: searchQuery,
                                 currentDirectory: viewModel.currentDirectory,
+                                isInteractive: isInteractiveOutputEnabled,
+                                isDeepParsing: isDeepFileParsingEnabled,
                                 onFileAction: { viewModel.executeFileAction($0) }
                             )
                             .id(line.id)
@@ -115,6 +121,8 @@ struct InteractiveOutputLineView: View {
     let line: OutputLine
     let searchQuery: String
     let currentDirectory: String
+    let isInteractive: Bool
+    let isDeepParsing: Bool
     let onFileAction: (String) -> Void
     
     @State private var isHovered = false
@@ -134,6 +142,8 @@ struct InteractiveOutputLineView: View {
                 attributedText: line.attributedText,
                 isError: line.isError,
                 currentDirectory: currentDirectory,
+                isInteractive: isInteractive,
+                isDeepParsing: isDeepParsing,
                 onFileAction: onFileAction
             )
             
@@ -161,19 +171,28 @@ struct InteractiveLineContent: View {
     let attributedText: AttributedString
     let isError: Bool
     let currentDirectory: String
+    let isInteractive: Bool
+    let isDeepParsing: Bool
     let onFileAction: (String) -> Void
     
     var body: some View {
         // Simple logic for now: check if it looks like a key-value pair or file
         if text.contains(":") && !text.contains("http") && !text.contains("://") && text.count < 100 {
             KeyValueLineView(text: text)
-        } else if (text.hasPrefix("/") || text.hasPrefix("~") || text.hasPrefix(".")) && !text.contains(" ") {
+        } else if isDeepParsing && (text.hasPrefix("/") || text.hasPrefix("~") || text.hasPrefix(".")) && !text.contains(" ") {
             // Likely a file path
-            FilePathLineView(
-                path: text, 
-                currentDirectory: currentDirectory, 
-                onFileAction: onFileAction
-            )
+            if isInteractive {
+                FilePathLineView(
+                    path: text, 
+                    currentDirectory: currentDirectory, 
+                    onFileAction: onFileAction
+                )
+            } else {
+                // Non-interactive path
+                Text(text)
+                    .font(VeloDesign.Typography.monoSmall)
+                    .foregroundColor(VeloDesign.Colors.textPrimary)
+            }
         } else {
             // Standard text (or ANSI parsed)
             Text(attributedText)
