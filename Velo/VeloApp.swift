@@ -10,12 +10,18 @@ import SwiftUI
 @main
 struct VeloApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+    @StateObject private var themeManager = ThemeManager()
     
     var body: some Scene {
         WindowGroup {
             TerminalWallView()
                 .frame(minWidth: 900, minHeight: 600)
                 .preferredColorScheme(.dark)
+                .environmentObject(themeManager)
+                .onAppear {
+                    // Wire up theme manager to design system
+                    VeloDesign.ThemeAware.themeManager = themeManager
+                }
         }
         .windowStyle(.hiddenTitleBar)
         .windowToolbarStyle(.unified(showsTitle: false))

@@ -72,6 +72,9 @@ struct SettingsView: View {
                 ScrollView {
                     VStack(spacing: VeloDesign.Spacing.xl) {
                         
+                        // MARK: - Theme
+                        ThemeSettingsView()
+                        
                         // MARK: - General
                         VStack(alignment: .leading, spacing: VeloDesign.Spacing.md) {
                             SectionHeader(title: "General")
@@ -92,6 +95,7 @@ struct SettingsView: View {
                             .padding()
                             .glassCard()
                         }
+
                         
 
                         

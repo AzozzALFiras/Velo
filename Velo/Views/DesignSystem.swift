@@ -10,45 +10,64 @@ import SwiftUI
 // MARK: - Design Tokens
 enum VeloDesign {
     
-    // MARK: - Colors
-    enum Colors {
-        // Primary
-        static let neonCyan = Color(hex: "00F5FF")
-        static let neonPurple = Color(hex: "BF40BF")
-        static let neonGreen = Color(hex: "00FF88")
+    // MARK: - Theme-Aware Dynamic Colors (Preferred)
+    class ThemeAware {
+        nonisolated(unsafe) static var themeManager: ThemeManager?
         
-        // Backgrounds
-        static let deepSpace = Color(hex: "0A0A14")
-        static let darkSurface = Color(hex: "12121C")
-        static let cardBackground = Color(hex: "1A1A28")
-        static let elevatedSurface = Color(hex: "22222F")
+        static var Colors: ColorsProtocol {
+            if let manager = themeManager {
+                return ThemeColors(theme: manager.currentThemeSnapshot)
+            }
+            return StaticColors()
+        }
         
-        // Text
-        static let textPrimary = Color.white
-        static let textSecondary = Color(hex: "A0A0B0")
-        static let textMuted = Color(hex: "606070")
-        
-        // Semantic
-        static let success = Color(hex: "00FF88")
-        static let warning = Color(hex: "FFD60A")
-        static let error = Color(hex: "FF6B6B")
-        static let info = Color(hex: "6B9BFF")
-        
-        // Glass
-        static let glassWhite = Color.white.opacity(0.05)
-        static let glassBorder = Color.white.opacity(0.1)
-        static let glassHighlight = Color.white.opacity(0.15)
+        static var Typography: TypographyProtocol {
+            if let manager = themeManager {
+                return ThemeFonts(theme: manager.currentThemeSnapshot)
+            }
+            return StaticTypography()
+        }
     }
     
-    // MARK: - Typography
-    enum Typography {
-        static let monoFont = Font.system(.body, design: .monospaced)
-        static let monoSmall = Font.system(.caption, design: .monospaced)
-        static let monoLarge = Font.system(.title3, design: .monospaced)
+    // MARK: - Colors (Now delegates to ThemeAware)
+    enum Colors {
+        // Primary
+        static var neonCyan: Color { ThemeAware.Colors.neonCyan }
+        static var neonPurple: Color { ThemeAware.Colors.neonPurple }
+        static var neonGreen: Color { ThemeAware.Colors.neonGreen }
         
-        static let headline = Font.system(.headline, design: .rounded).weight(.semibold)
-        static let subheadline = Font.system(.subheadline, design: .rounded)
-        static let caption = Font.system(.caption, design: .rounded)
+        // Backgrounds
+        static var deepSpace: Color { ThemeAware.Colors.deepSpace }
+        static var darkSurface: Color { ThemeAware.Colors.darkSurface }
+        static var cardBackground: Color { ThemeAware.Colors.cardBackground }
+        static var elevatedSurface: Color { ThemeAware.Colors.elevatedSurface }
+        
+        // Text
+        static var textPrimary: Color { ThemeAware.Colors.textPrimary }
+        static var textSecondary: Color { ThemeAware.Colors.textSecondary }
+        static var textMuted: Color { ThemeAware.Colors.textMuted }
+        
+        // Semantic
+        static var success: Color { ThemeAware.Colors.success }
+        static var warning: Color { ThemeAware.Colors.warning }
+        static var error: Color { ThemeAware.Colors.error }
+        static var info: Color { ThemeAware.Colors.info }
+        
+        // Glass
+        static var glassWhite: Color { ThemeAware.Colors.glassWhite }
+        static var glassBorder: Color { ThemeAware.Colors.glassBorder }
+        static var glassHighlight: Color { ThemeAware.Colors.glassHighlight }
+    }
+    
+    // MARK: - Typography (Now delegates to ThemeAware)
+    enum Typography {
+        static var monoFont: Font { ThemeAware.Typography.monoFont }
+        static var monoSmall: Font { ThemeAware.Typography.monoSmall }
+        static var monoLarge: Font { ThemeAware.Typography.monoLarge }
+        
+        static var headline: Font { ThemeAware.Typography.headline }
+        static var subheadline: Font { ThemeAware.Typography.subheadline }
+        static var caption: Font { ThemeAware.Typography.caption }
     }
     
     // MARK: - Spacing
@@ -337,3 +356,98 @@ extension Color {
         )
     }
 }
+
+// MARK: - Theme Protocols
+protocol ColorsProtocol {
+    var neonCyan: Color { get }
+    var neonPurple: Color { get }
+    var neonGreen: Color { get }
+    var deepSpace: Color { get }
+    var darkSurface: Color { get }
+    var cardBackground: Color { get }
+    var elevatedSurface: Color { get }
+    var textPrimary: Color { get }
+    var textSecondary: Color { get }
+    var textMuted: Color { get }
+    var success: Color { get }
+    var warning: Color { get }
+    var error: Color { get }
+    var info: Color { get }
+    var glassWhite: Color { get }
+    var glassBorder: Color { get }
+    var glassHighlight: Color { get }
+}
+
+protocol TypographyProtocol {
+    var monoFont: Font { get }
+    var monoSmall: Font { get }
+    var monoLarge: Font { get }
+    var headline: Font { get }
+    var subheadline: Font { get }
+    var caption: Font { get }
+}
+
+// MARK: - Theme-Based Implementations
+struct ThemeColors: ColorsProtocol {
+    let theme: VeloTheme
+    
+    var neonCyan: Color { theme.colorScheme.color(for: \.neonCyan) }
+    var neonPurple: Color { theme.colorScheme.color(for: \.neonPurple) }
+    var neonGreen: Color { theme.colorScheme.color(for: \.neonGreen) }
+    var deepSpace: Color { theme.colorScheme.color(for: \.deepSpace) }
+    var darkSurface: Color { theme.colorScheme.color(for: \.darkSurface) }
+    var cardBackground: Color { theme.colorScheme.color(for: \.cardBackground) }
+    var elevatedSurface: Color { theme.colorScheme.color(for: \.elevatedSurface) }
+    var textPrimary: Color { theme.colorScheme.color(for: \.textPrimary) }
+    var textSecondary: Color { theme.colorScheme.color(for: \.textSecondary) }
+    var textMuted: Color { theme.colorScheme.color(for: \.textMuted) }
+    var success: Color { theme.colorScheme.color(for: \.success) }
+    var warning: Color { theme.colorScheme.color(for: \.warning) }
+    var error: Color { theme.colorScheme.color(for: \.error) }
+    var info: Color { theme.colorScheme.color(for: \.info) }
+    var glassWhite: Color { theme.colorScheme.glassWhite() }
+    var glassBorder: Color { theme.colorScheme.glassBorder() }
+    var glassHighlight: Color { theme.colorScheme.glassHighlight() }
+}
+
+struct ThemeFonts: TypographyProtocol {
+    let theme: VeloTheme
+    
+    var monoFont: Font { theme.fontScheme.monoFont() }
+    var monoSmall: Font { theme.fontScheme.monoSmall() }
+    var monoLarge: Font { theme.fontScheme.monoLarge() }
+    var headline: Font { theme.fontScheme.headline() }
+    var subheadline: Font { theme.fontScheme.subheadline() }
+    var caption: Font { theme.fontScheme.caption() }
+}
+
+// MARK: - Static Fallback Implementations
+struct StaticColors: ColorsProtocol {
+    var neonCyan: Color { Color(hex: "00F5FF") }
+    var neonPurple: Color { Color(hex: "BF40BF") }
+    var neonGreen: Color { Color(hex: "00FF88") }
+    var deepSpace: Color { Color(hex: "0A0A14") }
+    var darkSurface: Color { Color(hex: "12121C") }
+    var cardBackground: Color { Color(hex: "1A1A28") }
+    var elevatedSurface: Color { Color(hex: "22222F") }
+    var textPrimary: Color { Color.white }
+    var textSecondary: Color { Color(hex: "A0A0B0") }
+    var textMuted: Color { Color(hex: "606070") }
+    var success: Color { Color(hex: "00FF88") }
+    var warning: Color { Color(hex: "FFD60A") }
+    var error: Color { Color(hex: "FF6B6B") }
+    var info: Color { Color(hex: "6B9BFF") }
+    var glassWhite: Color { Color.white.opacity(0.05) }
+    var glassBorder: Color { Color.white.opacity(0.1) }
+    var glassHighlight: Color { Color.white.opacity(0.15) }
+}
+
+struct StaticTypography: TypographyProtocol {
+    var monoFont: Font { Font.system(.body, design: .monospaced) }
+    var monoSmall: Font { Font.system(.caption, design: .monospaced) }
+    var monoLarge: Font { Font.system(.title3, design: .monospaced) }
+    var headline: Font { Font.system(.headline, design: .rounded).weight(.semibold) }
+    var subheadline: Font { Font.system(.subheadline, design: .rounded) }
+    var caption: Font { Font.system(.caption, design: .rounded) }
+}
+
