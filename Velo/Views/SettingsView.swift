@@ -9,6 +9,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @Environment(\.dismiss) var dismiss
+    var onClose: (() -> Void)? = nil
     
     // Preferences
     @AppStorage("autoOpenHistory") private var autoOpenHistory = true
@@ -42,7 +43,13 @@ struct SettingsView: View {
                     
                     Spacer()
                     
-                    Button(action: { dismiss() }) {
+                    Button(action: { 
+                        if let onClose = onClose {
+                            onClose()
+                        } else {
+                            dismiss()
+                        }
+                    }) {
                         Image(systemName: "xmark.circle.fill")
                             .font(.system(size: 24))
                             .foregroundColor(VeloDesign.Colors.textSecondary)

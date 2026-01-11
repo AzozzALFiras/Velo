@@ -94,8 +94,12 @@ struct TerminalWallView: View {
                             .ignoresSafeArea()
                             .onTapGesture { showSettings = false }
                         
-                        SettingsView()
-                            .transition(.scale(scale: 0.95).combined(with: .opacity))
+                        SettingsView(onClose: {
+                            withAnimation(VeloDesign.Animation.smooth) {
+                                showSettings = false
+                            }
+                        })
+                        .transition(.scale(scale: 0.95).combined(with: .opacity))
                     }
                 }
             }
