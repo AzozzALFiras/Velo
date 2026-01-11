@@ -35,16 +35,39 @@ class CloudAIService: ObservableObject {
     @MainActor @Published var messages: [AIChatMessage] = []
     @MainActor @Published var isThinking = false
     @MainActor @Published var errorMessage: String?
+    @MainActor @Published var availableModels: [AIModelConfig] = []
     
     // Dependencies (Settings)
-    @AppStorage("selectedAIProvider") private var selectedProviderName = "OpenAI"
+    @AppStorage("selectedAIProvider") private var selectedProviderId = "openai"
     @AppStorage("openaiApiKey") private var openaiKey = ""
     @AppStorage("anthropicApiKey") private var anthropicKey = ""
     @AppStorage("deepseekApiKey") private var deepseekKey = ""
     
     private let urlSession = URLSession.shared
     
+    init() {
+        Task {
+            await loadModels()
+        }
+    }
+    
     // MARK: - Actions
+    
+    @MainActor
+    func loadModels() async {
+        do {
+            let models = try await ApiService.shared.fetchAIModels()
+            self.availableModels = models
+        } catch {
+            print("Failed to load AI models: \(error)")
+            // Fallback to minimal defaults if API fails
+            self.availableModels = [
+                AIModelConfig(id: "openai", name: "OpenAI", endpoint: "https://api.openai.com/v1/chat/completions", model: "gpt-4-turbo-preview", description: ""),
+                AIModelConfig(id: "anthropic", name: "Anthropic", endpoint: "https://api.anthropic.com/v1/messages", model: "claude-3-opus-20240229", description: ""),
+                AIModelConfig(id: "deepseek", name: "DeepSeek", endpoint: "https://api.deepseek.com/chat/completions", model: "deepseek-chat", description: "")
+            ]
+        }
+    }
     
     @MainActor
     func sendMessage(_ text: String) async {
@@ -74,17 +97,25 @@ class CloudAIService: ObservableObject {
     // MARK: - API Logic
     
     private func fetchResponse(history: [AIChatMessage]) async throws -> String {
-        guard let provider = Provider(rawValue: selectedProviderName) else {
+        guard let config = await MainActor.run(body: { availableModels.first { $0.id == selectedProviderId } }) else {
+            throw AIError.unknownProvider
+        }
+        
+        guard let provider = ProviderFlavor(rawValue: config.id) else {
             throw AIError.unknownProvider
         }
         
         let apiKey = getApiKey(for: provider)
         if apiKey.isEmpty {
-            throw AIError.missingApiKey(provider.rawValue)
+            throw AIError.missingApiKey(config.name)
         }
         
         // Prepare Request
-        var request = URLRequest(url: provider.endpoint)
+        guard let url = URL(string: config.endpoint) else {
+            throw AIError.networkError
+        }
+        
+        var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         
@@ -105,7 +136,7 @@ class CloudAIService: ObservableObject {
             })
             
             body = [
-                "model": provider.model,
+                "model": config.model,
                 "messages": apiMessages,
                 "temperature": 0.7
             ]
@@ -121,7 +152,7 @@ class CloudAIService: ObservableObject {
             }
             
             body = [
-                "model": provider.model,
+                "model": config.model,
                 "system": systemPrompt,
                 "messages": apiMessages,
                 "max_tokens": 1024
@@ -144,7 +175,6 @@ class CloudAIService: ObservableObject {
         
         // Parse Response
         if provider == .anthropic {
-            // Anthropic response format
             struct AnthropicResponse: Decodable {
                 struct Content: Decodable { var text: String }
                 var content: [Content]
@@ -152,7 +182,6 @@ class CloudAIService: ObservableObject {
             let result = try JSONDecoder().decode(AnthropicResponse.self, from: data)
             return result.content.first?.text ?? ""
         } else {
-            // OpenAI/DeepSeek response format
             struct OpenAIResponse: Decodable {
                 struct Choice: Decodable {
                     struct Message: Decodable { var content: String }
@@ -165,7 +194,7 @@ class CloudAIService: ObservableObject {
         }
     }
     
-    private func getApiKey(for provider: Provider) -> String {
+    private func getApiKey(for provider: ProviderFlavor) -> String {
         switch provider {
         case .openai: return openaiKey
         case .anthropic: return anthropicKey
@@ -192,26 +221,10 @@ class CloudAIService: ObservableObject {
 
     // MARK: - Enums
     
-    private enum Provider: String {
-        case openai = "OpenAI"
-        case anthropic = "Anthropic"
-        case deepseek = "DeepSeek"
-        
-        var endpoint: URL {
-            switch self {
-            case .openai: return URL(string: "https://api.openai.com/v1/chat/completions")!
-            case .anthropic: return URL(string: "https://api.anthropic.com/v1/messages")!
-            case .deepseek: return URL(string: "https://api.deepseek.com/chat/completions")!
-            }
-        }
-        
-        var model: String {
-            switch self {
-            case .openai: return "gpt-4-turbo-preview"
-            case .anthropic: return "claude-3-opus-20240229"
-            case .deepseek: return "deepseek-chat"
-            }
-        }
+    private enum ProviderFlavor: String {
+        case openai
+        case anthropic
+        case deepseek
     }
     
     enum AIError: LocalizedError {

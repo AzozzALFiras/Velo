@@ -20,7 +20,7 @@ struct SettingsView: View {
     @AppStorage("isDeepFileParsingEnabled") private var isDeepFileParsingEnabled = true
     
     // Cloud AI
-    @AppStorage("selectedAIProvider") private var selectedAIProvider = "OpenAI"
+    @AppStorage("selectedAIProvider") private var selectedAIProvider = "openai"
     @AppStorage("openaiApiKey") private var openaiApiKey = ""
     @AppStorage("anthropicApiKey") private var anthropicApiKey = ""
     @AppStorage("deepseekApiKey") private var deepseekApiKey = ""
@@ -118,9 +118,9 @@ struct SettingsView: View {
                                         .foregroundColor(VeloDesign.Colors.textPrimary)
                                     Spacer()
                                     Picker("", selection: $selectedAIProvider) {
-                                        Text("OpenAI").tag("OpenAI")
-                                        Text("Anthropic").tag("Anthropic")
-                                        Text("DeepSeek").tag("DeepSeek")
+                                        Text("OpenAI").tag("openai")
+                                        Text("Anthropic").tag("anthropic")
+                                        Text("DeepSeek").tag("deepseek")
                                     }
                                     .labelsHidden()
                                     .pickerStyle(.menu)
@@ -131,11 +131,11 @@ struct SettingsView: View {
                                 
                                 // API Keys
                                 Group {
-                                    if selectedAIProvider == "OpenAI" {
+                                    if selectedAIProvider == "openai" {
                                         SecureFieldRow(title: "OpenAI API Key", text: $openaiApiKey, placeholder: "sk-...")
-                                    } else if selectedAIProvider == "Anthropic" {
+                                    } else if selectedAIProvider == "anthropic" {
                                         SecureFieldRow(title: "Anthropic API Key", text: $anthropicApiKey, placeholder: "sk-ant-...")
-                                    } else if selectedAIProvider == "DeepSeek" {
+                                    } else if selectedAIProvider == "deepseek" {
                                         SecureFieldRow(title: "DeepSeek API Key", text: $deepseekApiKey, placeholder: "sk-...")
                                     }
                                 }
