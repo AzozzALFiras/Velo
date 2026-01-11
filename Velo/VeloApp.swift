@@ -23,7 +23,7 @@ struct VeloApp: App {
             // Terminal commands
             CommandGroup(replacing: .newItem) {
                 Button("New Tab") {
-                    // TODO: Multi-tab support
+                    NotificationCenter.default.post(name: .newTab, object: nil)
                 }
                 .keyboardShortcut("t", modifiers: .command)
             }
@@ -83,9 +83,4 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 }
 
 // MARK: - Notification Names
-extension Notification.Name {
-    static let clearScreen = Notification.Name("clearScreen")
-    static let interrupt = Notification.Name("interrupt")
-    static let toggleHistorySidebar = Notification.Name("toggleHistorySidebar")
-    static let toggleAIPanel = Notification.Name("toggleAIPanel")
-}
+

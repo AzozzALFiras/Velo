@@ -237,7 +237,15 @@ struct InteractiveFileView: View {
     @State private var showingMenu = false
     
     var fileInfo: FileInfo {
-        let path = (currentDirectory as NSString).appendingPathComponent(filename)
+        let path: String
+        if filename.hasPrefix("/") {
+            path = filename
+        } else if filename.hasPrefix("~") {
+            path = (filename as NSString).expandingTildeInPath
+        } else {
+            path = (currentDirectory as NSString).appendingPathComponent(filename)
+        }
+        
         // Optimization: Do NOT check file existence here. It blocks the main thread during scrolling.
         // We infer type from filename only.
         let isDir = filename.hasSuffix("/")
@@ -272,9 +280,12 @@ struct InteractiveFileView: View {
                 isHovered = hovering
             }
         }
-        .onTapGesture {
-            showingMenu = true
-        }
+        .simultaneousGesture(
+            TapGesture()
+                .onEnded { _ in
+                    showingMenu = true
+                }
+        )
         .popover(isPresented: $showingMenu, arrowEdge: .bottom) {
             FileActionMenu(
                 fileInfo: fileInfo,

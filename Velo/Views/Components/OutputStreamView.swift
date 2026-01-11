@@ -69,9 +69,10 @@ struct OutputStreamView: View {
                             .id(line.id)
                         }
                         
-                        // Bottom anchor
+                        // Bottom anchor & Input Area padding
+                        // Extra space so the last line isn't covered by the floating input bar
                         Color.clear
-                            .frame(height: 1)
+                            .frame(height: 120)
                             .id("bottom")
                     }
                     .padding(.horizontal, VeloDesign.Spacing.md)

@@ -67,11 +67,30 @@ struct InteractiveLineContent: View {
     let isDeepParsing: Bool
     let onFileAction: (String) -> Void
     
+    var isLikelyFilePath: Bool {
+        // 1. Explicit paths
+        if text.hasPrefix("/") || text.hasPrefix("~") || text.hasPrefix("./") || text.hasPrefix("../") { return true }
+        
+        // 2. Files with extensions (containing .)
+        // Exclude colons (headers), urls, and very long lines
+        if text.contains(".") && !text.contains(":") && !text.contains("http") && text.count < 150 {
+            return true
+        }
+        
+        // 3. Single words (could be directories or files without extension)
+        // Check for spaces.
+        if !text.contains(" ") && !text.contains(":") && text.count < 60 {
+            return true
+        }
+        
+        return false
+    }
+
     var body: some View {
         // Simple logic for now: check if it looks like a key-value pair or file
         if text.contains(":") && !text.contains("http") && !text.contains("://") && text.count < 100 {
             KeyValueLineView(text: text)
-        } else if isDeepParsing && (text.hasPrefix("/") || text.hasPrefix("~") || text.hasPrefix(".")) && !text.contains(" ") {
+        } else if isDeepParsing && isLikelyFilePath {
             // Likely a file path
             if isInteractive {
                 FilePathLineView(
@@ -126,33 +145,11 @@ struct FilePathLineView: View {
     let currentDirectory: String
     let onFileAction: (String) -> Void
     
-    @State private var isHovered = false
-    
     var body: some View {
-        Button(action: {
-            // Show action menu or default action
-            // For now, simpler interaction: just copy or select
-        }) {
-            HStack(spacing: 4) {
-                Image(systemName: "doc.text")
-                    .font(.caption2)
-                    .foregroundColor(VeloDesign.Colors.neonPurple)
-                Text(path)
-                    .font(VeloDesign.Typography.monoSmall)
-                    .underline(isHovered)
-            }
-            .foregroundColor(VeloDesign.Colors.neonPurple)
-        }
-        .buttonStyle(.plain)
-        .onHover { isHovered = $0 }
-        // Use the InteractiveFileView logic if we can, but I'll simplify here since I lost the complex logic
-        .overlay(
-            InteractiveFileView(
-                filename: path,
-                currentDirectory: currentDirectory,
-                onAction: onFileAction
-            )
-            .opacity(0.01) // Invisible trigger area overlay if needed, or just use button
+        InteractiveFileView(
+            filename: path,
+            currentDirectory: currentDirectory,
+            onAction: onFileAction
         )
     }
 }

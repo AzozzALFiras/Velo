@@ -8,12 +8,17 @@
 import SwiftUI
 
 // MARK: - Terminal Wall View
-/// The main terminal interface with a futuristic 3-column wall layout
+/// The main terminal interface with a futuristic 3-column wall layout (Tabbed)
 struct TerminalWallView: View {
-    @StateObject private var terminalVM = TerminalViewModel()
+    // Shared State Management
+    @StateObject private var historyManager = CommandHistoryManager()
+    @StateObject private var tabManager: TabManager
+    
+    // ViewModels for non-session specific panels
     @StateObject private var historyVM: HistoryViewModel
     @StateObject private var predictionVM: PredictionViewModel
     
+    // UI State
     @State private var showHistorySidebar = true
     @State private var showInsightPanel = true
     @State private var sidebarWidth: CGFloat = 320
@@ -25,69 +30,82 @@ struct TerminalWallView: View {
     @AppStorage("autoOpenAIPanel") private var autoOpenAIPanel = true
     
     init() {
-        let terminalVM = TerminalViewModel()
-        _terminalVM = StateObject(wrappedValue: terminalVM)
-        _historyVM = StateObject(wrappedValue: HistoryViewModel(historyManager: terminalVM.historyManager))
-        _predictionVM = StateObject(wrappedValue: PredictionViewModel(predictionEngine: terminalVM.predictionEngine))
+        let history = CommandHistoryManager()
+        let tabs = TabManager(historyManager: history)
+        
+        _historyManager = StateObject(wrappedValue: history)
+        _tabManager = StateObject(wrappedValue: tabs)
+        
+        _historyVM = StateObject(wrappedValue: HistoryViewModel(historyManager: history))
+        // Note: Prediction might belong to individual tabs contextually, 
+        // but for now we can share the engine or re-instantiate.
+        // Let's assume shared prediction logic based on history.
+        _predictionVM = StateObject(wrappedValue: PredictionViewModel(predictionEngine: PredictionEngine(historyManager: history)))
     }
     
     var body: some View {
         HStack(spacing: 0) {
-            // Left: Command History Wall
+            // Left: Command History Wall (Shared across tabs)
             if showHistorySidebar {
                 HistoryWallView(
                     viewModel: historyVM,
                     onRunCommand: { command in
-                        terminalVM.rerunCommand(command)
+                        tabManager.activeSession?.rerunCommand(command)
                     },
                     onEditCommand: { command in
-                        terminalVM.editCommand(command)
+                        tabManager.activeSession?.editCommand(command)
                     }
                 )
                 .frame(width: sidebarWidth)
                 .transition(.move(edge: .leading))
             }
             
-            // Center: Main Terminal
+            // Center: Tabbed Interface
             VStack(spacing: 0) {
-                // Terminal toolbar
-                TerminalToolbar(
-                    isExecuting: terminalVM.isExecuting,
-                    currentDirectory: terminalVM.currentDirectory,
-                    showHistorySidebar: $showHistorySidebar,
-                    showInsightPanel: $showInsightPanel,
-                    showSettings: $showSettings,
-                    onInterrupt: terminalVM.interrupt,
-                    onClear: terminalVM.clearScreen
-                )
+                // Tab Bar
+                TabBarView(tabManager: tabManager)
                 
-                // Output area
-                OutputStreamView(viewModel: terminalVM)
-                
-                // Input area
-                InputAreaView(
-                    viewModel: terminalVM,
-                    predictionVM: predictionVM
-                )
-            }
-            .frame(maxWidth: .infinity)
-            
-            // Right: AI Insight Panel
-            if showInsightPanel {
-                AIInsightPanel(
-                    viewModel: terminalVM,
-                    historyViewModel: historyVM
-                )
-                .frame(width: insightPanelWidth)
-                .transition(.move(edge: .trailing))
+                // Active Tab Content
+                if let session = tabManager.activeSession {
+                    TerminalTabContent(
+                        terminalVM: session,
+                        historyVM: historyVM,
+                        predictionVM: predictionVM,
+                        showHistorySidebar: $showHistorySidebar,
+                        showInsightPanel: $showInsightPanel,
+                        showSettings: $showSettings,
+                        insightPanelWidth: $insightPanelWidth
+                    )
+                    .id(session.id) // Ensure complete view rebuild on tab switch to avoid state pollution
+                } else {
+                    // Empty state (shouldn't happen with default tab)
+                    Text("No Active Session")
+                        .foregroundColor(VeloDesign.Colors.textMuted)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
             }
         }
         .background(VeloDesign.Colors.deepSpace)
+        .overlay(
+            Group {
+                if showSettings {
+                    ZStack {
+                        Color.black.opacity(0.6)
+                            .ignoresSafeArea()
+                            .onTapGesture { showSettings = false }
+                        
+                        SettingsView()
+                            .transition(.scale(scale: 0.95).combined(with: .opacity))
+                    }
+                }
+            }
+        )
         .animation(VeloDesign.Animation.smooth, value: showHistorySidebar)
         .animation(VeloDesign.Animation.smooth, value: showInsightPanel)
-        .sheet(isPresented: $showSettings) {
-             SettingsView()
-        }
+        // The sheet modifier is replaced by the overlay in the provided snippet.
+        // .sheet(isPresented: $showSettings) {
+        //      SettingsView()
+        // }
 
         .onAppear {
             showHistorySidebar = autoOpenHistory
@@ -102,7 +120,7 @@ struct TerminalWallView: View {
             if event.modifierFlags.contains(.command) {
                 switch event.keyCode {
                 case 0x23: // ⌘K - Clear
-                    terminalVM.clearScreen()
+                    tabManager.activeSession?.clearScreen()
                     return nil
                 case 0x0C: // ⌘Q handled by system
                     break
@@ -114,26 +132,26 @@ struct TerminalWallView: View {
             // Handle Tab for autocomplete
             if event.keyCode == 0x30 && !event.modifierFlags.contains(.shift) {
                 if predictionVM.inlinePrediction != nil {
-                    terminalVM.acceptPrediction()
+                    tabManager.activeSession?.acceptPrediction()
                     return nil
                 }
             }
             
             // Handle Up/Down for history
-            if !terminalVM.isExecuting {
+            if let session = tabManager.activeSession, !session.isExecuting {
                 switch event.keyCode {
                 case 0x7E: // Up arrow
                     if predictionVM.showingSuggestions {
                         predictionVM.moveSelectionUp()
                     } else {
-                        terminalVM.navigateHistoryUp()
+                        session.navigateHistoryUp()
                     }
                     return nil
                 case 0x7D: // Down arrow
                     if predictionVM.showingSuggestions {
                         predictionVM.moveSelectionDown()
                     } else {
-                        terminalVM.navigateHistoryDown()
+                        session.navigateHistoryDown()
                     }
                     return nil
                 default:
@@ -143,7 +161,7 @@ struct TerminalWallView: View {
             
             // Ctrl+C to interrupt
             if event.modifierFlags.contains(.control) && event.keyCode == 0x08 {
-                terminalVM.interrupt()
+                tabManager.activeSession?.interrupt()
                 return nil
             }
             

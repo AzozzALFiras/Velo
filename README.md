@@ -68,5 +68,13 @@ Velo follows a clean **MVVM (Model-View-ViewModel)** architecture:
 
 Contributions are welcome! Please feel free to submit a Pull Request.
 
+## 🔮 Next Steps (Future Enhancements)
+
+- **Multi-tab support**: Manage multiple terminal sessions in parallel.
+- **Cloud AI integration**: Optional connection to OpenAI/Anthropic for smarter explanations.
+- **Theme customization**: User-defined color schemes and fonts.
+- **Plugin system**: Extensions for custom commands and UI widgets.
+- **SSH session management**: Saved remote connections with key management.
+
 ---
 *Built with ❤️ by the Azozz ALFiras*

@@ -11,7 +11,11 @@ import Combine
 // MARK: - Terminal ViewModel
 /// Main view model for terminal state management
 @MainActor
-final class TerminalViewModel: ObservableObject {
+final class TerminalViewModel: ObservableObject, Identifiable {
+    
+    // MARK: - Identity
+    let id = UUID()
+    @Published var title: String = "Terminal"
     
     // MARK: - Published State
     @Published var inputText: String = ""
