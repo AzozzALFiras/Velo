@@ -92,9 +92,24 @@ class ApiService {
             print("⚠️ [API] Update required (426)")
             let decoder = JSONDecoder()
             decoder.keyDecodingStrategy = .convertFromSnakeCase
-            if let updateInfo = try? decoder.decode(VeloUpdateResponse.self, from: data) {
-                NotificationCenter.default.post(name: .requiredUpdateDetected, object: updateInfo.update)
-                throw ApiError.updateRequired(updateInfo.update)
+            
+            // Try to decode the 426 error response
+            if let errorResponse = try? decoder.decode(UpdateRequiredResponse.self, from: data) {
+                print("⚠️ [API] Decoded 426 response: v\(errorResponse.latestVersion)")
+                
+                // Convert to VeloUpdateInfo for the overlay
+                let updateInfo = VeloUpdateInfo(
+                    latestVersion: errorResponse.latestVersion,
+                    pageUpdate: "https://velo.3zozz.com/",
+                    releaseNotes: errorResponse.message,
+                    isRequired: errorResponse.updateRequired,
+                    releaseDate: errorResponse.requestedAt
+                )
+                
+                NotificationCenter.default.post(name: .requiredUpdateDetected, object: updateInfo)
+                throw ApiError.updateRequired(updateInfo)
+            } else {
+                print("❌ [API] Failed to decode 426 response")
             }
         }
         
@@ -121,6 +136,15 @@ struct VeloUpdateResponse: Codable {
     let update: VeloUpdateInfo
     let success: Bool
     let message: String
+    let requestedAt: String
+}
+
+// Response for 426 Upgrade Required errors
+struct UpdateRequiredResponse: Codable {
+    let success: Bool
+    let message: String
+    let updateRequired: Bool
+    let latestVersion: String
     let requestedAt: String
 }
 
