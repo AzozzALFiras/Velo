@@ -103,7 +103,7 @@ struct InsightTabButton: View {
 enum InsightTab: String, CaseIterable, Identifiable {
     case suggestions = "Suggest"
     case context = "Context"
-    case learn = "Learn"
+    case chat = "Chat"
     
     var id: String { rawValue }
     
@@ -111,7 +111,7 @@ enum InsightTab: String, CaseIterable, Identifiable {
         switch self {
         case .suggestions: return "lightbulb"
         case .context: return "scope"
-        case .learn: return "book"
+        case .chat: return "bubble.left.and.bubble.right.fill"
         }
     }
 }

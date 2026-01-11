@@ -13,6 +13,7 @@ struct AIInsightPanel: View {
     @ObservedObject var viewModel: TerminalViewModel
     @ObservedObject var historyViewModel: HistoryViewModel
     
+    @StateObject private var aiService = CloudAIService()
     @State private var selectedInsightTab: InsightTab = .suggestions
     
     var body: some View {
@@ -24,18 +25,23 @@ struct AIInsightPanel: View {
             InsightTabSelector(selectedTab: $selectedInsightTab)
             
             // Content
-            ScrollView {
-                VStack(spacing: VeloDesign.Spacing.md) {
-                    switch selectedInsightTab {
-                    case .suggestions:
-                        SuggestionsContent(viewModel: viewModel)
-                    case .context:
-                        ContextContent(viewModel: viewModel, historyViewModel: historyViewModel)
-                    case .learn:
-                        LearnContent()
+            if selectedInsightTab == .chat {
+                ChatContent(service: aiService, terminalVM: viewModel)
+                    .padding(VeloDesign.Spacing.md)
+            } else {
+                ScrollView {
+                    VStack(spacing: VeloDesign.Spacing.md) {
+                        switch selectedInsightTab {
+                        case .suggestions:
+                            SuggestionsContent(viewModel: viewModel)
+                        case .context:
+                            ContextContent(viewModel: viewModel, historyViewModel: historyViewModel)
+                        case .chat:
+                            EmptyView() // Handled above
+                        }
                     }
+                    .padding(VeloDesign.Spacing.md)
                 }
-                .padding(VeloDesign.Spacing.md)
             }
         }
         .background(VeloDesign.Colors.darkSurface)

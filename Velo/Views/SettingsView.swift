@@ -18,6 +18,12 @@ struct SettingsView: View {
     @AppStorage("isInteractiveOutputEnabled") private var isInteractiveOutputEnabled = true
     @AppStorage("isDeepFileParsingEnabled") private var isDeepFileParsingEnabled = true
     
+    // Cloud AI
+    @AppStorage("selectedAIProvider") private var selectedAIProvider = "OpenAI"
+    @AppStorage("openaiApiKey") private var openaiApiKey = ""
+    @AppStorage("anthropicApiKey") private var anthropicApiKey = ""
+    @AppStorage("deepseekApiKey") private var deepseekApiKey = ""
+    
     // Social Links
     private let githubURL = URL(string: "https://github.com/azozzalfiras")!
     private let xURL = URL(string: "https://x.com/dev_3zozz")!
@@ -93,6 +99,44 @@ struct SettingsView: View {
                             .glassCard()
                         }
                         
+                        // MARK: - Cloud AI
+                        VStack(alignment: .leading, spacing: VeloDesign.Spacing.md) {
+                            SectionHeader(title: "Cloud AI")
+                            
+                            VStack(spacing: VeloDesign.Spacing.md) {
+                                // Provider Selection
+                                HStack {
+                                    Text("Provider")
+                                        .font(VeloDesign.Typography.monoFont)
+                                        .foregroundColor(VeloDesign.Colors.textPrimary)
+                                    Spacer()
+                                    Picker("", selection: $selectedAIProvider) {
+                                        Text("OpenAI").tag("OpenAI")
+                                        Text("Anthropic").tag("Anthropic")
+                                        Text("DeepSeek").tag("DeepSeek")
+                                    }
+                                    .labelsHidden()
+                                    .pickerStyle(.menu)
+                                    .frame(width: 120)
+                                }
+                                
+                                Divider().background(VeloDesign.Colors.glassBorder)
+                                
+                                // API Keys
+                                Group {
+                                    if selectedAIProvider == "OpenAI" {
+                                        SecureFieldRow(title: "OpenAI API Key", text: $openaiApiKey, placeholder: "sk-...")
+                                    } else if selectedAIProvider == "Anthropic" {
+                                        SecureFieldRow(title: "Anthropic API Key", text: $anthropicApiKey, placeholder: "sk-ant-...")
+                                    } else if selectedAIProvider == "DeepSeek" {
+                                        SecureFieldRow(title: "DeepSeek API Key", text: $deepseekApiKey, placeholder: "sk-...")
+                                    }
+                                }
+                            }
+                            .padding()
+                            .glassCard()
+                        }
+
                         // MARK: - Versions
                         VStack(alignment: .leading, spacing: VeloDesign.Spacing.md) {
                             SectionHeader(title: "Version")
