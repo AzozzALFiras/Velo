@@ -106,11 +106,39 @@ struct InteractiveLineContent: View {
             }
         } else {
             // Standard text (or ANSI parsed)
-            Text(attributedText)
-                .font(VeloDesign.Typography.monoSmall)
-                .foregroundColor(isError ? VeloDesign.Colors.error : VeloDesign.Colors.textPrimary)
-                .lineLimit(nil)
-                .textSelection(.enabled)
+            HStack(alignment: .top, spacing: 8) {
+                Text(attributedText)
+                    .font(VeloDesign.Typography.monoSmall)
+                    .foregroundColor(isError ? VeloDesign.Colors.error : VeloDesign.Colors.textPrimary)
+                    .lineLimit(nil)
+                    .textSelection(.enabled)
+                
+                if isError {
+                    Button(action: {
+                        NotificationCenter.default.post(
+                            name: .askAI,
+                            object: nil,
+                            userInfo: ["query": "Explain this error: \(text)"]
+                        )
+                    }) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "sparkles")
+                            Text("Ask AI")
+                        }
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(VeloDesign.Colors.neonPurple)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(VeloDesign.Colors.neonPurple.opacity(0.1))
+                        .cornerRadius(4)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 4)
+                                .stroke(VeloDesign.Colors.neonPurple.opacity(0.3), lineWidth: 0.5)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
         }
     }
 }

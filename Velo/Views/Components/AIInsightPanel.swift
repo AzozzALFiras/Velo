@@ -51,6 +51,19 @@ struct AIInsightPanel: View {
                 .frame(width: 1),
             alignment: .leading
         )
+        .onReceive(NotificationCenter.default.publisher(for: .askAI)) { notification in
+            // Switch to chat
+            selectedInsightTab = .chat
+            
+            // Send query
+            if let query = notification.userInfo?["query"] as? String {
+                Task {
+                    // Small delay to allow tab switch animation
+                    try? await Task.sleep(nanoseconds: 100_000_000)
+                    await aiService.sendMessage(query)
+                }
+            }
+        }
     }
 }
 

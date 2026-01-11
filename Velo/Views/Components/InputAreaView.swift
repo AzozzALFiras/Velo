@@ -68,7 +68,38 @@ struct InputAreaView: View {
                 if viewModel.isExecuting {
                     ExecutingIndicator()
                 } else {
-                    ExitCodeBadge(code: viewModel.lastExitCode)
+                    if viewModel.lastExitCode != 0 {
+                        // Error State: Button to Ask AI
+                        Button(action: {
+                            let lastCmd = viewModel.historyManager.recentCommands.first?.command ?? "unknown command"
+                            NotificationCenter.default.post(
+                                name: .askAI,
+                                object: nil,
+                                userInfo: ["query": "Explain why the command '\(lastCmd)' failed with exit code \(viewModel.lastExitCode)."]
+                            )
+                        }) {
+                            HStack(spacing: 6) {
+                                Image(systemName: "sparkles")
+                                    .font(.system(size: 10))
+                                Text("Ask AI (\(viewModel.lastExitCode))")
+                                    .font(VeloDesign.Typography.monoSmall)
+                            }
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(VeloDesign.Colors.error.opacity(0.15))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 6)
+                                    .stroke(VeloDesign.Colors.error, lineWidth: 1)
+                            )
+                            .cornerRadius(6)
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundColor(VeloDesign.Colors.error)
+                        .help("Ask AI to explain this error")
+                    } else {
+                        // Success State
+                        ExitCodeBadge(code: viewModel.lastExitCode)
+                    }
                 }
             }
             .padding(.horizontal, VeloDesign.Spacing.lg)

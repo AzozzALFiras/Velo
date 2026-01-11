@@ -61,5 +61,12 @@ struct TerminalTabContent: View {
                 .transition(.move(edge: .trailing))
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .askAI)) { _ in
+            if !showInsightPanel {
+                withAnimation {
+                    showInsightPanel = true
+                }
+            }
+        }
     }
 }
