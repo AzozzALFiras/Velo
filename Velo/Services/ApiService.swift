@@ -24,8 +24,17 @@ class ApiService {
         let decoder = JSONDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase
         
-        let apiResponse = try decoder.decode(VeloApiResponse<[AIModelConfig]>.self, from: data)
-        return apiResponse.data
+        do {
+            let apiResponse = try decoder.decode(VeloApiResponse<[AIModelConfig]>.self, from: data)
+            print("✅ [API] Successfully decoded \(apiResponse.data.count) AI models")
+            return apiResponse.data
+        } catch {
+            print("❌ [API] Failed to decode AI models: \(error)")
+            if let responseString = String(data: data, encoding: .utf8) {
+                print("❌ [API] Raw response: \(responseString)")
+            }
+            throw ApiError.decodingError
+        }
     }
     
     func checkForUpdates() async throws -> VeloUpdateInfo {
@@ -34,14 +43,24 @@ class ApiService {
         let decoder = JSONDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase
         
-        let apiResponse = try decoder.decode(VeloUpdateResponse.self, from: data)
-        return apiResponse.update
+        do {
+            let apiResponse = try decoder.decode(VeloUpdateResponse.self, from: data)
+            print("✅ [API] Successfully decoded update info: v\(apiResponse.update.latestVersion)")
+            return apiResponse.update
+        } catch {
+            print("❌ [API] Failed to decode update response: \(error)")
+            if let responseString = String(data: data, encoding: .utf8) {
+                print("❌ [API] Raw response: \(responseString)")
+            }
+            throw ApiError.decodingError
+        }
     }
     
     // MARK: - Core Request Logic
     
     private func performRequest(endpoint: String) async throws -> (Data, HTTPURLResponse) {
         guard let url = URL(string: "\(baseURL)\(endpoint)") else {
+            print("❌ [API] Invalid URL: \(baseURL)\(endpoint)")
             throw ApiError.invalidURL
         }
         
@@ -49,14 +68,28 @@ class ApiService {
         request.setValue(appVersion, forHTTPHeaderField: "X-Velo-Version")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         
+        print("📤 [API] Request: \(request.httpMethod ?? "GET") \(url)")
+        print("📤 [API] Headers: X-Velo-Version: \(appVersion)")
+        
         let (data, response) = try await urlSession.data(for: request)
         
         guard let httpResponse = response as? HTTPURLResponse else {
+            print("❌ [API] Invalid response type")
             throw ApiError.serverError
+        }
+        
+        print("📥 [API] Response Status: \(httpResponse.statusCode)")
+        
+        // Log response body for debugging
+        if let responseString = String(data: data, encoding: .utf8) {
+            print("📥 [API] Response Body: \(responseString)")
+        } else {
+            print("📥 [API] Response Body: (unable to decode as string)")
         }
         
         // Handle 426 Upgrade Required
         if httpResponse.statusCode == 426 {
+            print("⚠️ [API] Update required (426)")
             let decoder = JSONDecoder()
             decoder.keyDecodingStrategy = .convertFromSnakeCase
             if let updateInfo = try? decoder.decode(VeloUpdateResponse.self, from: data) {
@@ -66,9 +99,11 @@ class ApiService {
         }
         
         guard (200...299).contains(httpResponse.statusCode) else {
+            print("❌ [API] Server error: status \(httpResponse.statusCode)")
             throw ApiError.serverError
         }
         
+        print("✅ [API] Request successful")
         return (data, httpResponse)
     }
 }

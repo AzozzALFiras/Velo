@@ -249,13 +249,14 @@ struct SettingsView: View {
                             .padding()
                             .glassCard()
                         }
-                        
                     }
                     .padding()
                 }
             }
         }
         .frame(width: 450, height: 600)
+    }
+    
     private func checkUpdate() {
         isCheckingUpdate = true
         
@@ -291,8 +292,6 @@ struct SettingsView: View {
         }
     }
 }
-
-
 
 #Preview {
     SettingsView()
