@@ -26,13 +26,8 @@ class ApiService {
         
         do {
             let apiResponse = try decoder.decode(VeloApiResponse<[AIModelConfig]>.self, from: data)
-            print("✅ [API] Successfully decoded \(apiResponse.data.count) AI models")
             return apiResponse.data
         } catch {
-            print("❌ [API] Failed to decode AI models: \(error)")
-            if let responseString = String(data: data, encoding: .utf8) {
-                print("❌ [API] Raw response: \(responseString)")
-            }
             throw ApiError.decodingError
         }
     }
@@ -45,13 +40,8 @@ class ApiService {
         
         do {
             let apiResponse = try decoder.decode(VeloUpdateResponse.self, from: data)
-            print("✅ [API] Successfully decoded update info: v\(apiResponse.update.latestVersion)")
             return apiResponse.update
         } catch {
-            print("❌ [API] Failed to decode update response: \(error)")
-            if let responseString = String(data: data, encoding: .utf8) {
-                print("❌ [API] Raw response: \(responseString)")
-            }
             throw ApiError.decodingError
         }
     }
@@ -60,7 +50,6 @@ class ApiService {
     
     private func performRequest(endpoint: String) async throws -> (Data, HTTPURLResponse) {
         guard let url = URL(string: "\(baseURL)\(endpoint)") else {
-            print("❌ [API] Invalid URL: \(baseURL)\(endpoint)")
             throw ApiError.invalidURL
         }
         
@@ -68,35 +57,19 @@ class ApiService {
         request.setValue(appVersion, forHTTPHeaderField: "X-Velo-Version")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         
-        print("📤 [API] Request: \(request.httpMethod ?? "GET") \(url)")
-        print("📤 [API] Headers: X-Velo-Version: \(appVersion)")
-        
         let (data, response) = try await urlSession.data(for: request)
         
         guard let httpResponse = response as? HTTPURLResponse else {
-            print("❌ [API] Invalid response type")
             throw ApiError.serverError
-        }
-        
-        print("📥 [API] Response Status: \(httpResponse.statusCode)")
-        
-        // Log response body for debugging
-        if let responseString = String(data: data, encoding: .utf8) {
-            print("📥 [API] Response Body: \(responseString)")
-        } else {
-            print("📥 [API] Response Body: (unable to decode as string)")
         }
         
         // Handle 426 Upgrade Required
         if httpResponse.statusCode == 426 {
-            print("⚠️ [API] Update required (426)")
             let decoder = JSONDecoder()
             decoder.keyDecodingStrategy = .convertFromSnakeCase
             
             // Try to decode the 426 error response
             if let errorResponse = try? decoder.decode(UpdateRequiredResponse.self, from: data) {
-                print("⚠️ [API] Decoded 426 response: v\(errorResponse.latestVersion)")
-                
                 // Convert to VeloUpdateInfo for the overlay
                 let updateInfo = VeloUpdateInfo(
                     latestVersion: errorResponse.latestVersion,
@@ -108,17 +81,13 @@ class ApiService {
                 
                 NotificationCenter.default.post(name: .requiredUpdateDetected, object: updateInfo)
                 throw ApiError.updateRequired(updateInfo)
-            } else {
-                print("❌ [API] Failed to decode 426 response")
             }
         }
         
         guard (200...299).contains(httpResponse.statusCode) else {
-            print("❌ [API] Server error: status \(httpResponse.statusCode)")
             throw ApiError.serverError
         }
         
-        print("✅ [API] Request successful")
         return (data, httpResponse)
     }
 }
