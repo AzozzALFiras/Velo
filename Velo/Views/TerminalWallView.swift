@@ -112,6 +112,23 @@ struct TerminalWallView: View {
             showInsightPanel = autoOpenAIPanel
             setupKeyboardHandlers()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .askAI)) { notification in
+            // 1. Ensure panel is visible
+            if !showInsightPanel {
+                withAnimation(VeloDesign.Animation.smooth) {
+                    showInsightPanel = true
+                }
+            }
+            
+            // 2. Extract query and dispatch to active session
+            if let query = notification.userInfo?["query"] as? String {
+                Task {
+                    // Give recursion/animation a moment to settle
+                    try? await Task.sleep(nanoseconds: 200_000_000)
+                    tabManager.activeSession?.askAI(query: query)
+                }
+            }
+        }
     }
     
     private func setupKeyboardHandlers() {

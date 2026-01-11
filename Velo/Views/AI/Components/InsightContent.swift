@@ -124,14 +124,9 @@ struct ChatContent: View {
                         }
                         
                         if service.isThinking {
-                            HStack(spacing: 4) {
-                                Circle().fill(VeloDesign.Colors.textMuted).frame(width: 4, height: 4)
-                                Circle().fill(VeloDesign.Colors.textMuted).frame(width: 4, height: 4)
-                                Circle().fill(VeloDesign.Colors.textMuted).frame(width: 4, height: 4)
-                            }
-                            .padding(.leading, 12)
-                            .opacity(0.7)
-                            .id("thinking")
+                            ThinkingIndicator()
+                                .padding(.leading, 12)
+                                .id("thinking")
                         }
                         
                         if let error = service.errorMessage {
@@ -373,5 +368,45 @@ struct EmptyInsightView: View {
             .foregroundColor(VeloDesign.Colors.textMuted)
             .frame(maxWidth: .infinity)
             .padding(VeloDesign.Spacing.lg)
+    }
+}
+
+// MARK: - Animations
+
+struct ThinkingIndicator: View {
+    var body: some View {
+        HStack(spacing: 8) {
+            HStack(spacing: 4) {
+                PulsingDot(delay: 0)
+                PulsingDot(delay: 0.2)
+                PulsingDot(delay: 0.4)
+            }
+            
+            Text("Velo AI is thinking...")
+                .font(.system(size: 10, weight: .medium, design: .monospaced))
+                .foregroundColor(VeloDesign.Colors.textMuted)
+        }
+    }
+}
+
+struct PulsingDot: View {
+    let delay: Double
+    @State private var isAnimating = false
+    
+    var body: some View {
+        Circle()
+            .fill(VeloDesign.Colors.neonPurple)
+            .frame(width: 5, height: 5)
+            .scaleEffect(isAnimating ? 1.2 : 0.8)
+            .opacity(isAnimating ? 1.0 : 0.3)
+            .onAppear {
+                withAnimation(
+                    .easeInOut(duration: 0.6)
+                    .repeatForever(autoreverses: true)
+                    .delay(delay)
+                ) {
+                    isAnimating = true
+                }
+            }
     }
 }

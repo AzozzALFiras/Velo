@@ -61,18 +61,6 @@ struct TerminalTabContent: View {
                 .transition(.move(edge: .trailing))
             }
         }
-        .onReceive(NotificationCenter.default.publisher(for: .askAI)) { notification in
-            // 1. Ensure panel is visible
-            if !showInsightPanel {
-                withAnimation {
-                    showInsightPanel = true
-                }
-            }
-            
-            // 2. Dispatch query to ViewModel
-            if let query = notification.userInfo?["query"] as? String {
-                viewModel.askAI(query: query)
-            }
         }
     }
-}
+
