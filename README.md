@@ -2,16 +2,20 @@
 
 **The AI-Powered Terminal for the Future.**
 
-Velo is a next-generation terminal emulator built for macOS, designed to bridge the gap between classic command-line power and modern AI intelligence. It features a futuristic "glassmorphism" UI, intelligent command prediction, and a high-performance rendering engine that eliminates UI blocking.
+Velo is a next-generation terminal emulator built for macOS, designed to bridge the gap between classic command-line power and modern AI intelligence. It features a futuristic "glassmorphism" UI, intelligent command prediction, multi-tab support, cloud AI integration, and a high-performance rendering engine that eliminates UI blocking.
 
 ![Velo Terminal UI](https://via.placeholder.com/800x450?text=Velo+UI+Concept) -> *Replace with actual screenshot*
 
 ## ✨ Key Features
 
 ### 🧠 AI & Intelligence
+- **Multi-Provider Cloud AI**: Integrated support for OpenAI, Anthropic, and DeepSeek with dynamic model configuration from the Velo API.
 - **Smart Autocomplete**: Context-aware suggestions based on your history, recent files, and common patterns.
 - **Command Prediction**: Learns your workflow (e.g., `git add` → `git commit` → `git push`) and suggests the next step.
-- **AI Insights Panel**: A dedicated panel providing explanations, error analysis, and command tips.
+- **Error Analysis**: One-click "Ask AI" button on command errors for instant troubleshooting and solutions.
+- **AI Insights Panel**: A dedicated panel providing explanations, error analysis, and command tips with interactive code blocks.
+- **Dynamic Thinking Animation**: Premium pulsing animation when AI is processing your queries.
+- **System-Aware Prompts**: AI includes your macOS version, CPU cores, and RAM in its context for better recommendations.
 - **Fuzzy History**: Instant retrieval of past commands with a robust fuzzy search.
 
 ### ⚡ Performance Engine
@@ -20,13 +24,22 @@ Velo is a next-generation terminal emulator built for macOS, designed to bridge 
 - **Native Swift**: Built with pure SwiftUI and Combine for maximum performance on macOS.
 
 ### 🎨 Futuristic UI
+- **Multi-Tab Support**: Browser-style tab management for parallel terminal sessions with `Cmd+T` shortcuts.
 - **Glassmorphism Design**: Beautiful, translucent interfaces with blur effects and neon accents.
+- **Settings in Tab Bar**: Premium integrated settings button with clean, organized preferences.
 - **Warp-Inspired Blocks**: Commands are grouped into distinct "blocks" with clear separation between input and output.
 - **Interactive Output**: 
   - Click any file path to open, preview, or run it.
   - Hover effects that don't lag the UI.
   - Context menus for advanced file operations.
+  - One-click "Ask AI" on error lines.
 - **Decoupled Headers**: Sticky headers for command blocks that remain interactive independently of the scrolling log stream.
+
+### 🔄 App Management
+- **Remote Configuration**: Dynamic AI model and endpoint fetching from the Velo API.
+- **Version Control**: Automatic version checking with `X-Velo-Version` header on all API requests.
+- **Smart Updates**: Detects outdated versions (HTTP 426) and displays a beautiful update overlay with release notes.
+- **Manual Update Check**: Built-in "Check for Update" button in Settings.
 
 ## 🛠 Architecture
 
@@ -34,14 +47,22 @@ Velo follows a clean **MVVM (Model-View-ViewModel)** architecture:
 
 - **Services**:
   - `TerminalEngine`: Core PTY management, process execution, and thread-safe output buffering.
-  - `PredictionEngine`: Handles AI logic and suggestion generation.
-  - `HistoryManager`: Persists and indexes command history.
+  - `CloudAIService`: Multi-provider AI integration with OpenAI, Anthropic, and DeepSeek.
+  - `ApiService`: Centralized API manager for Velo backend services with versioning and update handling.
+  - `PredictionEngine`: Handles command prediction and suggestion generation.
+  - `CommandHistoryManager`: Persists and indexes command history across all tabs.
 - **ViewModels**:
-  - `TerminalViewModel`: Manages the state of the active session and coordinates services.
+  - `TabManager`: Manages multiple terminal sessions and tab switching.
+  - `TerminalViewModel`: Manages the state of individual terminal sessions.
+  - `HistoryViewModel`: Handles command history UI and interactions.
+  - `PredictionViewModel`: Manages autocomplete suggestions and inline predictions.
 - **Views**:
-  - `TerminalWallView`: The main orchestrator view.
+  - `TerminalWallView`: The main orchestrator view with tab management.
+  - `TabBarView`: Horizontal tab switcher with close and new tab buttons.
+  - `TerminalTabContent`: Content view for each terminal tab.
   - `OutputStreamView`: High-performance list rendering for logs.
-  - `CommandBlockHeader`: Decoupled, interactive status headers.
+  - `AIInsightPanel`: Cloud AI chat interface with thinking animations.
+  - `SettingsView`: Comprehensive settings panel with update checking.
 
 ## 💻 Tech Stack
 
@@ -49,6 +70,8 @@ Velo follows a clean **MVVM (Model-View-ViewModel)** architecture:
 - **Frameworks**: SwiftUI, Combine, AppKit, Foundation
 - **Data Persistence**: CoreData / JSON (History)
 - **Concurrency**: Swift Concurrency (`async`/`await`), `MainActor`, `Task`
+- **Networking**: URLSession with custom headers and error handling
+- **API Integration**: RESTful API communication with the Velo backend
 
 ## 🚀 Getting Started
 
@@ -64,17 +87,22 @@ Velo follows a clean **MVVM (Model-View-ViewModel)** architecture:
 2. Open `Velo.xcodeproj` in Xcode.
 3. Build and Run (⌘R).
 
+### Configuration
+1. Open Settings (gear icon in the top-right tab bar).
+2. Configure your AI provider (OpenAI, Anthropic, or DeepSeek).
+3. Enter your API key for the selected provider.
+4. Start using AI-powered features!
+
 ## 🤝 Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## 🔮 Next Steps (Future Enhancements)
 
-- **Multi-tab support**: Manage multiple terminal sessions in parallel.
-- **Cloud AI integration**: Optional connection to OpenAI/Anthropic for smarter explanations.
 - **Theme customization**: User-defined color schemes and fonts.
 - **Plugin system**: Extensions for custom commands and UI widgets.
 - **SSH session management**: Saved remote connections with key management.
+- **Enhanced AI Features**: Code generation, refactoring suggestions, and project analysis.
 
 ---
-*Built with ❤️ by the Azozz ALFiras*
+*Built with ❤️ by Azozz ALFiras*
