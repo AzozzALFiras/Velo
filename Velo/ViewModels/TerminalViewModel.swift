@@ -14,21 +14,23 @@ import Combine
 final class TerminalViewModel: ObservableObject, Identifiable {
     
     // MARK: - Identity
-    let id = UUID()
-    @Published var title: String = "Terminal"
-    
-    // MARK: - Published State
+    // MARK: - Published Properties
+    @Published var currentDirectory: String
+    @Published var outputLines: [OutputLine] = []
     @Published var inputText: String = ""
     @Published var isExecuting: Bool = false
-    @Published var outputLines: [OutputLine] = []
-    @Published var currentDirectory: String = ""
     @Published var lastExitCode: Int32 = 0
-    @Published var selectedHistoryIndex: Int? = nil
     @Published var errorMessage: String?
     @Published var commandStartTime: Date?
     @Published var activeCommand: String = ""
     
-    // MARK: - Dependencies
+    // AI & Tabs
+    @Published var id: UUID = UUID()
+    @Published var title: String = "Terminal"
+    @Published var activeInsightTab: InsightTab = .suggestions
+    @Published var aiService = CloudAIService()
+    
+    // Dependencies
     let terminalEngine: TerminalEngine
     let historyManager: CommandHistoryManager
     let predictionEngine: PredictionEngine
@@ -45,17 +47,24 @@ final class TerminalViewModel: ObservableObject, Identifiable {
         self.terminalEngine = terminalEngine
         self.historyManager = historyManager
         self.predictionEngine = PredictionEngine(historyManager: historyManager)
+        self.currentDirectory = terminalEngine.currentDirectory
         
         setupBindings()
     }
     
-    /// Convenience initializer for creating with new instances
-    convenience init() {
-        self.init(
-            terminalEngine: TerminalEngine(),
-            historyManager: CommandHistoryManager()
-        )
+    init() {
+        let engine = TerminalEngine()
+        let history = CommandHistoryManager()
+        
+        self.terminalEngine = engine
+        self.historyManager = history
+        self.predictionEngine = PredictionEngine(historyManager: history)
+        self.currentDirectory = engine.currentDirectory
+        
+        setupBindings()
     }
+    
+
     
     // MARK: - Execute Command
     func executeCommand() {
@@ -103,10 +112,18 @@ final class TerminalViewModel: ObservableObject, Identifiable {
     // MARK: - Clear Screen
     func clearScreen() {
         outputLines.removeAll()
-        terminalEngine.clearOutput()
     }
     
-    // MARK: - History Navigation
+    // MARK: - AI Actions
+    @MainActor
+    func askAI(query: String) {
+        activeInsightTab = .chat
+        Task {
+            await aiService.sendMessage(query)
+        }
+    }
+    
+    // MARK: - Terminal Engine Delegateion
     func navigateHistoryUp() {
         let commands = historyManager.recentCommands
         guard !commands.isEmpty else { return }

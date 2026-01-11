@@ -10,15 +10,15 @@
 				<key>location-parameters</key>
 				<dict>
 					<key>EndingColumnNumber</key>
-					<string>7</string>
+					<string>4</string>
 					<key>EndingLineNumber</key>
 					<string>37</string>
 					<key>StartingColumnNumber</key>
-					<string>7</string>
+					<string>4</string>
 					<key>StartingLineNumber</key>
 					<string>37</string>
 					<key>Timestamp</key>
-					<string>789775451.246327</string>
+					<string>789786279.949638</string>
 				</dict>
 				<key>rebasable-url</key>
 				<dict>
@@ -36,13 +36,13 @@
 				<key>focused</key>
 				<string></string>
 				<key>leading</key>
-				<string>        terminalEngine: TerminalEngine = TerminalEngine(),
-        historyManager: CommandHistoryManager = CommandHistoryManager()
-    ) {</string>
+				<string>    let predictionEngine: PredictionEngine
+    
+    </string>
 				<key>trailing</key>
-				<string>
-        self.terminalEngine = terminalEngine
-        self.historyManager = historyManager
+				<string>// MARK: - Private
+    private var cancellables = Set&lt;AnyCancellable&gt;()
+    private var historyNavigationIndex = 0
 </string>
 			</dict>
 			<key>type</key>
