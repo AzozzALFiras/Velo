@@ -7,6 +7,14 @@ Velo is a next-generation terminal emulator built for macOS, designed to bridge 
 ![Velo Terminal UI](https://raw.githubusercontent.com/AzozzALFiras/Velo/refs/heads/main/Velo/screenshots/1.png)
 ## ✨ Key Features
 
+### 🎨 Theme Customization
+- **4 Built-in Themes**: Choose from Neon Dark (default), Classic Dark, Light, and Cyberpunk themes
+- **Custom Theme Creation**: Full control over 17 color properties and font settings
+- **Live Preview**: Real-time theme preview cards showing color palettes
+- **Font Customization**: Select from System Monospaced, Menlo, Monaco, SF Mono, or Courier New
+- **Persistent Storage**: Custom themes saved locally and persist between sessions
+- **Import/Export**: Share themes with JSON import/export functionality
+
 ### 🧠 AI & Intelligence
 - **Multi-Provider Cloud AI**: Integrated support for OpenAI, Anthropic, and DeepSeek with dynamic model configuration from the Velo API.
 - **Smart Autocomplete**: Context-aware suggestions based on your history, recent files, and common patterns.
@@ -44,8 +52,13 @@ Velo is a next-generation terminal emulator built for macOS, designed to bridge 
 
 Velo follows a clean **MVVM (Model-View-ViewModel)** architecture:
 
+- **Models**:
+  - `VeloTheme`: Theme configuration with ColorScheme and FontScheme
+  - `CommandModel`: Command execution data and metadata
+  - `SessionModel`: Terminal session state
 - **Services**:
   - `TerminalEngine`: Core PTY management, process execution, and thread-safe output buffering.
+  - `ThemeManager`: Theme management, persistence, and custom theme CRUD operations.
   - `CloudAIService`: Multi-provider AI integration with OpenAI, Anthropic, and DeepSeek.
   - `ApiService`: Centralized API manager for Velo backend services with versioning and update handling.
   - `PredictionEngine`: Handles command prediction and suggestion generation.
@@ -61,6 +74,7 @@ Velo follows a clean **MVVM (Model-View-ViewModel)** architecture:
   - `TerminalTabContent`: Content view for each terminal tab.
   - `OutputStreamView`: High-performance list rendering for logs.
   - `AIInsightPanel`: Cloud AI chat interface with thinking animations.
+  - `ThemeSettingsView`: Theme customization UI with preview cards and editor.
   - `SettingsView`: Comprehensive settings panel with update checking.
 
 ## 💻 Tech Stack
@@ -88,9 +102,11 @@ Velo follows a clean **MVVM (Model-View-ViewModel)** architecture:
 
 ### Configuration
 1. Open Settings (gear icon in the top-right tab bar).
-2. Configure your AI provider (OpenAI, Anthropic, or DeepSeek).
-3. Enter your API key for the selected provider.
-4. Start using AI-powered features!
+2. **Theme**: Choose from built-in themes or create custom themes with your preferred colors and fonts.
+3. **AI Provider**: Configure your AI provider (OpenAI, Anthropic, or DeepSeek).
+4. Enter your API key for the selected provider.
+5. **Preferences**: Customize auto-open settings and enable/disable features.
+6. Start using AI-powered features and enjoy your personalized theme!
 
 ## 🤝 Contributing
 
@@ -98,10 +114,11 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## 🔮 Next Steps (Future Enhancements)
 
-- **Theme customization**: User-defined color schemes and fonts.
-- **Plugin system**: Extensions for custom commands and UI widgets.
-- **SSH session management**: Saved remote connections with key management.
-- **Enhanced AI Features**: Code generation, refactoring suggestions, and project analysis.
+- **Advanced theme features**: Theme marketplace, theme sharing via URL, per-tab themes
+- **Plugin system**: Extensions for custom commands and UI widgets
+- **SSH session management**: Saved remote connections with key management
+- **Enhanced AI Features**: Code generation, refactoring suggestions, and project analysis
+- **Syntax highlighting themes**: Customizable code highlighting for different languages
 
 ---
 *Built with ❤️ by Azozz ALFiras*
