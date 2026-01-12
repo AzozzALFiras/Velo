@@ -15,6 +15,14 @@ Velo is a next-generation terminal emulator built for macOS, designed to bridge 
 - **Persistent Storage**: Custom themes saved locally and persist between sessions
 - **Import/Export**: Share themes with JSON import/export functionality
 
+### 🔐 SSH Session Management
+- **Saved Connections**: Store SSH connections with groups for organization
+- **Multiple Auth Methods**: Password, private key, or SSH agent authentication
+- **Keychain Integration**: Secure credential storage in macOS Keychain
+- **Quick Connect**: Fast connection via popover in tab bar with recent/saved hosts
+- **Import from Config**: One-click import from `~/.ssh/config`
+- **Custom Icons & Colors**: Personalize connections for easy identification
+
 ### 🧠 AI & Intelligence
 - **Multi-Provider Cloud AI**: Integrated support for OpenAI, Anthropic, and DeepSeek with dynamic model configuration from the Velo API.
 - **Smart Autocomplete**: Context-aware suggestions based on your history, recent files, and common patterns.
@@ -116,7 +124,7 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 - **Advanced theme features**: Theme marketplace, theme sharing via URL, per-tab themes
 - **Plugin system**: Extensions for custom commands and UI widgets
-- **SSH session management**: Saved remote connections with key management
+- **SSH tunneling**: Port forwarding and jump hosts support
 - **Enhanced AI Features**: Code generation, refactoring suggestions, and project analysis
 - **Syntax highlighting themes**: Customizable code highlighting for different languages
 

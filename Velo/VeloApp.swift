@@ -11,6 +11,7 @@ import SwiftUI
 struct VeloApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @StateObject private var themeManager = ThemeManager()
+    @StateObject private var sshManager = SSHManager()
     
     var body: some Scene {
         WindowGroup {
@@ -18,6 +19,7 @@ struct VeloApp: App {
                 .frame(minWidth: 900, minHeight: 600)
                 .preferredColorScheme(.dark)
                 .environmentObject(themeManager)
+                .environmentObject(sshManager)
                 .onAppear {
                     // Wire up theme manager to design system
                     VeloDesign.ThemeAware.themeManager = themeManager

@@ -75,6 +75,9 @@ struct SettingsView: View {
                         // MARK: - Theme
                         ThemeSettingsView()
                         
+                        // MARK: - SSH
+                        SSHSettingsView()
+                        
                         // MARK: - General
                         VStack(alignment: .leading, spacing: VeloDesign.Spacing.md) {
                             SectionHeader(title: "General")

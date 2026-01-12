@@ -74,4 +74,36 @@ final class TabManager: ObservableObject {
     func switchToSession(id: UUID) {
         activeSessionId = id
     }
+    
+    // MARK: - SSH Sessions
+    func createSSHSession(host: String, user: String, port: Int, keyPath: String? = nil) {
+        let engine = TerminalEngine()
+        let newSession = TerminalViewModel(
+            terminalEngine: engine,
+            historyManager: historyManager
+        )
+        
+        // Set SSH tab title with icon indicator
+        newSession.title = "SSH: \(user)@\(host)"
+        
+        sessions.append(newSession)
+        activeSessionId = newSession.id
+        
+        // Build and execute SSH command
+        var sshCommand = "ssh"
+        if port != 22 {
+            sshCommand += " -p \(port)"
+        }
+        if let keyPath = keyPath, !keyPath.isEmpty {
+            sshCommand += " -i \(keyPath)"
+        }
+        sshCommand += " \(user)@\(host)"
+        
+        // Execute SSH command in the new session
+        Task {
+            try? await Task.sleep(for: .milliseconds(100))
+            newSession.inputText = sshCommand
+            newSession.executeCommand()
+        }
+    }
 }
