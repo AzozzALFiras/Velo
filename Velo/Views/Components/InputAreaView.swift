@@ -64,6 +64,27 @@ struct InputAreaView: View {
                         }
                 }
                 
+                // Tab completion button (visible during SSH/running commands)
+                if viewModel.isExecuting {
+                    Button(action: {
+                        viewModel.sendTab()
+                    }) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "arrow.right")
+                                .font(.system(size: 10, weight: .bold))
+                            Text("Tab")
+                                .font(.system(size: 10, weight: .medium))
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(VeloDesign.Colors.neonCyan.opacity(0.15))
+                        .cornerRadius(4)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundColor(VeloDesign.Colors.neonCyan)
+                    .help("Send Tab for autocomplete")
+                }
+                
                 // Status indicator
                 if viewModel.isExecuting {
                     ExecutingIndicator()

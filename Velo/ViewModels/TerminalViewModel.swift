@@ -132,9 +132,22 @@ final class TerminalViewModel: ObservableObject, Identifiable {
         terminalEngine.interrupt()
     }
     
+    // MARK: - Send Tab (for SSH autocomplete)
+    func sendTab() {
+        // Send Tab character for shell autocomplete
+        terminalEngine.sendInput("\t")
+    }
+    
     // MARK: - Clear Screen
     func clearScreen() {
+        // Clear local output buffer
         outputLines.removeAll()
+        terminalEngine.clearOutput()
+        
+        // If running (SSH session), also send clear command to remote
+        if isExecuting {
+            terminalEngine.sendInput("clear\n")
+        }
     }
     
     // MARK: - AI Actions
