@@ -42,6 +42,12 @@ final class PredictionEngine: ObservableObject {
         
         var allPredictions: [CommandSuggestion] = []
         
+        // 0. Directory suggestions for cd command
+        if input.lowercased().hasPrefix("cd ") {
+            let dirSuggestions = generateDirectorySuggestions(input: input, workingDirectory: workingDirectory)
+            allPredictions.append(contentsOf: dirSuggestions)
+        }
+        
         // 1. Prefix matches from history (highest priority)
         let prefixMatches = generatePrefixMatches(input)
         allPredictions.append(contentsOf: prefixMatches)
@@ -178,6 +184,90 @@ final class PredictionEngine: ObservableObject {
         
         return result
     }
+    
+    // MARK: - Directory Suggestions
+    private func generateDirectorySuggestions(input: String, workingDirectory: String) -> [CommandSuggestion] {
+        // Extract the path part after "cd "
+        let pathPart = String(input.dropFirst(3)).trimmingCharacters(in: .whitespaces)
+        
+        // Determine the base directory and partial name to match
+        let basePath: String
+        let partialName: String
+        
+        if pathPart.isEmpty {
+            basePath = workingDirectory
+            partialName = ""
+        } else if pathPart.hasPrefix("~") {
+            let expanded = (pathPart as NSString).expandingTildeInPath
+            if pathPart.hasSuffix("/") {
+                basePath = expanded
+                partialName = ""
+            } else {
+                basePath = (expanded as NSString).deletingLastPathComponent
+                partialName = (expanded as NSString).lastPathComponent.lowercased()
+            }
+        } else if pathPart.hasPrefix("/") {
+            if pathPart.hasSuffix("/") {
+                basePath = pathPart
+                partialName = ""
+            } else {
+                basePath = (pathPart as NSString).deletingLastPathComponent
+                partialName = (pathPart as NSString).lastPathComponent.lowercased()
+            }
+        } else {
+            let fullPath = (workingDirectory as NSString).appendingPathComponent(pathPart)
+            if pathPart.hasSuffix("/") {
+                basePath = fullPath
+                partialName = ""
+            } else {
+                basePath = (fullPath as NSString).deletingLastPathComponent
+                partialName = (fullPath as NSString).lastPathComponent.lowercased()
+            }
+        }
+        
+        // List directories in basePath
+        var suggestions: [CommandSuggestion] = []
+        
+        do {
+            let contents = try FileManager.default.contentsOfDirectory(atPath: basePath)
+            var isDir: ObjCBool = false
+            
+            for item in contents.prefix(20) {
+                let fullPath = (basePath as NSString).appendingPathComponent(item)
+                
+                // Only include directories
+                if FileManager.default.fileExists(atPath: fullPath, isDirectory: &isDir), isDir.boolValue {
+                    // Match partial name
+                    if partialName.isEmpty || item.lowercased().hasPrefix(partialName) {
+                        // Build the suggestion
+                        let suggestionPath: String
+                        if pathPart.isEmpty {
+                            suggestionPath = item
+                        } else if pathPart.hasSuffix("/") {
+                            suggestionPath = pathPart + item
+                        } else if pathPart.contains("/") {
+                            let prefix = (pathPart as NSString).deletingLastPathComponent
+                            suggestionPath = prefix.isEmpty ? item : prefix + "/" + item
+                        } else {
+                            suggestionPath = item
+                        }
+                        
+                        suggestions.append(CommandSuggestion(
+                            command: "cd \(suggestionPath)",
+                            description: "📁 Directory",
+                            source: .contextual,
+                            priority: 120
+                        ))
+                    }
+                }
+            }
+        } catch {
+            // Ignore errors
+        }
+        
+        return suggestions
+    }
 }
+
 
 

@@ -76,7 +76,7 @@ final class TabManager: ObservableObject {
     }
     
     // MARK: - SSH Sessions
-    func createSSHSession(host: String, user: String, port: Int, keyPath: String? = nil) {
+    func createSSHSession(host: String, user: String, port: Int, keyPath: String? = nil, password: String? = nil) {
         let engine = TerminalEngine()
         let newSession = TerminalViewModel(
             terminalEngine: engine,
@@ -104,6 +104,13 @@ final class TabManager: ObservableObject {
             try? await Task.sleep(for: .milliseconds(100))
             newSession.inputText = sshCommand
             newSession.executeCommand()
+            
+            // If password is provided, wait for password prompt and send it
+            if let password = password, !password.isEmpty {
+                // Wait for SSH to prompt for password (typically 1-3 seconds)
+                try? await Task.sleep(for: .seconds(2))
+                engine.sendInput(password + "\n")
+            }
         }
     }
 }

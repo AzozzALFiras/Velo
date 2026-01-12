@@ -265,11 +265,21 @@ struct SSHQuickConnectPopover: View {
     
     private func connect(to connection: SSHConnection) {
         sshManager.markAsConnected(connection)
+        
+        // Get saved password from keychain if using password auth
+        let password: String?
+        if connection.authMethod == .password {
+            password = sshManager.getPassword(for: connection)
+        } else {
+            password = nil
+        }
+        
         tabManager.createSSHSession(
             host: connection.host,
             user: connection.username,
             port: connection.port,
-            keyPath: connection.privateKeyPath
+            keyPath: connection.privateKeyPath,
+            password: password
         )
         isPresented = false
     }
