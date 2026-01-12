@@ -128,9 +128,13 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## 🔮 Next Steps (Future Enhancements)
 
-- **Advanced theme features**: Theme marketplace, theme sharing via URL, per-tab themes
-- **Plugin system**: Extensions for custom commands and UI widgets
-- **SSH tunneling**: Port forwarding and jump hosts support
+- **🤖 Autonomous Agents**: AI that can autonomously debug complex issues, run test suites, and refactor code across multiple files.
+- **☁️ Velo Cloud Sync**: Sync your themes, history, and SSH configurations securely across all your Macs.
+- **📱 Companion App**: Monitor long-running tasks and server stats remotely from your iPhone.
+- **⚗️ Plugin Architecture**: Extensible API for developers to create custom widgets, themes, and command handlers.
+- **🖥️ Split Panes & Layouts**: Tmux-style split views with drag-and-drop support for efficient multitasking.
+- **📊 Data Visualization**: Automatically detect CSV/JSON output and render interactive charts and tables inline.
+- **🗣️ Voice Command Control**: Execute complex workflows using natural language voice commands.
 - **Enhanced AI Features**: Code generation, refactoring suggestions, and project analysis
 - **Syntax highlighting themes**: Customizable code highlighting for different languages
 
