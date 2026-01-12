@@ -71,6 +71,13 @@ final class TerminalViewModel: ObservableObject, Identifiable {
         let command = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !command.isEmpty else { return }
         
+        // If a process is already running, send input to it instead
+        if isExecuting {
+            terminalEngine.sendInput(command + "\n")
+            inputText = ""
+            return
+        }
+        
         // Clear input immediately
         inputText = ""
         predictionEngine.clear()
