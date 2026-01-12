@@ -90,7 +90,7 @@ final class TabManager: ObservableObject {
         activeSessionId = newSession.id
         
         // Build and execute SSH command
-        var sshCommand = "ssh"
+        var sshCommand = "ssh -tt"  // -tt forces TTY allocation
         if port != 22 {
             sshCommand += " -p \(port)"
         }
