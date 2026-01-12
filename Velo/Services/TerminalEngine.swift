@@ -28,6 +28,7 @@ final class TerminalEngine: ObservableObject {
     
     // MARK: - Private Properties
     private var process: Process?
+    private var ptyProcess: PTYProcess?
     private var inputPipe: Pipe?
     private var outputPipe: Pipe?
     private var errorPipe: Pipe?
@@ -183,25 +184,104 @@ final class TerminalEngine: ObservableObject {
         return try await execute(command)
     }
     
+    // MARK: - Execute with PTY (for interactive commands like SSH)
+    /// Execute command with a real pseudo-terminal for interactive input
+    func executePTY(_ command: String) async throws -> CommandModel {
+        guard !isRunning else {
+            throw TerminalError.alreadyRunning
+        }
+        
+        isRunning = true
+        commandStartTime = Date()
+        currentCommand = command
+        accumulatedOutput = ""
+        outputBuffer.clear()
+        
+        defer {
+            isRunning = false
+            ptyProcess = nil
+        }
+        
+        // Create PTY process with output handler
+        ptyProcess = PTYProcess { [weak self] text in
+            self?.outputBuffer.append(text, isError: false)
+        }
+        
+        // Start flush timer
+        await MainActor.run {
+            self.flushTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+                self?.flushBuffer()
+            }
+        }
+        
+        // Execute
+        try ptyProcess?.execute(
+            command: command,
+            environment: environment,
+            workingDirectory: currentDirectory
+        )
+        
+        // Wait for exit on background thread
+        let exitCode = await withCheckedContinuation { (continuation: CheckedContinuation<Int32, Never>) in
+            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                let code = self?.ptyProcess?.waitForExit() ?? -1
+                continuation.resume(returning: code)
+            }
+        }
+        
+        // Final flush
+        await MainActor.run {
+            self.flushTimer?.invalidate()
+            self.flushTimer = nil
+            self.flushBuffer()
+        }
+        
+        lastExitCode = exitCode
+        let duration = commandStartTime.map { Date().timeIntervalSince($0) } ?? 0
+        
+        let commandModel = CommandModel(
+            command: command,
+            output: accumulatedOutput,
+            exitCode: exitCode,
+            timestamp: commandStartTime ?? Date(),
+            duration: duration,
+            workingDirectory: currentDirectory,
+            context: .system
+        )
+        
+        commandCompletedPublisher.send(commandModel)
+        return commandModel
+    }
+    
     // MARK: - Interrupt
     /// Send SIGINT to running process
     func interrupt() {
-        process?.interrupt()
+        if let pty = ptyProcess {
+            pty.interrupt()
+        } else {
+            process?.interrupt()
+        }
     }
     
     // MARK: - Terminate
     /// Force terminate running process
     func terminate() {
-        process?.terminate()
+        if let pty = ptyProcess {
+            pty.terminate()
+        } else {
+            process?.terminate()
+        }
     }
     
     // MARK: - Send Input
     /// Send input to running process
     func sendInput(_ text: String) {
-        guard let pipe = inputPipe else { return }
-        
-        let data = (text + "\n").data(using: .utf8) ?? Data()
-        pipe.fileHandleForWriting.write(data)
+        if let pty = ptyProcess {
+            pty.write(text)
+        } else if let pipe = inputPipe {
+            let data = (text + "\n").data(using: .utf8) ?? Data()
+            pipe.fileHandleForWriting.write(data)
+        }
     }
     
     // MARK: - Change Directory

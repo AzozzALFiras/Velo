@@ -82,12 +82,28 @@ final class TerminalViewModel: ObservableObject, Identifiable {
             return
         }
         
+        // Detect if command needs PTY (interactive commands)
+        let needsPTY = command.hasPrefix("ssh ") || 
+                       command.hasPrefix("sftp ") ||
+                       command.contains("sudo ") ||
+                       command.hasPrefix("top") ||
+                       command.hasPrefix("htop") ||
+                       command.hasPrefix("vim ") ||
+                       command.hasPrefix("nano ") ||
+                       command.hasPrefix("less ") ||
+                       command.hasPrefix("more ")
+        
         // Execute via terminal engine
         Task {
             isExecuting = true
             
             do {
-                let result = try await terminalEngine.execute(command)
+                let result: CommandModel
+                if needsPTY {
+                    result = try await terminalEngine.executePTY(command)
+                } else {
+                    result = try await terminalEngine.execute(command)
+                }
                 
                 // Add to history
                 historyManager.addCommand(result)
