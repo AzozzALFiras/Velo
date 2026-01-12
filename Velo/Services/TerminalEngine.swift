@@ -120,9 +120,9 @@ final class TerminalEngine: ObservableObject {
         // Setup output handling
         setupOutputHandling(output: output, error: error)
         
-        // Start flush timer on main thread
+        // Start flush timer on main thread (throttled to ~7Hz for smooth scrolling)
         await MainActor.run {
-            self.flushTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+            self.flushTimer = Timer.scheduledTimer(withTimeInterval: 0.15, repeats: true) { [weak self] _ in
                 self?.flushBuffer()
             }
         }
@@ -134,8 +134,20 @@ final class TerminalEngine: ObservableObject {
             throw TerminalError.executionFailed(error.localizedDescription)
         }
         
-        // Wait for completion
-        proc.waitUntilExit()
+        // Wait for completion WITHOUT blocking the main thread
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            DispatchQueue.global(qos: .userInitiated).async {
+                proc.waitUntilExit()
+                continuation.resume()
+            }
+        }
+        
+        // Final flush to get any remaining output
+        await MainActor.run {
+            self.flushTimer?.invalidate()
+            self.flushTimer = nil
+            self.flushBuffer()
+        }
         
         // Calculate duration
         let duration = commandStartTime.map { Date().timeIntervalSince($0) } ?? 0
@@ -243,11 +255,23 @@ final class TerminalEngine: ObservableObject {
         
         outputLines.append(contentsOf: update.lines)
         
+        // Limit total lines to prevent memory issues (keep last 10000)
+        let maxLines = 10000
+        if outputLines.count > maxLines {
+            outputLines.removeFirst(outputLines.count - maxLines)
+        }
+        
+        // Accumulate output for command history
+        for line in update.lines {
+            accumulatedOutput += line.text + "\n"
+        }
+        
         // Optional: Notify publisher if needed
         for line in update.lines {
             outputPublisher.send(line)
         }
     }
+
 
     
 
