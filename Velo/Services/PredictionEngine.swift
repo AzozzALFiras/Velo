@@ -33,7 +33,7 @@ final class PredictionEngine: ObservableObject {
     
     // MARK: - Generate Predictions
     /// Generate predictions for the current input
-    func predict(for input: String, workingDirectory: String) {
+    func predict(for input: String, workingDirectory: String, remoteItems: [String] = []) {
         guard input.count >= minQueryLength else {
             suggestions = []
             inlinePrediction = nil
@@ -42,10 +42,16 @@ final class PredictionEngine: ObservableObject {
         
         var allPredictions: [CommandSuggestion] = []
         
-        // 0. Directory suggestions for cd command
+        // 0. Remote/parsed directory suggestions for cd command (highest priority for SSH)
         if input.lowercased().hasPrefix("cd ") {
-            let dirSuggestions = generateDirectorySuggestions(input: input, workingDirectory: workingDirectory)
-            allPredictions.append(contentsOf: dirSuggestions)
+            let remoteSuggestions = generateRemoteDirectorySuggestions(input: input, items: remoteItems)
+            allPredictions.append(contentsOf: remoteSuggestions)
+            
+            // Also add local suggestions if not in SSH
+            if remoteItems.isEmpty {
+                let dirSuggestions = generateDirectorySuggestions(input: input, workingDirectory: workingDirectory)
+                allPredictions.append(contentsOf: dirSuggestions)
+            }
         }
         
         // 1. Prefix matches from history (highest priority)
@@ -70,6 +76,28 @@ final class PredictionEngine: ObservableObject {
         
         // Set inline prediction to best match
         inlinePrediction = suggestions.first?.command
+    }
+    
+    // MARK: - Remote Directory Suggestions
+    private func generateRemoteDirectorySuggestions(input: String, items: [String]) -> [CommandSuggestion] {
+        guard !items.isEmpty else { return [] }
+        
+        // Extract the path part after "cd "
+        let pathPart = String(input.dropFirst(3)).trimmingCharacters(in: .whitespaces)
+        let filter = pathPart.lowercased()
+        
+        return items
+            .filter { filter.isEmpty || $0.lowercased().hasPrefix(filter) }
+            .prefix(10)
+            .enumerated()
+            .map { index, item in
+                CommandSuggestion(
+                    command: "cd \(item)",
+                    description: "📁 Remote folder",
+                    source: .contextual,
+                    priority: 150 - index  // Higher priority than local suggestions
+                )
+            }
     }
     
     // MARK: - Clear

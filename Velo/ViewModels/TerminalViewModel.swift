@@ -30,6 +30,9 @@ final class TerminalViewModel: ObservableObject, Identifiable {
     @Published var activeInsightTab: InsightTab = .suggestions
     @Published var aiService = CloudAIService()
     
+    // Parsed items from terminal output (folders/files from ls)
+    @Published var parsedDirectoryItems: [String] = []
+    
     // Dependencies
     let terminalEngine: TerminalEngine
     let historyManager: CommandHistoryManager
@@ -247,9 +250,13 @@ final class TerminalViewModel: ObservableObject, Identifiable {
         terminalEngine.$currentDirectory
             .assign(to: &$currentDirectory)
         
-        // Sync output lines
+        // Sync output lines and parse for directory items
         terminalEngine.$outputLines
-            .assign(to: &$outputLines)
+            .sink { [weak self] lines in
+                self?.outputLines = lines
+                self?.parseDirectoryItemsFromOutput(lines)
+            }
+            .store(in: &cancellables)
         
         // Sync running state
         terminalEngine.$isRunning
@@ -262,14 +269,53 @@ final class TerminalViewModel: ObservableObject, Identifiable {
         terminalEngine.$currentCommand
             .assign(to: &$activeCommand)
         
-        // Update predictions on input change
+        // Update predictions on input change (with parsed items from output)
         $inputText
             .debounce(for: .milliseconds(50), scheduler: DispatchQueue.main)
             .sink { [weak self] text in
                 guard let self = self else { return }
-                self.predictionEngine.predict(for: text, workingDirectory: self.currentDirectory)
+                // Pass parsed items to prediction engine
+                self.predictionEngine.predict(
+                    for: text,
+                    workingDirectory: self.currentDirectory,
+                    remoteItems: self.parsedDirectoryItems
+                )
             }
             .store(in: &cancellables)
+    }
+    
+    // MARK: - Parse Directory Items from Output
+    private func parseDirectoryItemsFromOutput(_ lines: [OutputLine]) {
+        // Get recent output lines (last 50) to find directory listings
+        let recentLines = lines.suffix(50)
+        var items: Set<String> = []
+        
+        for line in recentLines {
+            let text = line.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            
+            // Skip empty lines and prompts
+            if text.isEmpty || text.contains("root@") || text.contains("$") || text.contains("#") && text.count < 60 {
+                continue
+            }
+            
+            // Parse space-separated items (typical ls output)
+            let words = text.components(separatedBy: .whitespaces)
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+                .filter { !$0.isEmpty && $0.count > 1 && !$0.hasPrefix("-") && !$0.hasPrefix("[") }
+            
+            for word in words {
+                // Filter out common non-file items
+                let cleaned = word.trimmingCharacters(in: CharacterSet(charactersIn: "*/"))
+                if cleaned.count >= 2 && 
+                   !cleaned.contains(":") && 
+                   !cleaned.hasPrefix(".") &&
+                   cleaned.range(of: "^[a-zA-Z0-9_.-]+$", options: .regularExpression) != nil {
+                    items.insert(cleaned)
+                }
+            }
+        }
+        
+        parsedDirectoryItems = Array(items).sorted()
     }
     
     private func handleBuiltinCommand(_ command: String) -> Bool {
