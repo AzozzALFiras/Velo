@@ -18,6 +18,7 @@ struct SettingsView: View {
     // Features
     @AppStorage("isInteractiveOutputEnabled") private var isInteractiveOutputEnabled = true
     @AppStorage("isDeepFileParsingEnabled") private var isDeepFileParsingEnabled = true
+    @AppStorage("autoLSafterCD") private var autoLSafterCD = false
     
     // Cloud AI
     @AppStorage("selectedAIProvider") private var selectedAIProvider = "openai"
@@ -117,6 +118,12 @@ struct SettingsView: View {
                                     title: "Deep File Parsing", 
                                     subtitle: "Scan output lines for file paths. Disable for better performance.",
                                     isOn: $isDeepFileParsingEnabled
+                                )
+                                Divider().background(VeloDesign.Colors.glassBorder)
+                                ToggleRow(
+                                    title: "Auto-List Directory", 
+                                    subtitle: "Automatically run 'ls' after navigating with 'cd' to refresh suggestions.",
+                                    isOn: $autoLSafterCD
                                 )
                             }
                             .padding()

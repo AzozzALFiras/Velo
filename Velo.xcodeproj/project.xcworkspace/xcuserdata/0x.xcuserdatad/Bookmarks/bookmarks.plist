@@ -36,13 +36,13 @@
 				<key>focused</key>
 				<string></string>
 				<key>leading</key>
-				<string>    let predictionEngine: PredictionEngine
-    
+				<string>    // Dependencies
+    let terminalEngine: TerminalEngine
     </string>
 				<key>trailing</key>
-				<string>// MARK: - Private
-    private var cancellables = Set&lt;AnyCancellable&gt;()
-    private var historyNavigationIndex = 0
+				<string>let historyManager: CommandHistoryManager
+    let predictionEngine: PredictionEngine
+    
 </string>
 			</dict>
 			<key>type</key>

@@ -27,9 +27,8 @@ final class PredictionViewModel: ObservableObject {
         predictionEngine.suggestions
     }
     
-    var inlinePrediction: String? {
-        predictionEngine.inlinePrediction
-    }
+    // Inline prediction - published for view updates
+    @Published private(set) var inlinePrediction: String?
     
     var selectedSuggestion: CommandSuggestion? {
         guard selectedSuggestionIndex < suggestions.count else { return nil }
@@ -92,6 +91,7 @@ final class PredictionViewModel: ObservableObject {
             .sink { [weak self] suggestions in
                 guard let self = self else { return }
                 self.showingSuggestions = !suggestions.isEmpty
+                print("🎯 showingSuggestions: \(self.showingSuggestions), count: \(suggestions.count)")
                 
                 // Reset selection if it's out of bounds
                 if self.selectedSuggestionIndex >= suggestions.count {
@@ -99,5 +99,9 @@ final class PredictionViewModel: ObservableObject {
                 }
             }
             .store(in: &cancellables)
+        
+        // Sync inline prediction for ghost text
+        predictionEngine.$inlinePrediction
+            .assign(to: &$inlinePrediction)
     }
 }

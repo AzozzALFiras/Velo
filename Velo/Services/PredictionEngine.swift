@@ -33,7 +33,7 @@ final class PredictionEngine: ObservableObject {
     
     // MARK: - Generate Predictions
     /// Generate predictions for the current input
-    func predict(for input: String, workingDirectory: String, remoteItems: [String] = []) {
+    func predict(for input: String, workingDirectory: String, remoteItems: [String] = [], isSSH: Bool = false) {
         guard input.count >= minQueryLength else {
             suggestions = []
             inlinePrediction = nil
@@ -42,38 +42,62 @@ final class PredictionEngine: ObservableObject {
         
         var allPredictions: [CommandSuggestion] = []
         
-        // 0. Remote/parsed directory suggestions for cd command (highest priority for SSH)
+        // 0. Directory suggestions for cd command
         if input.lowercased().hasPrefix("cd ") {
-            let remoteSuggestions = generateRemoteDirectorySuggestions(input: input, items: remoteItems)
-            allPredictions.append(contentsOf: remoteSuggestions)
+            print("🔍 isSSH: \(isSSH), remoteItems: \(remoteItems.count)")
             
-            // Also add local suggestions if not in SSH
-            if remoteItems.isEmpty {
+            if isSSH {
+                // SSH mode: Only use remote items from ls output
+                let remoteSuggestions = generateRemoteDirectorySuggestions(input: input, items: remoteItems)
+                allPredictions.append(contentsOf: remoteSuggestions)
+                
+                // Add cd ../ as common option
+                allPredictions.append(CommandSuggestion(
+                    command: "cd ../",
+                    description: "📂 Parent folder",
+                    source: .contextual,
+                    priority: 90
+                ))
+            } else {
+                // Local mode: Use local file system
                 let dirSuggestions = generateDirectorySuggestions(input: input, workingDirectory: workingDirectory)
                 allPredictions.append(contentsOf: dirSuggestions)
             }
         }
         
-        // 1. Prefix matches from history (highest priority)
-        let prefixMatches = generatePrefixMatches(input)
-        allPredictions.append(contentsOf: prefixMatches)
-        
-        // 2. Fuzzy matches from history
-        let fuzzyMatches = generateFuzzyMatches(input)
-        allPredictions.append(contentsOf: fuzzyMatches)
-        
-        // 3. Sequential predictions
-        let sequentialPredictions = generateSequentialPredictions()
-        allPredictions.append(contentsOf: sequentialPredictions)
-        
-        // 4. Contextual suggestions
-        let contextualSuggestions = generateContextualSuggestions(workingDirectory: workingDirectory)
-        allPredictions.append(contentsOf: contextualSuggestions)
+        // For SSH mode: Skip history/contextual that contain local paths
+        if !isSSH {
+            // 1. Prefix matches from history (highest priority)
+            let prefixMatches = generatePrefixMatches(input)
+            allPredictions.append(contentsOf: prefixMatches)
+            
+            // 2. Fuzzy matches from history
+            let fuzzyMatches = generateFuzzyMatches(input)
+            allPredictions.append(contentsOf: fuzzyMatches)
+            
+            // 3. Sequential predictions
+            let sequentialPredictions = generateSequentialPredictions()
+            allPredictions.append(contentsOf: sequentialPredictions)
+            
+            // 4. Contextual suggestions
+            let contextualSuggestions = generateContextualSuggestions(workingDirectory: workingDirectory)
+            allPredictions.append(contentsOf: contextualSuggestions)
+        } else {
+            // SSH mode: Only add command suggestions (not paths)
+            let prefixMatches = generatePrefixMatches(input)
+                .filter { !$0.command.contains("/Users/") && !$0.command.contains("/home/") }
+            allPredictions.append(contentsOf: prefixMatches)
+        }
         
         // Deduplicate and sort by priority
         let deduplicated = deduplicateSuggestions(allPredictions)
         suggestions = Array(deduplicated.prefix(maxSuggestions))
         
+        // Debug: print suggestions count
+        print("📋 Suggestions set: \(suggestions.count) items")
+        if let first = suggestions.first {
+            print("📋 First suggestion: \(first.command)")
+        }
         // Set inline prediction to best match
         inlinePrediction = suggestions.first?.command
     }

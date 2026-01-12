@@ -36,7 +36,9 @@ struct InputAreaView: View {
                     path: viewModel.currentDirectory,
                     onNavigate: { path in
                         viewModel.navigateToDirectory(path)
-                    }
+                    },
+                    sshItems: viewModel.parsedDirectoryItems,
+                    isSSH: viewModel.isExecuting
                 )
                 
                 // Prompt symbol
@@ -62,28 +64,39 @@ struct InputAreaView: View {
                         .onSubmit {
                             viewModel.executeCommand()
                         }
+                        // Handle Tab key for autocompletion (SSH / Suggestions)
+                        .onKeyPress(.tab) {
+                            // 1. Priority: Accept selected suggestion from dropdown
+                            if predictionVM.showingSuggestions, let selected = predictionVM.selectedSuggestion {
+                                viewModel.acceptSuggestion(selected)
+                                return .handled
+                            }
+                            
+                            // 2. Accept inline ghost text
+                            if let _ = predictionVM.inlinePrediction {
+                                viewModel.acceptPrediction()
+                                return .handled
+                            }
+                            
+                            // 3. Fallback: Send Tab to remote (SSH) if running
+                            if viewModel.isExecuting {
+                                viewModel.sendTab()
+                                return .handled
+                            }
+                            
+                            return .ignored
+                        }
+                        // Handle Right Arrow for accepting inline ghost text
+                        .onKeyPress(.rightArrow) {
+                            if let _ = predictionVM.inlinePrediction {
+                                viewModel.acceptPrediction()
+                                return .handled
+                            }
+                            return .ignored
+                        }
                 }
                 
-                // Tab completion button (visible during SSH/running commands)
-                if viewModel.isExecuting {
-                    Button(action: {
-                        viewModel.sendTab()
-                    }) {
-                        HStack(spacing: 4) {
-                            Image(systemName: "arrow.right")
-                                .font(.system(size: 10, weight: .bold))
-                            Text("Tab")
-                                .font(.system(size: 10, weight: .medium))
-                        }
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(VeloDesign.Colors.neonCyan.opacity(0.15))
-                        .cornerRadius(4)
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundColor(VeloDesign.Colors.neonCyan)
-                    .help("Send Tab for autocomplete")
-                }
+                // Status indicator
                 
                 // Status indicator
                 if viewModel.isExecuting {

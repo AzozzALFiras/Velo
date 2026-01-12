@@ -67,16 +67,28 @@ final class TerminalViewModel: ObservableObject, Identifiable {
         setupBindings()
     }
     
-
     
     // MARK: - Execute Command
     func executeCommand() {
         let command = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !command.isEmpty else { return }
         
-        // If a process is already running, send input to it instead
+        // Handle "clear" locally even during SSH (it clears Velo's output buffer)
+        if command == "clear" {
+            clearScreen()
+            inputText = ""
+            return
+        }
+        
+        // Auto-LS logic: Append ' && ls' to cd commands if enabled
+        var finalCommand = command
+        if UserDefaults.standard.bool(forKey: "autoLSafterCD") && command.trimmingCharacters(in: .whitespaces).hasPrefix("cd ") {
+            finalCommand += " && ls"
+        }
+        
+        // If a process is already running (e.g., SSH session), send input to it
         if isExecuting {
-            terminalEngine.sendInput(command + "\n")
+            terminalEngine.sendInput(finalCommand + "\n")
             inputText = ""
             return
         }
@@ -87,8 +99,27 @@ final class TerminalViewModel: ObservableObject, Identifiable {
         historyNavigationIndex = 0
         errorMessage = nil
         
-        // Handle built-in commands
+        // Handle built-in commands (cd for local machine)
+        // Note: We use original 'command' for local 'cd' because '&& ls' won't work with handleBuiltinCommand logic directly
+        // UNLESS we modify handleBuiltinCommand. But for local 'cd', Velo handles navigation internally.
+        // So Auto-LS logic here is mainly for SSH/Remote sessions.
+        // For local 'cd', we might want to run 'ls' too? 
+        // Velo's local 'cd' updates currentDirectory and 'ls' is handled by 'ls' command separately.
+        // Since Velo is a terminal emulator, running 'cd ... && ls' as a raw command via 'execute' works locally too (it runs in shell).
+        // BUT 'handleBuiltinCommand' intercepts 'cd'.
         if handleBuiltinCommand(command) {
+            // For local CD, if auto-LS is on, we can manually trigger 'ls'
+            if UserDefaults.standard.bool(forKey: "autoLSafterCD") && command.hasPrefix("cd ") {
+                 Task {
+                     // Small delay to ensure cd completes
+                     try? await Task.sleep(nanoseconds: 100_000_000)
+                     try? await Task.sleep(nanoseconds: 100_000_000)
+                     await MainActor.run {
+                         self.inputText = "ls"
+                         self.executeCommand()
+                     } 
+                 }
+            }
             return
         }
         
@@ -143,17 +174,11 @@ final class TerminalViewModel: ObservableObject, Identifiable {
     
     // MARK: - Clear Screen
     func clearScreen() {
-        // Clear local output buffer
+        // Clear local output buffer only
+        // We don't send commands to remote because Velo doesn't interpret ANSI codes
         outputLines.removeAll()
         terminalEngine.clearOutput()
-        
-        // If running (SSH session), send ANSI clear sequence
-        if isExecuting {
-            // Send ANSI escape codes: clear screen + move cursor to home
-            // ESC[2J = clear entire screen
-            // ESC[H = move cursor to home position
-            terminalEngine.sendInput("\u{001B}[2J\u{001B}[H")
-        }
+        parsedDirectoryItems.removeAll()  // Also clear parsed items
     }
     
     // MARK: - Accept Inline Suggestion (Tab key)
@@ -288,10 +313,12 @@ final class TerminalViewModel: ObservableObject, Identifiable {
             .sink { [weak self] text in
                 guard let self = self else { return }
                 // Pass parsed items to prediction engine
+                // When isExecuting (SSH session), disable local suggestions
                 self.predictionEngine.predict(
                     for: text,
                     workingDirectory: self.currentDirectory,
-                    remoteItems: self.parsedDirectoryItems
+                    remoteItems: self.parsedDirectoryItems,
+                    isSSH: self.isExecuting
                 )
             }
             .store(in: &cancellables)
@@ -299,36 +326,76 @@ final class TerminalViewModel: ObservableObject, Identifiable {
     
     // MARK: - Parse Directory Items from Output
     private func parseDirectoryItemsFromOutput(_ lines: [OutputLine]) {
-        // Get recent output lines (last 50) to find directory listings
-        let recentLines = lines.suffix(50)
+        // Scan last 30 lines for directory listings
+        let recentLines = lines.suffix(30)
         var items: Set<String> = []
+        var detectedDirChange = false
         
         for line in recentLines {
-            let text = line.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            let text = line.text
             
-            // Skip empty lines and prompts
-            if text.isEmpty || text.contains("root@") || text.contains("$") || text.contains("#") && text.count < 60 {
+            // 1. Detect CD command execution to clear stale items
+            // "root@mail:~# cd ..." or similar patterns
+            // If we see a CD, we discard all previously gathered items in this batch
+            // because they belong to the old directory context.
+            if text.contains(" cd ") && (text.contains("#") || text.contains("$") || text.contains(">")) {
+                items.removeAll()
+                detectedDirChange = true
                 continue
             }
             
-            // Parse space-separated items (typical ls output)
-            let words = text.components(separatedBy: .whitespaces)
+            // Skip very short lines
+            guard text.count >= 3 else { continue }
+            
+            // Skip ANSI escape codes and bracketed paste markers
+            if text.contains("[?2004") { continue }
+            if text.contains("root@") && (text.hasSuffix("#") || text.hasSuffix("$")) { continue }
+            
+            // Split into words by whitespace
+            let words = text.components(separatedBy: CharacterSet.whitespaces)
                 .map { $0.trimmingCharacters(in: .whitespaces) }
-                .filter { !$0.isEmpty && $0.count > 1 && !$0.hasPrefix("-") && !$0.hasPrefix("[") }
+                .filter { $0.count >= 2 && $0.count <= 50 }
             
             for word in words {
-                // Filter out common non-file items
-                let cleaned = word.trimmingCharacters(in: CharacterSet(charactersIn: "*/"))
-                if cleaned.count >= 2 && 
-                   !cleaned.contains(":") && 
-                   !cleaned.hasPrefix(".") &&
-                   cleaned.range(of: "^[a-zA-Z0-9_.-]+$", options: .regularExpression) != nil {
-                    items.insert(cleaned)
-                }
+                // Remove ANSI codes fully (including ? for bracketed paste and simple Escapes)
+                var cleaned = word
+                    .replacingOccurrences(of: "\\x1B\\[[0-9;?]*[a-zA-Z]", with: "", options: .regularExpression)
+                    // Also strip standalone ESC or control chars if any
+                    .replacingOccurrences(of: "\\x1B", with: "")
+                    .trimmingCharacters(in: CharacterSet(charactersIn: "*/@ []\r\n"))
+                
+                // Skip empty
+                guard !cleaned.isEmpty else { continue }
+                
+                // Skip if starts with special chars (except . or _ which are valid for files)
+                // We allow .config or _private
+                guard let first = cleaned.first else { continue }
+                
+                // If pure number, skip (likelihood of being size or pid)
+                if Int(cleaned) != nil { continue }
+                
+                // Must contain at least one alpha char to be interesting
+                if cleaned.rangeOfCharacter(from: .letters) == nil { continue }
+                
+                // Skip generic irrelevant strings
+                if cleaned.contains("-generic") { continue }
+                if cleaned.contains("@") { continue } // email or user@host
+                if cleaned.contains(":") { continue } // times or host:path
+                
+                items.insert(cleaned)
             }
         }
         
-        parsedDirectoryItems = Array(items).sorted()
+        // Update parsed items
+        if !items.isEmpty {
+            parsedDirectoryItems = Array(items).sorted()
+            print("📂 Found \(items.count) items: \(parsedDirectoryItems.prefix(20))")
+        } else if detectedDirChange {
+            // IF we successfully changed directory but found no items (yet),
+            // we MUST clear the old items to prevent stale suggestions.
+            parsedDirectoryItems.removeAll()
+            print("🧹 Cleared items due to CD command")
+        }
     }
     
     private func handleBuiltinCommand(_ command: String) -> Bool {

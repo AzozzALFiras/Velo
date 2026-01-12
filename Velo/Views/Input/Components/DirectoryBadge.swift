@@ -11,6 +11,8 @@ import SwiftUI
 struct DirectoryBadge: View {
     let path: String
     let onNavigate: (String) -> Void
+    var sshItems: [String] = []
+    var isSSH: Bool = false
     
     @State private var showingPicker = false
     @State private var isHovered = false
@@ -64,7 +66,9 @@ struct DirectoryBadge: View {
                 onSelect: { selectedPath in
                     showingPicker = false
                     onNavigate(selectedPath)
-                }
+                },
+                sshItems: sshItems,
+                isSSH: isSSH
             )
         }
     }
@@ -74,6 +78,8 @@ struct DirectoryBadge: View {
 struct DirectoryPickerPopover: View {
     let currentPath: String
     let onSelect: (String) -> Void
+    var sshItems: [String] = []
+    var isSSH: Bool = false
     
     @State private var navigationPath: [String] = []
     @State private var folderContents: [DirectoryItem] = []
@@ -114,7 +120,7 @@ struct DirectoryPickerPopover: View {
                     .buttonStyle(.plain)
                 }
                 
-                Text(isShowingQuickAccess ? "Quick Navigation" : displayBrowsePath)
+                Text(isShowingQuickAccess ? (isSSH ? "Remote Navigation" : "Quick Navigation") : displayBrowsePath)
                     .font(VeloDesign.Typography.caption)
                     .foregroundColor(VeloDesign.Colors.textMuted)
                     .lineLimit(1)
@@ -153,36 +159,56 @@ struct DirectoryPickerPopover: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     if isShowingQuickAccess {
-                        // Quick access locations
-                        QuickAccessRow(name: "Home", icon: "house.fill", color: VeloDesign.Colors.neonCyan) {
-                            drillInto(NSHomeDirectory())
-                        }
-                        QuickAccessRow(name: "Desktop", icon: "menubar.dock.rectangle", color: VeloDesign.Colors.info) {
-                            drillInto(NSHomeDirectory() + "/Desktop")
-                        }
-                        QuickAccessRow(name: "Documents", icon: "doc.fill", color: VeloDesign.Colors.neonPurple) {
-                            drillInto(NSHomeDirectory() + "/Documents")
-                        }
-                        QuickAccessRow(name: "Downloads", icon: "arrow.down.circle.fill", color: VeloDesign.Colors.neonGreen) {
-                            drillInto(NSHomeDirectory() + "/Downloads")
-                        }
-                        QuickAccessRow(name: "Applications", icon: "app.fill", color: VeloDesign.Colors.warning) {
-                            drillInto("/Applications")
-                        }
-                        QuickAccessRow(name: "Developer", icon: "hammer.fill", color: VeloDesign.Colors.error) {
-                            drillInto(NSHomeDirectory() + "/Developer")
-                        }
-                        
-                        Divider()
-                            .background(VeloDesign.Colors.glassBorder)
-                            .padding(.vertical, VeloDesign.Spacing.xs)
-                        
-                        // Current folder shortcut
-                        QuickAccessRow(name: "Current: \((currentPath as NSString).lastPathComponent)", icon: "folder.fill", color: VeloDesign.Colors.textSecondary) {
-                            drillInto(currentPath)
+                        if !isSSH {
+                            // Local Quick access locations
+                            QuickAccessRow(name: "Home", icon: "house.fill", color: VeloDesign.Colors.neonCyan) {
+                                drillInto(NSHomeDirectory())
+                            }
+                            QuickAccessRow(name: "Desktop", icon: "menubar.dock.rectangle", color: VeloDesign.Colors.info) {
+                                drillInto(NSHomeDirectory() + "/Desktop")
+                            }
+                            QuickAccessRow(name: "Documents", icon: "doc.fill", color: VeloDesign.Colors.neonPurple) {
+                                drillInto(NSHomeDirectory() + "/Documents")
+                            }
+                            QuickAccessRow(name: "Downloads", icon: "arrow.down.circle.fill", color: VeloDesign.Colors.neonGreen) {
+                                drillInto(NSHomeDirectory() + "/Downloads")
+                            }
+                            QuickAccessRow(name: "Applications", icon: "app.fill", color: VeloDesign.Colors.warning) {
+                                drillInto("/Applications")
+                            }
+                            QuickAccessRow(name: "Developer", icon: "hammer.fill", color: VeloDesign.Colors.error) {
+                                drillInto(NSHomeDirectory() + "/Developer")
+                            }
+                            
+                            Divider()
+                                .background(VeloDesign.Colors.glassBorder)
+                                .padding(.vertical, VeloDesign.Spacing.xs)
+                            
+                            // Current folder shortcut
+                            QuickAccessRow(name: "Current: \((currentPath as NSString).lastPathComponent)", icon: "folder.fill", color: VeloDesign.Colors.textSecondary) {
+                                drillInto(currentPath)
+                            }
+                        } else {
+                            // SSH Mode: Show parsed items directly as "Current Folder" content
+                            // We treat the "Quick Access" view in SSH as listing the CURRENT folder's captured items
+                            if sshItems.isEmpty {
+                                Text("No cached directories found.\nRun 'ls' to populate.")
+                                    .font(VeloDesign.Typography.caption)
+                                    .foregroundColor(VeloDesign.Colors.textMuted)
+                                    .frame(maxWidth: .infinity)
+                                    .padding(VeloDesign.Spacing.lg)
+                                    .multilineTextAlignment(.center)
+                            } else {
+                                ForEach(sshItems, id: \.self) { item in
+                                    // For SSH, we can't drill down easily, so we just select it to 'cd' into it
+                                    SSHDirectoryRow(name: item) {
+                                        onSelect(item)
+                                    }
+                                }
+                            }
                         }
                     } else {
-                        // Folder contents
+                        // Folder contents (Local Drill Down)
                         if folderContents.isEmpty {
                             Text("Empty folder")
                                 .font(VeloDesign.Typography.caption)
@@ -214,6 +240,8 @@ struct DirectoryPickerPopover: View {
     }
     
     private func loadContents(of path: String) {
+        guard !isSSH else { return } // No dynamic loading for SSH yet
+        
         do {
             let contents = try FileManager.default.contentsOfDirectory(atPath: path)
             folderContents = contents
@@ -351,6 +379,42 @@ struct DirectoryRow: View {
                         .font(.system(size: 10))
                         .foregroundColor(VeloDesign.Colors.textMuted)
                 }
+            }
+            .padding(.horizontal, VeloDesign.Spacing.md)
+            .padding(.vertical, VeloDesign.Spacing.sm)
+            .background(
+                RoundedRectangle(cornerRadius: VeloDesign.Radius.small)
+                    .fill(isHovered ? VeloDesign.Colors.elevatedSurface : Color.clear)
+            )
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            isHovered = hovering
+        }
+    }
+}
+
+// MARK: - SSH Directory Row
+struct SSHDirectoryRow: View {
+    let name: String
+    let onSelect: () -> Void
+    
+    @State private var isHovered = false
+    
+    var body: some View {
+        Button(action: onSelect) {
+            HStack(spacing: VeloDesign.Spacing.sm) {
+                Image(systemName: "folder.fill")
+                    .font(.system(size: 12))
+                    .foregroundColor(VeloDesign.Colors.neonCyan.opacity(0.7))
+                    .frame(width: 18)
+                
+                Text(name)
+                    .font(VeloDesign.Typography.monoSmall)
+                    .foregroundColor(VeloDesign.Colors.textPrimary)
+                    .lineLimit(1)
+                
+                Spacer()
             }
             .padding(.horizontal, VeloDesign.Spacing.md)
             .padding(.vertical, VeloDesign.Spacing.sm)

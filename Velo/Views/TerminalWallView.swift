@@ -74,7 +74,6 @@ struct TerminalWallView: View {
                         TerminalTabContent(
                             terminalVM: session,
                             historyVM: historyVM,
-                            predictionVM: predictionVM,
                             showHistorySidebar: $showHistorySidebar,
                             showInsightPanel: $showInsightPanel,
                             showSettings: $showSettings,

@@ -13,12 +13,33 @@ import SwiftUI
 struct TerminalTabContent: View {
     @ObservedObject var terminalVM: TerminalViewModel
     @ObservedObject var historyVM: HistoryViewModel
-    @ObservedObject var predictionVM: PredictionViewModel
+    
+    // Create prediction VM from terminal's engine so they share the same state
+    @StateObject private var predictionVM: PredictionViewModel
     
     @Binding var showHistorySidebar: Bool
     @Binding var showInsightPanel: Bool
     @Binding var showSettings: Bool
     @Binding var insightPanelWidth: CGFloat
+    
+    init(
+        terminalVM: TerminalViewModel,
+        historyVM: HistoryViewModel,
+        showHistorySidebar: Binding<Bool>,
+        showInsightPanel: Binding<Bool>,
+        showSettings: Binding<Bool>,
+        insightPanelWidth: Binding<CGFloat>
+    ) {
+        self.terminalVM = terminalVM
+        self.historyVM = historyVM
+        self._showHistorySidebar = showHistorySidebar
+        self._showInsightPanel = showInsightPanel
+        self._showSettings = showSettings
+        self._insightPanelWidth = insightPanelWidth
+        
+        // Use the terminal's prediction engine
+        self._predictionVM = StateObject(wrappedValue: PredictionViewModel(predictionEngine: terminalVM.predictionEngine))
+    }
     
     var body: some View {
         HStack(spacing: 0) {
@@ -60,6 +81,5 @@ struct TerminalTabContent: View {
                 .transition(.move(edge: .trailing))
             }
         }
-        }
     }
-
+}
