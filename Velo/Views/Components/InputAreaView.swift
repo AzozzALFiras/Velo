@@ -138,6 +138,20 @@ struct InputAreaView: View {
             isFocused = true
             startCursorBlink()
         }
+        // Handle Tab key for accepting inline suggestions
+        .onKeyPress(.tab) {
+            // If we have an inline suggestion and not executing, accept it
+            if !viewModel.isExecuting {
+                if viewModel.acceptInlineSuggestion() {
+                    return .handled
+                }
+            } else {
+                // For running commands (SSH), send Tab to process
+                viewModel.sendTab()
+                return .handled
+            }
+            return .ignored
+        }
     }
     
     private func startCursorBlink() {

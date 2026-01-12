@@ -147,10 +147,23 @@ final class TerminalViewModel: ObservableObject, Identifiable {
         outputLines.removeAll()
         terminalEngine.clearOutput()
         
-        // If running (SSH session), also send clear command to remote
+        // If running (SSH session), send ANSI clear sequence
         if isExecuting {
-            terminalEngine.sendInput("clear\n")
+            // Send ANSI escape codes: clear screen + move cursor to home
+            // ESC[2J = clear entire screen
+            // ESC[H = move cursor to home position
+            terminalEngine.sendInput("\u{001B}[2J\u{001B}[H")
         }
+    }
+    
+    // MARK: - Accept Inline Suggestion (Tab key)
+    func acceptInlineSuggestion() -> Bool {
+        if let suggestion = predictionEngine.inlinePrediction, !suggestion.isEmpty {
+            inputText = suggestion
+            predictionEngine.clear()
+            return true
+        }
+        return false
     }
     
     // MARK: - AI Actions

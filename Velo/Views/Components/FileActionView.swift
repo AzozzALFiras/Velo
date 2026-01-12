@@ -109,10 +109,49 @@ struct FileInfo {
     let path: String
     let type: FileType
     let isDirectory: Bool
+    let isRemote: Bool  // SSH remote file
+    
+    init(name: String, path: String, type: FileType, isDirectory: Bool, isRemote: Bool = false) {
+        self.name = name
+        self.path = path
+        self.type = type
+        self.isDirectory = isDirectory
+        self.isRemote = isRemote
+    }
     
     var actions: [FileAction] {
         var actions: [FileAction] = []
         
+        if isRemote {
+            // SSH Remote Actions
+            if isDirectory {
+                actions = [
+                    FileAction(name: "Open Folder", icon: "folder", color: VeloDesign.Colors.neonCyan, command: "cd \"\(path)\""),
+                    FileAction(name: "List Contents", icon: "list.bullet", command: "ls -la \"\(path)\""),
+                    FileAction(name: "Copy Path", icon: "doc.on.clipboard", command: "__copy_path__"),
+                    FileAction(name: "Copy Name", icon: "textformat", command: "__copy_name__"),
+                    FileAction(name: "📥 Download Folder", icon: "arrow.down.circle", color: VeloDesign.Colors.neonGreen, command: "__download_folder__"),
+                    FileAction(name: "Rename", icon: "pencil", color: VeloDesign.Colors.warning, command: "__rename__"),
+                    FileAction(name: "Get Size", icon: "chart.bar", command: "du -sh \"\(path)\""),
+                ]
+            } else {
+                actions = [
+                    FileAction(name: "View", icon: "eye", color: VeloDesign.Colors.neonPurple, command: "cat \"\(path)\""),
+                    FileAction(name: "Copy Path", icon: "doc.on.clipboard", command: "__copy_path__"),
+                    FileAction(name: "Copy Name", icon: "textformat", command: "__copy_name__"),
+                    FileAction(name: "📥 Download File", icon: "arrow.down.circle", color: VeloDesign.Colors.neonGreen, command: "__download_file__"),
+                    FileAction(name: "Rename", icon: "pencil", color: VeloDesign.Colors.warning, command: "__rename__"),
+                    FileAction(name: "Get Info", icon: "info.circle", command: "ls -la \"\(path)\" && file \"\(path)\""),
+                    FileAction(name: "Edit (nano)", icon: "pencil.line", command: "nano \"\(path)\""),
+                ]
+            }
+            // Delete action
+            actions.append(FileAction(name: "Delete", icon: "trash", color: VeloDesign.Colors.error, command: "rm -i \"\(path)\"", isDestructive: true))
+            
+            return actions
+        }
+        
+        // Local file actions (original)
         // Common actions
         actions.append(FileAction(name: "Open", icon: "arrow.up.forward.square", color: VeloDesign.Colors.neonGreen, command: "open \"\(path)\""))
         actions.append(FileAction(name: "Open in Finder", icon: "folder", command: "open -R \"\(path)\""))
@@ -232,9 +271,20 @@ struct InteractiveFileView: View {
     let filename: String
     let currentDirectory: String
     let onAction: (String) -> Void
+    let isSSHSession: Bool  // NEW: indicates remote file
     
     @State private var isHovered = false
     @State private var showingMenu = false
+    @State private var showingRenameSheet = false
+    @State private var showingSavePanel = false
+    @State private var newName = ""
+    
+    init(filename: String, currentDirectory: String, onAction: @escaping (String) -> Void, isSSHSession: Bool = false) {
+        self.filename = filename
+        self.currentDirectory = currentDirectory
+        self.onAction = onAction
+        self.isSSHSession = isSSHSession
+    }
     
     var fileInfo: FileInfo {
         let path: String
@@ -246,11 +296,9 @@ struct InteractiveFileView: View {
             path = (currentDirectory as NSString).appendingPathComponent(filename)
         }
         
-        // Optimization: Do NOT check file existence here. It blocks the main thread during scrolling.
-        // We infer type from filename only.
         let isDir = filename.hasSuffix("/")
         let type: FileType = isDir ? .folder : FileType.detect(from: filename)
-        return FileInfo(name: filename, path: path, type: type, isDirectory: isDir)
+        return FileInfo(name: filename, path: path, type: type, isDirectory: isDir, isRemote: isSSHSession)
     }
     
     var body: some View {
@@ -264,6 +312,13 @@ struct InteractiveFileView: View {
             Text(filename)
                 .font(VeloDesign.Typography.monoFont)
                 .foregroundColor(isHovered ? VeloDesign.Colors.neonCyan : VeloDesign.Colors.textPrimary)
+            
+            // Remote indicator for SSH
+            if isSSHSession {
+                Image(systemName: "network")
+                    .font(.system(size: 8))
+                    .foregroundColor(VeloDesign.Colors.neonPurple.opacity(0.7))
+            }
         }
         .padding(.horizontal, VeloDesign.Spacing.xs)
         .padding(.vertical, 2)
@@ -295,6 +350,19 @@ struct InteractiveFileView: View {
                 }
             )
         }
+        .sheet(isPresented: $showingRenameSheet) {
+            RenameSheet(
+                currentName: fileInfo.name,
+                isRemote: isSSHSession,
+                onRename: { newName in
+                    if isSSHSession {
+                        onAction("mv \"\(fileInfo.path)\" \"\((fileInfo.path as NSString).deletingLastPathComponent)/\(newName)\"")
+                    } else {
+                        onAction("mv \"\(fileInfo.path)\" \"\((fileInfo.path as NSString).deletingLastPathComponent)/\(newName)\"")
+                    }
+                }
+            )
+        }
     }
     
     private func handleAction(_ action: FileAction) {
@@ -306,11 +374,102 @@ struct InteractiveFileView: View {
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(fileInfo.name, forType: .string)
         case "__preview__":
-            // Use Quick Look for preview
             let url = URL(fileURLWithPath: fileInfo.path)
             NSWorkspace.shared.open(url)
+        case "__rename__":
+            showingRenameSheet = true
+        case "__download_file__", "__download_folder__":
+            showSSHDownloadDialog()
         default:
             onAction(action.command)
+        }
+    }
+    
+    private func showSSHDownloadDialog() {
+        let savePanel = NSSavePanel()
+        savePanel.title = "Save to Local"
+        savePanel.nameFieldStringValue = fileInfo.name
+        savePanel.canCreateDirectories = true
+        savePanel.directoryURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+        
+        savePanel.begin { response in
+            if response == .OK, let url = savePanel.url {
+                // Build scp command - user needs to replace with their SSH connection
+                // Format: scp user@host:remote_path local_path
+                let localPath = url.path
+                let remotePath = fileInfo.path
+                
+                // For folder, use -r flag
+                let scpFlag = fileInfo.isDirectory ? "-r " : ""
+                
+                // Display a message about the download command
+                // In real implementation, we'd need SSHConnection context
+                let downloadCommand = "# Run in a new terminal:\n# scp \(scpFlag)USER@HOST:\"\(remotePath)\" \"\(localPath)\""
+                
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(downloadCommand, forType: .string)
+                
+                // Show notification
+                NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.notifications")!)
+            }
+        }
+    }
+}
+
+// MARK: - Rename Sheet
+struct RenameSheet: View {
+    let currentName: String
+    let isRemote: Bool
+    let onRename: (String) -> Void
+    
+    @State private var newName: String = ""
+    @Environment(\.dismiss) private var dismiss
+    
+    var body: some View {
+        VStack(spacing: VeloDesign.Spacing.lg) {
+            // Header
+            HStack {
+                Image(systemName: isRemote ? "network" : "doc")
+                    .foregroundColor(VeloDesign.Colors.neonCyan)
+                Text("Rename")
+                    .font(VeloDesign.Typography.headline)
+                    .foregroundColor(VeloDesign.Colors.textPrimary)
+            }
+            
+            VStack(alignment: .leading, spacing: VeloDesign.Spacing.sm) {
+                Text("Current: \(currentName)")
+                    .font(VeloDesign.Typography.caption)
+                    .foregroundColor(VeloDesign.Colors.textMuted)
+                
+                TextField("New name", text: $newName)
+                    .textFieldStyle(.roundedBorder)
+                    .font(VeloDesign.Typography.monoFont)
+            }
+            
+            HStack {
+                Button("Cancel") {
+                    dismiss()
+                }
+                .buttonStyle(.bordered)
+                
+                Spacer()
+                
+                Button("Rename") {
+                    if !newName.isEmpty {
+                        onRename(newName)
+                        dismiss()
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(VeloDesign.Colors.neonCyan)
+                .disabled(newName.isEmpty)
+            }
+        }
+        .padding()
+        .frame(width: 300)
+        .background(VeloDesign.Colors.darkSurface)
+        .onAppear {
+            newName = currentName
         }
     }
 }
