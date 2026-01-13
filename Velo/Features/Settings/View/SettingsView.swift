@@ -10,21 +10,26 @@ import SwiftUI
 struct SettingsView: View {
     @Environment(\.dismiss) var dismiss
     var onClose: (() -> Void)? = nil
-    
+
     // Preferences
     @AppStorage("autoOpenHistory") private var autoOpenHistory = true
     @AppStorage("autoOpenAIPanel") private var autoOpenAIPanel = true
-    
+
     // Features
     @AppStorage("isInteractiveOutputEnabled") private var isInteractiveOutputEnabled = true
     @AppStorage("isDeepFileParsingEnabled") private var isDeepFileParsingEnabled = true
     @AppStorage("autoLSafterCD") private var autoLSafterCD = false
-    
+
     // Cloud AI
     @AppStorage("selectedAIProvider") private var selectedAIProvider = "openai"
-    @AppStorage("openaiApiKey") private var openaiApiKey = ""
-    @AppStorage("anthropicApiKey") private var anthropicApiKey = ""
-    @AppStorage("deepseekApiKey") private var deepseekApiKey = ""
+
+    // API Keys (now stored in Keychain)
+    @State private var openaiApiKey = ""
+    @State private var anthropicApiKey = ""
+    @State private var deepseekApiKey = ""
+
+    // Cloud AI Service for Keychain operations
+    @StateObject private var aiService = CloudAIService()
     
     // Social Links
     private let githubURL = URL(string: "https://github.com/azozzalfiras")!
@@ -157,10 +162,19 @@ struct SettingsView: View {
                                 Group {
                                     if selectedAIProvider == "openai" {
                                         SecureFieldRow(title: "OpenAI API Key", text: $openaiApiKey, placeholder: "sk-...")
+                                            .onChange(of: openaiApiKey) { newValue in
+                                                saveApiKey(for: "openai", key: newValue)
+                                            }
                                     } else if selectedAIProvider == "anthropic" {
                                         SecureFieldRow(title: "Anthropic API Key", text: $anthropicApiKey, placeholder: "sk-ant-...")
+                                            .onChange(of: anthropicApiKey) { newValue in
+                                                saveApiKey(for: "anthropic", key: newValue)
+                                            }
                                     } else if selectedAIProvider == "deepseek" {
                                         SecureFieldRow(title: "DeepSeek API Key", text: $deepseekApiKey, placeholder: "sk-...")
+                                            .onChange(of: deepseekApiKey) { newValue in
+                                                saveApiKey(for: "deepseek", key: newValue)
+                                            }
                                     }
                                 }
                             }
@@ -269,6 +283,25 @@ struct SettingsView: View {
             }
         }
         .frame(width: 450, height: 600)
+        .onAppear {
+            loadApiKeys()
+        }
+    }
+
+    // MARK: - Helper Methods
+
+    private func loadApiKeys() {
+        openaiApiKey = aiService.getApiKey(for: "openai")
+        anthropicApiKey = aiService.getApiKey(for: "anthropic")
+        deepseekApiKey = aiService.getApiKey(for: "deepseek")
+    }
+
+    private func saveApiKey(for provider: String, key: String) {
+        do {
+            try aiService.saveApiKey(for: provider, key: key)
+        } catch {
+            print("Failed to save API key for \(provider): \(error)")
+        }
     }
     
     private func checkUpdate() {

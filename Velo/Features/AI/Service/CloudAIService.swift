@@ -36,16 +36,24 @@ class CloudAIService: ObservableObject {
     @MainActor @Published var isThinking = false
     @MainActor @Published var errorMessage: String?
     @MainActor @Published var availableModels: [AIModelConfig] = []
-    
+
     // Dependencies (Settings)
     @AppStorage("selectedAIProvider") private var selectedProviderId = "openai"
-    @AppStorage("openaiApiKey") private var openaiKey = ""
-    @AppStorage("anthropicApiKey") private var anthropicKey = ""
-    @AppStorage("deepseekApiKey") private var deepseekKey = ""
-    
+
     private let urlSession = URLSession.shared
-    
+    private let keychainService = KeychainService.shared
+
     init() {
+        // Migrate API keys from UserDefaults to Keychain on first run
+        let migrationResults = keychainService.migrateFromUserDefaults()
+        for (key, success) in migrationResults {
+            if success {
+                print("✓ Migrated \(key) to Keychain")
+            } else {
+                print("✗ Failed to migrate \(key)")
+            }
+        }
+
         Task {
             await loadModels()
         }
@@ -195,11 +203,68 @@ class CloudAIService: ObservableObject {
     }
     
     private func getApiKey(for provider: ProviderFlavor) -> String {
+        let key: KeychainService.KeychainKey
         switch provider {
-        case .openai: return openaiKey
-        case .anthropic: return anthropicKey
-        case .deepseek: return deepseekKey
+        case .openai: key = .openaiAPIKey
+        case .anthropic: key = .anthropicAPIKey
+        case .deepseek: key = .deepseekAPIKey
         }
+
+        do {
+            return try keychainService.retrieve(key: key) ?? ""
+        } catch {
+            print("Failed to retrieve API key for \(provider): \(error)")
+            return ""
+        }
+    }
+
+    // MARK: - API Key Management
+
+    /// Save an API key to Keychain
+    @MainActor
+    func saveApiKey(for provider: String, key: String) throws {
+        let keychainKey: KeychainService.KeychainKey
+        switch provider {
+        case "openai": keychainKey = .openaiAPIKey
+        case "anthropic": keychainKey = .anthropicAPIKey
+        case "deepseek": keychainKey = .deepseekAPIKey
+        default: throw AIError.unknownProvider
+        }
+
+        try keychainService.save(key: keychainKey, value: key)
+    }
+
+    /// Retrieve an API key from Keychain
+    @MainActor
+    func getApiKey(for provider: String) -> String {
+        let keychainKey: KeychainService.KeychainKey
+        switch provider {
+        case "openai": keychainKey = .openaiAPIKey
+        case "anthropic": keychainKey = .anthropicAPIKey
+        case "deepseek": keychainKey = .deepseekAPIKey
+        default: return ""
+        }
+
+        do {
+            return try keychainService.retrieve(key: keychainKey) ?? ""
+        } catch {
+            print("Failed to retrieve API key: \(error)")
+            return ""
+        }
+    }
+
+    /// Delete an API key from Keychain
+    @MainActor
+    func deleteApiKey(for provider: String) throws {
+        let keychainKey: KeychainService.KeychainKey
+        switch provider {
+        case "openai": keychainKey = .openaiAPIKey
+        case "anthropic": keychainKey = .anthropicAPIKey
+        case "deepseek": keychainKey = .deepseekAPIKey
+        default: throw AIError.unknownProvider
+        }
+
+        try keychainService.delete(key: keychainKey)
     }
     
     private func generateSystemPrompt() -> String {
