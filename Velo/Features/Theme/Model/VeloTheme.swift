@@ -138,31 +138,31 @@ extension VeloTheme {
         name: "Neon Dark",
         isBuiltIn: true,
         colorScheme: ColorScheme(
-            neonCyan: "00F5FF",
-            neonPurple: "BF40BF",
-            neonGreen: "00FF88",
-            deepSpace: "0A0A14",
-            darkSurface: "12121C",
-            cardBackground: "1A1A28",
-            elevatedSurface: "22222F",
-            textPrimary: "FFFFFF",
-            textSecondary: "A0A0B0",
-            textMuted: "606070",
-            success: "00FF88",
-            warning: "FFD60A",
-            error: "FF6B6B",
-            info: "6B9BFF",
+            neonCyan: "4AA9FF",         // Refined - toned down from 00F5FF
+            neonPurple: "9B59FF",       // Refined - toned down from BF40BF
+            neonGreen: "10B981",        // Refined - replaced with professional green
+            deepSpace: "0A0A0F",        // Updated to match ColorTokens.layer0
+            darkSurface: "14141B",      // Updated to match ColorTokens.layer1
+            cardBackground: "1C1C26",   // Updated to match ColorTokens.layer2
+            elevatedSurface: "252530",  // Updated to match ColorTokens.layer3
+            textPrimary: "F8FAFC",      // Updated to match ColorTokens.textPrimary
+            textSecondary: "94A3B8",    // Updated to match ColorTokens.textSecondary
+            textMuted: "64748B",        // Updated to match ColorTokens.textTertiary
+            success: "10B981",          // Updated to match ColorTokens.success
+            warning: "F59E0B",          // Updated to match ColorTokens.warning
+            error: "EF4444",            // Updated to match ColorTokens.error
+            info: "3B82F6",             // Updated to match ColorTokens.info
             glassWhiteOpacity: 0.05,
             glassBorderOpacity: 0.1,
             glassHighlightOpacity: 0.15
         ),
         fontScheme: FontScheme(
             monoFontName: "System Monospaced",
-            monoFontSize: 13,
+            monoFontSize: 14,           // Updated to match TypographyTokens.Scale.base
             headlineFontName: "System Rounded",
-            headlineFontSize: 17,
-            bodyFontSize: 14,
-            captionFontSize: 11
+            headlineFontSize: 18,       // Updated to match TypographyTokens.Scale.lg
+            bodyFontSize: 14,           // Updated to match TypographyTokens.Scale.base
+            captionFontSize: 11         // Updated to match TypographyTokens.Scale.xs
         )
     )
     
@@ -170,29 +170,29 @@ extension VeloTheme {
         name: "Classic Dark",
         isBuiltIn: true,
         colorScheme: ColorScheme(
-            neonCyan: "5AC8FA",
-            neonPurple: "AF52DE",
-            neonGreen: "30D158",
-            deepSpace: "000000",
-            darkSurface: "1C1C1E",
-            cardBackground: "2C2C2E",
-            elevatedSurface: "3A3A3C",
-            textPrimary: "FFFFFF",
-            textSecondary: "98989D",
-            textMuted: "636366",
-            success: "30D158",
-            warning: "FFD60A",
-            error: "FF453A",
-            info: "5AC8FA",
+            neonCyan: "5AC8FA",         // macOS system blue
+            neonPurple: "AF52DE",       // macOS system purple
+            neonGreen: "30D158",        // macOS system green
+            deepSpace: "000000",        // Pure black
+            darkSurface: "1C1C1E",      // macOS system gray 6
+            cardBackground: "2C2C2E",   // macOS system gray 5
+            elevatedSurface: "3A3A3C",  // macOS system gray 4
+            textPrimary: "FFFFFF",      // Pure white
+            textSecondary: "98989D",    // macOS label secondary
+            textMuted: "636366",        // macOS label tertiary
+            success: "30D158",          // macOS green
+            warning: "FFD60A",          // macOS yellow
+            error: "FF453A",            // macOS red
+            info: "5AC8FA",             // macOS blue
             glassWhiteOpacity: 0.05,
             glassBorderOpacity: 0.1,
             glassHighlightOpacity: 0.15
         ),
         fontScheme: FontScheme(
             monoFontName: "System Monospaced",
-            monoFontSize: 13,
+            monoFontSize: 14,           // Updated to match TypographyTokens
             headlineFontName: "System Rounded",
-            headlineFontSize: 17,
+            headlineFontSize: 18,       // Updated to match TypographyTokens
             bodyFontSize: 14,
             captionFontSize: 11
         )
@@ -222,14 +222,14 @@ extension VeloTheme {
         ),
         fontScheme: FontScheme(
             monoFontName: "System Monospaced",
-            monoFontSize: 13,
+            monoFontSize: 14,           // Updated to match TypographyTokens
             headlineFontName: "System Rounded",
-            headlineFontSize: 17,
+            headlineFontSize: 18,       // Updated to match TypographyTokens
             bodyFontSize: 14,
             captionFontSize: 11
         )
     )
-    
+
     static let cyberpunk = VeloTheme(
         name: "Cyberpunk",
         isBuiltIn: true,
@@ -254,14 +254,14 @@ extension VeloTheme {
         ),
         fontScheme: FontScheme(
             monoFontName: "System Monospaced",
-            monoFontSize: 13,
+            monoFontSize: 14,           // Updated to match TypographyTokens
             headlineFontName: "System Rounded",
-            headlineFontSize: 17,
+            headlineFontSize: 18,       // Updated to match TypographyTokens
             bodyFontSize: 14,
             captionFontSize: 11
         )
     )
-    
+
     static let allBuiltInThemes: [VeloTheme] = [
         .neonDark,
         .classicDark,

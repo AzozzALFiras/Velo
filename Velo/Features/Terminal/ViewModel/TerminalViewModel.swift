@@ -61,11 +61,10 @@ final class TerminalViewModel: ObservableObject, Identifiable {
     @Published var showDownloadLogs = false
     @Published var downloadLogs = ""
     @Published var fetchedFileContent: String? = nil
+    @Published var fetchingFilePath: String? = nil  // Track which file is being fetched
     
     private var isFetchingFile = false
     private var fileFetchBuffer = ""
-    private var fetchProcessedCount = 0
-    private let fileFetchDelimiter = "__VELO_EOF__"
     private var downloadProcess: PTYProcess?
     private var downloadPasswordInjected = false
     
@@ -139,34 +138,34 @@ final class TerminalViewModel: ObservableObject, Identifiable {
         // Note: We use original 'command' for local 'cd' because '&& ls' won't work with handleBuiltinCommand logic directly
         // UNLESS we modify handleBuiltinCommand. But for local 'cd', Velo handles navigation internally.
         // So Auto-LS logic here is mainly for SSH/Remote sessions.
-        // For local 'cd', we might want to run 'ls' too? 
+        // For local 'cd', we might want to run 'ls' too?
         // Velo's local 'cd' updates currentDirectory and 'ls' is handled by 'ls' command separately.
         // Since Velo is a terminal emulator, running 'cd ... && ls' as a raw command via 'execute' works locally too (it runs in shell).
         // BUT 'handleBuiltinCommand' intercepts 'cd'.
         if handleBuiltinCommand(command) {
             // For local CD, if auto-LS is on, we can manually trigger 'ls'
             if UserDefaults.standard.bool(forKey: "autoLSafterCD") && command.hasPrefix("cd ") {
-                 Task {
-                     try? await Task.sleep(nanoseconds: 100_000_000)
-                     await MainActor.run {
-                         self.inputText = "ls"
-                         self.executeCommand()
-                     } 
-                 }
+                Task {
+                    try? await Task.sleep(nanoseconds: 100_000_000)
+                    await MainActor.run {
+                        self.inputText = "ls"
+                        self.executeCommand()
+                    }
+                }
             }
             return
         }
         
         // Detect if command needs PTY (interactive commands)
-        let needsPTY = command.hasPrefix("ssh ") || 
-                       command.hasPrefix("sftp ") ||
-                       command.contains("sudo ") ||
-                       command.hasPrefix("top") ||
-                       command.hasPrefix("htop") ||
-                       command.hasPrefix("vim ") ||
-                       command.hasPrefix("nano ") ||
-                       command.hasPrefix("less ") ||
-                       command.hasPrefix("more ")
+        let needsPTY = command.hasPrefix("ssh ") ||
+        command.hasPrefix("sftp ") ||
+        command.contains("sudo ") ||
+        command.hasPrefix("top") ||
+        command.hasPrefix("htop") ||
+        command.hasPrefix("vim ") ||
+        command.hasPrefix("nano ") ||
+        command.hasPrefix("less ") ||
+        command.hasPrefix("more ")
         
         // Execute via terminal engine
         Task {
@@ -319,13 +318,20 @@ final class TerminalViewModel: ObservableObject, Identifiable {
             return
         }
         
-        // Handle file fetch for editing
+        // Handle file fetch for editing (background SSH)
         if command.hasPrefix("__fetch_file__:") {
-            let cmdToRun = String(command.dropFirst(15))
-            // Extract path from command "cat path"
-            if cmdToRun.hasPrefix("cat ") {
-                let path = String(cmdToRun.dropFirst(4)).replacingOccurrences(of: "\"", with: "")
-                startFileFetch(path: path)
+            // Format: __fetch_file__:userHost:::path
+            let payload = String(command.dropFirst(15))
+            print("📄 [TerminalVM] Received file fetch command. Payload: '\(payload)'")
+            let parts = payload.components(separatedBy: ":::")
+            print("📄 [TerminalVM] Parsed parts: \(parts.count) - [\(parts.joined(separator: ", "))]")
+            if parts.count == 2 {
+                let userHost = parts[0]
+                let path = parts[1]
+                print("📄 [TerminalVM] Calling startBackgroundFileFetch(path: '\(path)', userHost: '\(userHost)')")
+                startBackgroundFileFetch(path: path, userHost: userHost)
+            } else {
+                print("⚠️ [TerminalVM] Invalid __fetch_file__ format: \(payload)")
             }
             return
         }
@@ -334,6 +340,30 @@ final class TerminalViewModel: ObservableObject, Identifiable {
         if command.hasPrefix("__download_scp__:") {
             let cmdToRun = String(command.dropFirst(17))
             startBackgroundDownload(command: cmdToRun)
+            return
+        }
+        
+        // Handle background file save (SSH)
+        if command.hasPrefix("__save_file_blob__:") {
+            // Format: __save_file_blob__:userHost:::path:::base64Content
+            let payload = String(command.dropFirst(19))
+            let parts = payload.components(separatedBy: ":::")
+            
+            if parts.count == 3 {
+                let userHost = parts[0]
+                let path = parts[1]
+                let base64Content = parts[2]
+                
+                if let data = Data(base64Encoded: base64Content),
+                   let content = String(data: data, encoding: .utf8) {
+                    startBackgroundFileSave(path: path, content: content, userHost: userHost)
+                } else {
+                    print("❌ [TerminalVM] Failed to decode base64 content for save")
+                    addOutputLine("❌ Failed to save file: Content decoding error", isError: true)
+                }
+            } else {
+                print("⚠️ [TerminalVM] Invalid __save_file_blob__ format. Parts count: \(parts.count)")
+            }
             return
         }
         
@@ -354,28 +384,6 @@ final class TerminalViewModel: ObservableObject, Identifiable {
                 guard let self = self else { return }
                 self.outputLines = lines
                 self.parseDirectoryItemsFromOutput(lines)
-                
-                // Handle file fetch capture
-                if self.isFetchingFile {
-                    let currentCount = lines.count
-                    
-                    // Handle buffer clearing
-                    if currentCount < self.fetchProcessedCount {
-                        print("🔄 [TerminalVM] Buffer cleared (count \(currentCount) < \(self.fetchProcessedCount))")
-                        self.fetchProcessedCount = 0
-                    }
-                    
-                    if currentCount > self.fetchProcessedCount {
-                        print("📥 [TerminalVM] Processing \(currentCount - self.fetchProcessedCount) new lines (total: \(currentCount))")
-                        let newLines = lines[self.fetchProcessedCount..<currentCount]
-                        for line in newLines {
-                            if !self.isFetchingFile { break }
-                            // print("  line: \(line.text.prefix(50))...")
-                            self.handleFileFetchOutput(line.text)
-                        }
-                        self.fetchProcessedCount = currentCount
-                    }
-                }
             }
             .store(in: &cancellables)
         
@@ -470,24 +478,24 @@ final class TerminalViewModel: ObservableObject, Identifiable {
             for word in words {
                 // Remove ANSI codes fully
                 var cleaned = word
-                    // Remove CSI sequences: ESC [ ... letter
+                // Remove CSI sequences: ESC [ ... letter
                     .replacingOccurrences(of: "\\u{1B}\\[[0-9;?]*[a-zA-Z]", with: "", options: .regularExpression)
-                    // Remove OSC sequences: ESC ] ... BEL or ESC ] ... ST
+                // Remove OSC sequences: ESC ] ... BEL or ESC ] ... ST
                     .replacingOccurrences(of: "\\u{1B}\\][^\u{07}]*\u{07}", with: "", options: .regularExpression)
-                    // Remove OSC without ESC: ]0; ]1; ]2; followed by content
+                // Remove OSC without ESC: ]0; ]1; ]2; followed by content
                     .replacingOccurrences(of: "\\]\\d+;[^\\s]*", with: "", options: .regularExpression)
-                    // Remove remaining ESC characters
+                // Remove remaining ESC characters
                     .replacingOccurrences(of: "\u{1B}", with: "")
-                    // Remove BEL character
+                // Remove BEL character
                     .replacingOccurrences(of: "\u{07}", with: "")
-
+                
                 // Preserve trailing / for directories!
                 let hasTrailingSlash = cleaned.hasSuffix("/")
                 cleaned = cleaned.trimmingCharacters(in: CharacterSet(charactersIn: "*/@ []\\r\\n"))
                 if hasTrailingSlash && !cleaned.isEmpty {
                     cleaned += "/"
                 }
-
+                
                 // Skip empty
                 guard !cleaned.isEmpty else { continue }
                 
@@ -504,8 +512,8 @@ final class TerminalViewModel: ObservableObject, Identifiable {
                 
                 // Skip generic irrelevant strings
                 if cleaned.contains("-generic") { continue }
-                if cleaned.contains("@") { continue } 
-                if cleaned.contains(":") { continue } 
+                if cleaned.contains("@") { continue }
+                if cleaned.contains(":") { continue }
                 
                 items.insert(cleaned)
             }
@@ -592,7 +600,7 @@ final class TerminalViewModel: ObservableObject, Identifiable {
             downloadLogs += "⚠️ Download already in progress\n"
             return
         }
-
+        
         isDownloading = true
         showDownloadLogs = true
         downloadLogs = "🚀 Starting download...\n"
@@ -600,44 +608,44 @@ final class TerminalViewModel: ObservableObject, Identifiable {
         downloadLogs += "Timestamp: \(Date())\n"
         downloadLogs += String(repeating: "-", count: 50) + "\n\n"
         downloadPasswordInjected = false // Reset flag
-
+        
         // 1. Try to find password
         var passwordToInject: String?
-
+        
         // Parse SCP command: scp [-r] user@host:path local
         downloadLogs += "📋 Parsing command...\n"
         let parts = command.components(separatedBy: .whitespaces).filter { !$0.isEmpty }
         downloadLogs += "  Command parts: \(parts.count) parts\n"
         downloadLogs += "  Parts: \(parts.joined(separator: " | "))\n\n"
-
+        
         // Find the source part (contains @)
         if let sourcePart = parts.first(where: { $0.contains("@") && $0.contains(":") }) {
             downloadLogs += "✓ Found source part: \(sourcePart)\n"
-
+            
             // Split by colon to separate user@host from path
             let components = sourcePart.components(separatedBy: ":")
             downloadLogs += "  Split by colon: \(components.count) components\n"
-
+            
             if let userHost = components.first {
                 downloadLogs += "  User@Host string: \(userHost)\n"
-
+                
                 // Split by @ to get username and host
                 let userHostParts = userHost.components(separatedBy: "@")
                 downloadLogs += "  Split by @: \(userHostParts.count) parts\n"
-
+                
                 if userHostParts.count == 2 {
                     let username = userHostParts[0]
                     let host = userHostParts[1]
                     downloadLogs += "  ✓ Username: \(username)\n"
                     downloadLogs += "  ✓ Host: \(host)\n\n"
-
+                    
                     if !host.isEmpty && !username.isEmpty {
                         downloadLogs += "🔑 Looking for credentials for \(username)@\(host)...\n"
-
+                        
                         // Access keychain via SSHManager
                         let manager = SSHManager()
                         downloadLogs += "  Checking \(manager.connections.count) saved connections\n"
-
+                        
                         // Try to find matching connection
                         if let conn = manager.connections.first(where: { $0.host == host && $0.username == username }) {
                             downloadLogs += "  ✓ Found matching connection: \(conn.name ?? "Unnamed")\n"
@@ -668,31 +676,31 @@ final class TerminalViewModel: ObservableObject, Identifiable {
             downloadLogs += "❌ Could not find source part with @ and :\n"
             downloadLogs += "  Looking for pattern: user@host:path\n\n"
         }
-
+        
         // 2. Start Process
         downloadLogs += "📡 Setting up PTY process...\n"
         downloadLogs += "  Password auto-inject: \(passwordToInject != nil ? "Enabled" : "Disabled")\n\n"
-
+        
         downloadProcess = PTYProcess { [weak self] text in
             guard let self = self else { return }
-
+            
             // Log raw output with timestamp
             let timestamp = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .medium)
             print("[\(timestamp)] PTY Output: \(text.replacingOccurrences(of: "\n", with: "\\n"))")
-
+            
             self.downloadLogs += text
-
+            
             // Auto-auth check - use instance flag to prevent multiple injections
             // Detect various password prompt formats
             let lowerText = text.lowercased()
             let isPasswordPrompt = lowerText.contains("password:") ||
-                                   lowerText.contains("passphrase:") ||
-                                   lowerText.contains("password for") ||
-                                   lowerText.hasSuffix("password: ") ||
-                                   lowerText.hasSuffix("password:")
-
+            lowerText.contains("passphrase:") ||
+            lowerText.contains("password for") ||
+            lowerText.hasSuffix("password: ") ||
+            lowerText.hasSuffix("password:")
+            
             print("[\(timestamp)] Password check: prompt=\(isPasswordPrompt), hasPassword=\(passwordToInject != nil), injected=\(self.downloadPasswordInjected)")
-
+            
             if let pwd = passwordToInject, !self.downloadPasswordInjected, isPasswordPrompt {
                 print("[\(timestamp)] 🔐 Injecting password (length: \(pwd.count))")
                 self.downloadLogs += "\n🔐 Auto-injecting password...\n"
@@ -706,17 +714,17 @@ final class TerminalViewModel: ObservableObject, Identifiable {
                 print("[\(timestamp)] ℹ️ Password already injected, ignoring duplicate prompt")
             }
         }
-
+        
         downloadLogs += "📡 Establishing connection...\n"
         print("[Download] Starting SCP command: \(command)")
-
+        
         // Modify environment to add SSH options for non-interactive mode
         var scpEnvironment = ProcessInfo.processInfo.environment
         scpEnvironment["SSH_ASKPASS"] = "" // Prevent GUI password prompts
-
+        
         downloadLogs += "  Working directory: \(FileManager.default.homeDirectoryForCurrentUser.path)\n"
         downloadLogs += "  Environment variables: \(scpEnvironment.count) set\n\n"
-
+        
         do {
             print("[Download] Executing PTY process...")
             try downloadProcess?.execute(
@@ -724,20 +732,20 @@ final class TerminalViewModel: ObservableObject, Identifiable {
                 environment: scpEnvironment,
                 workingDirectory: FileManager.default.homeDirectoryForCurrentUser.path
             )
-
+            
             downloadLogs += "✓ Process started successfully\n"
             print("[Download] ✓ PTY process started")
-
+            
             // Monitor for exit
             downloadLogs += "⏳ Monitoring process for completion...\n\n"
             print("[Download] Waiting for process to complete...")
-
+            
             DispatchQueue.global().async { [weak self] in
                 guard let self = self else { return }
                 print("[Download] Starting waitForExit()...")
                 let code = self.downloadProcess?.waitForExit() ?? -1
                 print("[Download] Process exited with code: \(code)")
-
+                
                 DispatchQueue.main.async {
                     self.isDownloading = false
                     self.downloadLogs += "\n" + String(repeating: "=", count: 50) + "\n"
@@ -746,7 +754,7 @@ final class TerminalViewModel: ObservableObject, Identifiable {
                     self.downloadLogs += "Timestamp: \(Date())\n"
                     self.downloadLogs += String(repeating: "=", count: 50) + "\n\n"
                     self.downloadProcess = nil
-
+                    
                     if code == 0 {
                         self.downloadLogs += "✅ Download successful!\n"
                         self.downloadLogs += "💡 Check your Downloads folder for the file.\n"
@@ -754,11 +762,11 @@ final class TerminalViewModel: ObservableObject, Identifiable {
                     } else {
                         self.downloadLogs += "❌ Download failed with exit code \(code).\n"
                         print("[Download] ❌ Download failed with code: \(code)")
-
+                        
                         if passwordToInject == nil {
                             self.downloadLogs += "💡 Tip: Make sure the SSH connection is saved in your connections list with credentials.\n"
                         }
-
+                        
                         // Common error codes
                         switch code {
                         case 1:
@@ -773,7 +781,7 @@ final class TerminalViewModel: ObservableObject, Identifiable {
                     }
                 }
             }
-
+            
         } catch {
             isDownloading = false
             downloadLogs += "\n❌ Failed to start process\n"
@@ -783,53 +791,218 @@ final class TerminalViewModel: ObservableObject, Identifiable {
         }
     }
     
-    // MARK: - File Fetching
-    func startFileFetch(path: String) {
+    // MARK: - Background File Fetching (SSH)
+    private var fileFetchProcess: PTYProcess?
+    private var fileFetchPasswordInjected = false
+    
+    /// Fetch file content via background SSH connection (doesn't pollute main terminal)
+    func startBackgroundFileFetch(path: String, userHost: String) {
+        guard !isFetchingFile else {
+            print("⚠️ [TerminalVM] File fetch already in progress")
+            return
+        }
+        
         isFetchingFile = true
         fileFetchBuffer = ""
-        fetchedFileContent = nil // Reset
-        fetchProcessedCount = outputLines.count
-        print("🚀 [TerminalVM] Starting file fetch for: \(path). Start index: \(fetchProcessedCount)")
+        fetchedFileContent = nil
+        fetchingFilePath = path  // Track which file is being fetched
+        fileFetchPasswordInjected = false
         
-        // Run cat with a delimiter to know when it ends
-        // We use a unique delimiter that is unlikely to be in the file
-        let command = "cat \"\(path)\"; echo \"\(fileFetchDelimiter)\""
+        print("🚀 [TerminalVM] Starting background file fetch for: \(path) via \(userHost)")
         
-        Task {
-            // Execute without adding to history or showing in UI output if possible
-            // But for now, it will show in UI, we just capture it
-            // Ideally we'd have a hidden channel, but PTY is single channel
-            _ = try? await terminalEngine.executePTY(command)
+
+        // Parse user@host to find credentials for password injection
+        var passwordToInject: String?
+        let userHostParts = userHost.components(separatedBy: "@")
+        let username = userHostParts.first ?? ""
+        let host = userHostParts.last ?? ""
+        
+        let manager = SSHManager()
+        if let conn = manager.connections.first(where: { $0.host == host && $0.username == username }) {
+            if let pwd = manager.getPassword(for: conn) {
+                print("🔑 [TerminalVM] Found password for \(userHost)")
+                passwordToInject = pwd
+            }
+        }
+        
+        // SCP Approach:
+        // 1. Create a local temp file path
+        let tempFilename = UUID().uuidString
+        let tempFile = FileManager.default.temporaryDirectory.appendingPathComponent(tempFilename)
+        
+        // 2. Build SCP command: scp -o StrictHostKeyChecking=no user@host:"/path" /local/temp
+        // We use PTYProcess to handle password prompts if needed
+        // Note: Quoting on remote path is crucial. standard double quotes work best.
+        let scpCommand = "scp -o StrictHostKeyChecking=no \(userHost):\"\(path)\" \"\(tempFile.path)\""
+        print("📡 [TerminalVM] Running: \(scpCommand)")
+        
+        self.fileFetchPasswordInjected = false
+        
+        // Initialize process with password handler
+        fileFetchProcess = PTYProcess { [weak self] text in
+            guard let self = self else { return }
+            
+            // Debug output to see what's happening (optional)
+            // print("RAW PTY: \(text)")
+            
+            // Check for password prompt
+            let lowerText = text.lowercased()
+            let isPasswordPrompt = lowerText.contains("password:") || lowerText.contains("passphrase:")
+            
+            if let pwd = passwordToInject, !self.fileFetchPasswordInjected, isPasswordPrompt {
+                print("🔐 [TerminalVM] Injecting password for file fetch")
+                self.fileFetchProcess?.write(pwd + "\n")
+                self.fileFetchPasswordInjected = true
+            }
+        }
+        
+        var env = ProcessInfo.processInfo.environment
+        env["SSH_ASKPASS"] = ""
+        
+        do {
+            try fileFetchProcess?.execute(
+                command: scpCommand,
+                environment: env,
+                workingDirectory: FileManager.default.homeDirectoryForCurrentUser.path
+            )
+            
+            // Wait for completion in background
+            DispatchQueue.global().async { [weak self] in
+                guard let self = self else { return }
+                let exitCode = self.fileFetchProcess?.waitForExit() ?? -1
+                print("📝 [TerminalVM] File fetch exited with code: \(exitCode)")
+                
+                DispatchQueue.main.async {
+                    self.isFetchingFile = false
+                    self.fileFetchProcess = nil
+                    
+                    if exitCode == 0 {
+                        // Success! Read the temp file
+                        do {
+                            let content = try String(contentsOf: tempFile, encoding: .utf8)
+                            print("✅ [TerminalVM] File content fetched successfully (\(content.count) chars)")
+                            self.fetchedFileContent = content
+                            
+                            // Cleanup
+                            try? FileManager.default.removeItem(at: tempFile)
+                        } catch {
+                            print("❌ [TerminalVM] Failed to read downloaded file: \(error)")
+                            self.fetchedFileContent = "// Error: Downloaded file could not be read: \(error.localizedDescription)"
+                        }
+                    } else {
+                        // Error - set a placeholder message
+                        self.fetchedFileContent = "// Error: Could not fetch file content (exit code: \(exitCode))\n// Check SSH connection, file permissions, or disk space."
+                        print("❌ [TerminalVM] File fetch failed with code: \(exitCode)")
+                        try? FileManager.default.removeItem(at: tempFile)
+                    }
+                    
+                    // Clear tracking AFTER setting content so views can validate the path
+                    self.fetchingFilePath = nil 
+                }
+            }
+        } catch {
+            isFetchingFile = false
+            fetchedFileContent = "// Error: \(error.localizedDescription)"
+            print("❌ [TerminalVM] Failed to start file fetch: \(error)")
         }
     }
     
-    private func handleFileFetchOutput(_ line: String) {
-        // Check for delimiter
-        if line.contains(fileFetchDelimiter) {
-            print("🛑 [TerminalVM] Delimiter found in line: \(line)")
-            isFetchingFile = false
-            
-            // Remove delimiter from buffer if it got appended
-            if let range = fileFetchBuffer.range(of: fileFetchDelimiter) {
-                fileFetchBuffer.removeSubrange(range.lowerBound..<fileFetchBuffer.endIndex)
+    // MARK: - Background File Saving (SSH)
+    func startBackgroundFileSave(path: String, content: String, userHost: String) {
+        print("🚀 [TerminalVM] Starting background file save for: \(path)")
+        
+        // Parse user@host to find credentials
+        var passwordToInject: String?
+        let userHostParts = userHost.components(separatedBy: "@")
+        let username = userHostParts.first ?? ""
+        let host = userHostParts.last ?? ""
+        
+        let manager = SSHManager()
+        if let conn = manager.connections.first(where: { $0.host == host && $0.username == username }) {
+            if let pwd = manager.getPassword(for: conn) {
+                passwordToInject = pwd
             }
-            
-            // Also clean up any prompt that might have appeared after
-            // Publish result
-            DispatchQueue.main.async {
-                self.fetchedFileContent = self.fileFetchBuffer.trimmingCharacters(in: .whitespacesAndNewlines)
-                print("📝 [TerminalVM] File fetch complete. Size: \(self.fetchedFileContent?.count ?? 0) chars")
-            }
-        } else {
-            // Append line to buffer
-            // Skip the command echo if present (simple check)
-            if !line.contains("cat \"") {
-                // If it's a new line, add newline
-                if !fileFetchBuffer.isEmpty {
-                    fileFetchBuffer += "\n"
+        }
+        
+        // Write content to a local temp file
+        let tempFilename = UUID().uuidString
+        let tempFile = FileManager.default.temporaryDirectory.appendingPathComponent(tempFilename)
+        
+        do {
+            try content.write(to: tempFile, atomically: true, encoding: .utf8)
+            print("💾 [TerminalVM] Wrote content to temp file: \(tempFile.path) (\(content.count) chars)")
+        } catch {
+            print("❌ [TerminalVM] Failed to create temp file: \(error)")
+            addOutputLine("❌ Save failed: Could not create temporary file", isError: true)
+            return
+        }
+        
+        // We reuse the PTY process logic to run SCP
+        // scp -o StrictHostKeyChecking=no local remote
+        // Note: We avoid -o BatchMode=yes so we can inject password if needed
+        let scpCommand = "scp -o StrictHostKeyChecking=no \"\(tempFile.path)\" \(userHost):\"\(path)\""
+        print("📡 [TerminalVM] Running save command: \(scpCommand)")
+        
+        // Create PTY process
+        // We use a local variable for the process but we must retain it until it finishes.
+        // Re-using fileFetchProcess for simplicity as they are both "background SSH operations"
+        // and unlikely to happen simultaneously (fetching vs saving).
+        if fileFetchProcess != nil {
+            print("⚠️ [TerminalVM] Warning: Overwriting existing background process")
+        }
+        
+        self.fileFetchPasswordInjected = false
+        
+        let saveProcess = PTYProcess { [weak self] text in
+            guard let self = self else { return }
+            // Handle password prompt injection
+            let lowerText = text.lowercased()
+            if !self.fileFetchPasswordInjected && (lowerText.contains("password:") || lowerText.contains("passphrase:")) {
+                if let pwd = passwordToInject {
+                    print("🔐 [TerminalVM] Injecting password for file save")
+                    self.fileFetchProcess?.write(pwd + "\n")
+                    self.fileFetchPasswordInjected = true
                 }
-                fileFetchBuffer += line
             }
+        }
+        
+        self.fileFetchProcess = saveProcess
+        
+        var env = ProcessInfo.processInfo.environment
+        env["SSH_ASKPASS"] = ""
+        
+        do {
+            try saveProcess.execute(
+                command: scpCommand,
+                environment: env,
+                workingDirectory: FileManager.default.homeDirectoryForCurrentUser.path
+            )
+            
+            DispatchQueue.global().async { [weak self] in
+                guard let self = self else { return }
+                let exitCode = saveProcess.waitForExit()
+                print("📝 [TerminalVM] File save exited with code: \(exitCode)")
+                
+                // Cleanup temp file
+                try? FileManager.default.removeItem(at: tempFile)
+                
+                DispatchQueue.main.async {
+                    self.fileFetchProcess = nil
+                    
+                    if exitCode == 0 {
+                        print("✅ [TerminalVM] Save successful")
+                        // output line removed to prevent file list clutter (handled by Toast)
+                    } else {
+                        print("❌ [TerminalVM] Save failed with code: \(exitCode)")
+                        self.addOutputLine("❌ Save failed with exit code: \(exitCode). Check permissions or connection.", isError: true)
+                    }
+                }
+            }
+        } catch {
+            print("❌ [TerminalVM] Failed to execute save: \(error)")
+            self.addOutputLine("❌ Save failed to execute: \(error.localizedDescription)", isError: true)
+            try? FileManager.default.removeItem(at: tempFile)
+            fileFetchProcess = nil
         }
     }
 }

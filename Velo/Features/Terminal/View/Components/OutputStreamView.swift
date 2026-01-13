@@ -58,18 +58,19 @@ struct OutputStreamView: View {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 2) {
                         ForEach(filteredLines) { line in
-                            InteractiveOutputLineView(
-                                line: line,
-                                searchQuery: searchQuery,
-                                currentDirectory: viewModel.currentDirectory,
-                                isInteractive: isInteractiveOutputEnabled,
-                                isDeepParsing: isDeepFileParsingEnabled,
-                                isSSHSession: viewModel.isSSHActive,
-                                sshConnectionString: viewModel.activeSSHConnectionString,
-                                remoteWorkingDirectory: viewModel.remoteWorkingDirectory,
-                                fetchedFileContent: viewModel.fetchedFileContent,
-                                onFileAction: { viewModel.executeFileAction($0) }
-                            )
+                                InteractiveOutputLineView(
+                                    line: line,
+                                    searchQuery: searchQuery,
+                                    currentDirectory: viewModel.currentDirectory,
+                                    isInteractive: isInteractiveOutputEnabled,
+                                    isDeepParsing: isDeepFileParsingEnabled,
+                                    isSSHSession: viewModel.isSSHActive,
+                                    sshConnectionString: viewModel.activeSSHConnectionString,
+                                    remoteWorkingDirectory: viewModel.remoteWorkingDirectory,
+                                    fetchedFileContent: viewModel.fetchedFileContent,
+                                    fetchingFilePath: viewModel.fetchingFilePath,
+                                    onFileAction: { viewModel.executeFileAction($0) }
+                                )
                             .id(line.id)
                         }
                         

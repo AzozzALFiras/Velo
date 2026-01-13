@@ -30,8 +30,8 @@ struct ToggleRow: View {
             
             Toggle("", isOn: $isOn)
                 .labelsHidden()
-                .toggleStyle(SwitchToggleStyle(tint: VeloDesign.Colors.neonCyan))
+                .toggleStyle(SwitchToggleStyle(tint: ColorTokens.accentPrimary))
         }
-        .padding(8)
+        .padding(VeloDesign.Spacing.md)
     }
 }

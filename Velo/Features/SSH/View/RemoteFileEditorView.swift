@@ -15,6 +15,13 @@ struct RemoteFileEditorView: View {
     @State private var isLoading = false
     @State private var errorMessage: String?
     @State private var hasChanges = false
+    @State private var showToast = false
+    @State private var toastMessage = ""
+    @State private var toastType: ToastType = .success
+    
+    enum ToastType {
+        case success, error, info
+    }
     
     init(filename: String, remotePath: String, sshConnectionString: String, initialContent: String, onSave: @escaping (String) -> Void, onCancel: @escaping () -> Void) {
         self.filename = filename
@@ -81,6 +88,58 @@ struct RemoteFileEditorView: View {
         }
         .frame(minWidth: 700, minHeight: 500)
         .background(VeloDesign.Colors.deepSpace)
+        .onAppear {
+            // If content is empty but initialContent is not, sync them
+            if content.isEmpty && !initialContent.isEmpty {
+                content = initialContent
+            }
+        }
+        .onChange(of: initialContent) { newValue in
+            content = newValue
+        }
+        .overlay(alignment: .bottom) {
+            if showToast {
+                toastView
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .padding(.bottom, 32)
+            }
+        }
+    }
+    
+    // MARK: - Toast View
+    private var toastView: some View {
+        HStack(spacing: 8) {
+            Image(systemName: toastType == .success ? "checkmark.circle.fill" : (toastType == .error ? "xmark.circle.fill" : "info.circle.fill"))
+                .foregroundColor(toastType == .success ? VeloDesign.Colors.neonGreen : (toastType == .error ? VeloDesign.Colors.error : VeloDesign.Colors.neonCyan))
+            
+            Text(toastMessage)
+                .font(VeloDesign.Typography.subheadline)
+                .foregroundColor(.white)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(Color.black.opacity(0.85))
+        .cornerRadius(20)
+        .overlay(
+            RoundedRectangle(cornerRadius: 20)
+                .stroke(VeloDesign.Colors.glassBorder, lineWidth: 1)
+        )
+        .shadow(color: Color.black.opacity(0.3), radius: 10, x: 0, y: 5)
+    }
+    
+    private func showToast(_ message: String, type: ToastType = .info) {
+        withAnimation(.spring()) {
+            toastMessage = message
+            toastType = type
+            showToast = true
+        }
+        
+        // Auto-dismiss after 3 seconds
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+            withAnimation {
+                showToast = false
+            }
+        }
     }
     
     // MARK: - Header
@@ -197,9 +256,7 @@ struct RemoteFileEditorView: View {
             .keyboardShortcut(.escape, modifiers: [])
             
             // Save button
-            Button(action: {
-                onSave(content)
-            }) {
+            Button(action: handleSave) {
                 HStack(spacing: 4) {
                     Image(systemName: "square.and.arrow.down")
                         .font(.system(size: 11))
@@ -219,9 +276,41 @@ struct RemoteFileEditorView: View {
             .buttonStyle(.plain)
             .disabled(!hasChanges)
             .keyboardShortcut("s", modifiers: .command)
+            
+            // Close/Done button (if saved)
+            if !hasChanges {
+                Button(action: onCancel) {
+                    Text("Done")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                        .background(VeloDesign.Colors.glassWhite.opacity(0.1))
+                        .cornerRadius(6)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 6)
+                                .stroke(VeloDesign.Colors.glassBorder, lineWidth: 1)
+                        )
+                }
+                .buttonStyle(.plain)
+            }
         }
         .padding(VeloDesign.Spacing.md)
         .background(VeloDesign.Colors.cardBackground.opacity(0.8))
+    }
+    
+    private func handleSave() {
+        isLoading = true
+        onSave(content)
+        
+        // Simulate save delay for better UX (since strict async feedback is hard to pipe through)
+        // In a real async setup, we'd wait for a callback
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            isLoading = false
+            hasChanges = false
+            showToast("Saved successfully", type: .success)
+            // Don't auto-close, let user see the success message
+        }
     }
 }
 

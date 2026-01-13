@@ -77,9 +77,13 @@ struct CommandCardView: View {
             }
         }
         .padding(VeloDesign.Spacing.md)
-        .glassCard(
-            cornerRadius: VeloDesign.Radius.medium,
-            glowColor: isHovered ? VeloDesign.Colors.neonCyan : nil
+        .elevated(.low, cornerRadius: VeloDesign.Radius.medium)
+        .overlay(
+            RoundedRectangle(cornerRadius: VeloDesign.Radius.medium, style: .continuous)
+                .strokeBorder(
+                    isHovered ? ColorTokens.accentPrimary.opacity(0.5) : Color.clear,
+                    lineWidth: 1.5
+                )
         )
         .scaleEffect(isHovered ? 1.02 : 1.0)
         .animation(VeloDesign.Animation.quick, value: isHovered)

@@ -7,6 +7,25 @@
 
 import SwiftUI
 
+// MARK: - Utilities
+fileprivate extension String {
+    func cleanANSI() -> String {
+        var cleaned = self
+        // Remove ESC sequences
+        cleaned = cleaned.replacingOccurrences(of: "\u{1B}\\[[0-9;?]*[a-zA-Z]", with: "", options: .regularExpression)
+        // Remove OSC sequences (]0; ]1; etc.)  
+        cleaned = cleaned.replacingOccurrences(of: "\\]\\d+;[^\\x07\\n]*", with: "", options: .regularExpression)
+        // Remove user@host: patterns
+        cleaned = cleaned.replacingOccurrences(of: "[a-zA-Z0-9_-]+@[a-zA-Z0-9_-]+:", with: "", options: .regularExpression)
+        // Remove remaining control characters
+        cleaned = cleaned.replacingOccurrences(of: "\u{1B}", with: "")
+        cleaned = cleaned.replacingOccurrences(of: "\u{07}", with: "")
+        // Remove shell prompts patterns
+        cleaned = cleaned.replacingOccurrences(of: "^[~\\/][^#$]*[#$]\\s*$", with: "", options: .regularExpression)
+        return cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
 // MARK: - Interactive Output Line View
 /// Parses output lines to detect files and make them interactive
 struct InteractiveOutputLineView: View {
@@ -19,6 +38,7 @@ struct InteractiveOutputLineView: View {
     let sshConnectionString: String?
     let remoteWorkingDirectory: String?
     let fetchedFileContent: String?
+    let fetchingFilePath: String?
     let onFileAction: (String) -> Void
     
     @State private var isHovered = false
@@ -44,6 +64,7 @@ struct InteractiveOutputLineView: View {
                 sshConnectionString: sshConnectionString,
                 remoteWorkingDirectory: remoteWorkingDirectory,
                 fetchedFileContent: fetchedFileContent,
+                fetchingFilePath: fetchingFilePath,
                 onFileAction: onFileAction
             )
             
@@ -77,6 +98,7 @@ struct InteractiveLineContent: View {
     let sshConnectionString: String?
     let remoteWorkingDirectory: String?
     let fetchedFileContent: String?
+    let fetchingFilePath: String?
     let onFileAction: (String) -> Void
     
     var isLikelyFilePath: Bool {
@@ -145,6 +167,7 @@ struct InteractiveLineContent: View {
                     sshConnectionString: sshConnectionString,
                     remoteWorkingDirectory: remoteWorkingDirectory,
                     fetchedFileContent: fetchedFileContent,
+                    fetchingFilePath: fetchingFilePath,
                     onFileAction: onFileAction
                 )
             } else {
@@ -240,6 +263,7 @@ struct TokenizedFileListView: View {
     let sshConnectionString: String?
     let remoteWorkingDirectory: String?
     let fetchedFileContent: String?
+    let fetchingFilePath: String?
     let onFileAction: (String) -> Void
     
     var body: some View {
@@ -251,6 +275,7 @@ struct TokenizedFileListView: View {
                 sshConnectionString: sshConnectionString,
                 remoteWorkingDirectory: remoteWorkingDirectory,
                 fetchedFileContent: fetchedFileContent,
+                fetchingFilePath: fetchingFilePath,
                 onFileAction: onFileAction
             )
         } else {
@@ -310,13 +335,14 @@ struct SSHFileListView: View {
     let sshConnectionString: String?
     let remoteWorkingDirectory: String?
     let fetchedFileContent: String?
+    let fetchingFilePath: String?
     let onFileAction: (String) -> Void
     
     private var fileItems: [String] {
         // Split by BOTH whitespace AND newlines to handle all cases
         let separators = CharacterSet.whitespacesAndNewlines
         let items = text.components(separatedBy: separators)
-            .map { cleanANSI($0) }
+            .map { $0.cleanANSI() }
             .filter { isValidFileItem($0) }
         
         // Remove duplicates while preserving order
@@ -378,29 +404,13 @@ struct SSHFileListView: View {
         return true
     }
     
-    private func cleanANSI(_ text: String) -> String {
-        var cleaned = text
-        // Remove ESC sequences
-        cleaned = cleaned.replacingOccurrences(of: "\u{1B}\\[[0-9;?]*[a-zA-Z]", with: "", options: .regularExpression)
-        // Remove OSC sequences (]0; ]1; etc.)  
-        cleaned = cleaned.replacingOccurrences(of: "\\]\\d+;[^\\x07\\n]*", with: "", options: .regularExpression)
-        // Remove user@host: patterns
-        cleaned = cleaned.replacingOccurrences(of: "[a-zA-Z0-9_-]+@[a-zA-Z0-9_-]+:", with: "", options: .regularExpression)
-        // Remove remaining control characters
-        cleaned = cleaned.replacingOccurrences(of: "\u{1B}", with: "")
-        cleaned = cleaned.replacingOccurrences(of: "\u{07}", with: "")
-        // Remove shell prompts patterns
-        cleaned = cleaned.replacingOccurrences(of: "^[~\\/][^#$]*[#$]\\s*$", with: "", options: .regularExpression)
-        return cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-    
     private func cleanRemoteCWD() -> String {
         guard let cwd = remoteWorkingDirectory else { 
             print("📂 [SSHFileList] cleanRemoteCWD - original: nil")
             return "" 
         }
         print("📂 [SSHFileList] cleanRemoteCWD - original: '\(cwd)'")
-        var cleaned = cleanANSI(cwd)
+        var cleaned = cwd.cleanANSI()
         print("📂 [SSHFileList] cleanRemoteCWD - after ANSI clean: '\(cleaned)'")
         // Remove trailing slash to prevent double slashes
         if cleaned.hasSuffix("/") && cleaned.count > 1 {
@@ -419,11 +429,20 @@ struct SSHFileListView: View {
                     sshConnectionString: sshConnectionString,
                     remoteWorkingDirectory: cleanRemoteCWD(),
                     fetchedFileContent: fetchedFileContent,
+                    fetchingFilePath: fetchingFilePath,
                     onFileAction: onFileAction
                 )
             }
         }
     }
+}
+
+struct RemoteEditorConfig: Identifiable {
+    let id = UUID()
+    let filename: String
+    let remotePath: String
+    let sshConnectionString: String
+    let content: String
 }
 
 // MARK: - SSH File Row View
@@ -433,12 +452,12 @@ struct SSHFileRowView: View {
     let sshConnectionString: String?
     let remoteWorkingDirectory: String?
     let fetchedFileContent: String?
+    let fetchingFilePath: String?
     let onFileAction: (String) -> Void
     
     @State private var isHovered = false
     @State private var showingMenu = false
-    @State private var showingEditor = false
-    @State private var editorContent = ""
+    @State private var editorConfig: RemoteEditorConfig?
     @State private var isLoadingContent = false
     
     private var isFolder: Bool {
@@ -542,32 +561,46 @@ struct SSHFileRowView: View {
                 }
             )
         }
-        .sheet(isPresented: $showingEditor) {
+        .sheet(item: $editorConfig) { config in
             RemoteFileEditorView(
-                filename: cleanANSI(displayName),
-                remotePath: buildPath(),
-                sshConnectionString: sshConnectionString ?? "",
-                initialContent: editorContent,
+                filename: config.filename,
+                remotePath: config.remotePath,
+                sshConnectionString: config.sshConnectionString,
+                initialContent: config.content,
                 onSave: { newContent in
                     saveFileContent(newContent)
-                    showingEditor = false
+                    // Don't close immediately so user can see toast
+                    // editorConfig = nil 
                 },
                 onCancel: {
-                    showingEditor = false
+                    editorConfig = nil
                 }
             )
         }
         .onChange(of: fetchedFileContent) { content in
-            if showingEditor && isLoadingContent, let content = content {
-                print("📝 [SSHFileRow] Received content for editor (length: \(content.count))")
-                editorContent = content
-                isLoadingContent = false
+            if isLoadingContent, let content = content {
+                // IMPORTANT: Only update if THIS row is the one that requested it
+                let currentPath = buildPath()
+                if fetchingFilePath == currentPath || fetchingFilePath == filename {
+                    isLoadingContent = false
+                    
+                    // Create config with the new content - triggering presentation
+                    var displayNameClean = filename.cleanANSI()
+                    if displayNameClean.hasSuffix("/") { displayNameClean = String(displayNameClean.dropLast()) }
+                    
+                    editorConfig = RemoteEditorConfig(
+                        filename: displayNameClean,
+                        remotePath: currentPath,
+                        sshConnectionString: sshConnectionString ?? "",
+                        content: content
+                    )
+                }
             }
         }
     }
     
     private func buildPath() -> String {
-        let cleanFilename = cleanANSI(filename)
+        let cleanFilename = filename.cleanANSI()
         print("📁 [SSHFileRow] buildPath - filename: '\(filename)' -> cleaned: '\(cleanFilename)'")
         print("📁 [SSHFileRow] remoteCWD: '\(remoteWorkingDirectory ?? "nil")'")
         
@@ -576,7 +609,7 @@ struct SSHFileRowView: View {
             return cleanFilename
         }
         if let remoteCWD = remoteWorkingDirectory, !remoteCWD.isEmpty {
-            let cleanCWD = cleanANSI(remoteCWD)
+            let cleanCWD = remoteCWD.cleanANSI()
             // Avoid double slashes
             let base: String
             if cleanCWD == "/" {
@@ -594,26 +627,10 @@ struct SSHFileRowView: View {
         return cleanFilename
     }
     
-    private func cleanANSI(_ text: String) -> String {
-        var cleaned = text
-        // Remove ESC sequences
-        cleaned = cleaned.replacingOccurrences(of: "\u{1B}\\[[0-9;?]*[a-zA-Z]", with: "", options: .regularExpression)
-        // Remove OSC sequences (]0; ]1; etc.)
-        cleaned = cleaned.replacingOccurrences(of: "\\]\\d+;[^\\s]*", with: "", options: .regularExpression)
-        // Remove user@host: patterns that got mixed in
-        cleaned = cleaned.replacingOccurrences(of: "[a-zA-Z0-9_-]+@[a-zA-Z0-9_-]+:", with: "", options: .regularExpression)
-        // Remove remaining control characters
-        cleaned = cleaned.replacingOccurrences(of: "\u{1B}", with: "")
-        cleaned = cleaned.replacingOccurrences(of: "\u{07}", with: "")
-        return cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
     
     private func handleAction(_ action: FileAction) {
         let cleanedPath = buildPath()
-        let cleanedName = cleanANSI(displayName)
-        
-        print("🔧 [SSHFileRow] handleAction - command: '\(action.command)'")
-        print("🔧 [SSHFileRow] cleanedPath: '\(cleanedPath)', cleanedName: '\(cleanedName)'")
+        let cleanedName = displayName.cleanANSI()
         
         switch action.command {
         case "__copy_path__":
@@ -652,35 +669,51 @@ struct SSHFileRowView: View {
     
     private func loadFileForEditing() {
         let path = buildPath()
-        print("📝 [SSHFileRow] Loading file for editing: '\(path)'")
         
-        // Use cat command to fetch file content
-        // The onFileAction will execute the command and we'll capture the output
-        // For now, we'll use a simple approach - execute cat and show editor with placeholder
+        guard let userHost = sshConnectionString, !userHost.isEmpty else {
+            print("❌ [SSHFileRow] No SSH connection string available")
+            
+            // Show error config
+            var displayNameClean = filename.cleanANSI()
+            if displayNameClean.hasSuffix("/") { displayNameClean = String(displayNameClean.dropLast()) }
+            
+            editorConfig = RemoteEditorConfig(
+                filename: displayNameClean,
+                remotePath: path,
+                sshConnectionString: "",
+                content: "// Error: No SSH connection information available"
+            )
+            return
+        }
+        
         isLoadingContent = true
         
-        // Request file content via terminal command
-        // The editor will open with content loaded by the terminal
-        let catCommand = "__fetch_file__:cat \"\(path)\""
-        onFileAction(catCommand)
+        // Request file content via background SSH fetch
+        // Format: __fetch_file__:userHost:::path
+        let fetchCommand = "__fetch_file__:\(userHost):::\(path)"
+        onFileAction(fetchCommand)
         
-        // Show editor with loading state - content will be set by TerminalViewModel
-        editorContent = "// Loading file content from '\(path)'...\n// Please wait..."
-        showingEditor = true
+        // Don't show editor yet - it will be shown via onChange when content arrives
+        // This ensures the editor gets the actual content, not a placeholder
     }
     
     private func saveFileContent(_ content: String) {
         let path = buildPath()
-        print("💾 [SSHFileRow] Saving file: '\(path)'")
         
-        // Create a temporary save command
-        // We'll use echo with heredoc-style to write content
-        let escapedContent = content
-            .replacingOccurrences(of: "'", with: "'\\''")
+        guard let userHost = sshConnectionString, !userHost.isEmpty else {
+            print("❌ [SSHFileRow] Cannot save: No SSH connection string")
+            return
+        }
         
-        let saveCommand = "echo '\(escapedContent)' > \"\(path)\""
-        print("💾 [SSHFileRow] Save command: \(saveCommand.prefix(100))...")
-        onFileAction(saveCommand)
+        // Use the new robust background save mechanism via TerminalViewModel
+        // Format: __save_file_blob__:userHost:::path:::base64Content
+        if let data = content.data(using: .utf8) {
+            let base64 = data.base64EncodedString()
+            let saveCommand = "__save_file_blob__:\(userHost):::\(path):::\(base64)"
+            onFileAction(saveCommand)
+        } else {
+            print("❌ [SSHFileRow] Failed to encode content for saving")
+        }
     }
     
     @State private var showingRenameAlert = false
@@ -689,18 +722,18 @@ struct SSHFileRowView: View {
     private func showRenameDialog() {
         let alert = NSAlert()
         alert.messageText = "Rename File"
-        alert.informativeText = "Enter new name for '\(cleanANSI(displayName))':"
+        alert.informativeText = "Enter new name for '\(displayName.cleanANSI())':"
         alert.alertStyle = .informational
         alert.addButton(withTitle: "Rename")
         alert.addButton(withTitle: "Cancel")
         
         let textField = NSTextField(frame: NSRect(x: 0, y: 0, width: 300, height: 24))
-        textField.stringValue = cleanANSI(displayName)
+        textField.stringValue = displayName.cleanANSI()
         alert.accessoryView = textField
         
         if alert.runModal() == .alertFirstButtonReturn {
             let newName = textField.stringValue.trimmingCharacters(in: .whitespaces)
-            if !newName.isEmpty && newName != cleanANSI(displayName) {
+            if !newName.isEmpty && newName != displayName.cleanANSI() {
                 let oldPath = buildPath()
                 let parentDir = (oldPath as NSString).deletingLastPathComponent
                 let newPath = (parentDir as NSString).appendingPathComponent(newName)

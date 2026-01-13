@@ -160,7 +160,7 @@ struct TerminalWallView: View {
                         .padding(.top)
                     }
                     .padding(40)
-                    .glassCard()
+                    .elevatedModal()
                 }
                 .transition(.opacity.combined(with: .scale))
             }

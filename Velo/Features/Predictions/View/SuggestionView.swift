@@ -23,7 +23,7 @@ struct SuggestionsDropdown: View {
             }
         }
         .padding(VeloDesign.Spacing.xs)
-        .glassCard(cornerRadius: VeloDesign.Radius.medium)
+        .elevated(.medium, cornerRadius: VeloDesign.Radius.medium)
         .padding(.horizontal, VeloDesign.Spacing.lg)
         .padding(.bottom, VeloDesign.Spacing.sm)
     }
