@@ -271,7 +271,9 @@ struct InteractiveFileView: View {
     let filename: String
     let currentDirectory: String
     let onAction: (String) -> Void
-    let isSSHSession: Bool  // NEW: indicates remote file
+    let isSSHSession: Bool
+    let sshConnectionString: String? // NEW: passed from VM
+    let remoteWorkingDirectory: String? // NEW: Tracked remote CWD
     
     @State private var isHovered = false
     @State private var showingMenu = false
@@ -279,11 +281,21 @@ struct InteractiveFileView: View {
     @State private var showingSavePanel = false
     @State private var newName = ""
     
-    init(filename: String, currentDirectory: String, onAction: @escaping (String) -> Void, isSSHSession: Bool = false) {
+    let style: Style
+    
+    enum Style {
+        case standard
+        case inline
+    }
+    
+    init(filename: String, currentDirectory: String, onAction: @escaping (String) -> Void, isSSHSession: Bool = false, sshConnectionString: String? = nil, remoteWorkingDirectory: String? = nil, style: Style = .standard) {
         self.filename = filename
         self.currentDirectory = currentDirectory
         self.onAction = onAction
         self.isSSHSession = isSSHSession
+        self.sshConnectionString = sshConnectionString
+        self.remoteWorkingDirectory = remoteWorkingDirectory
+        self.style = style
     }
     
     var fileInfo: FileInfo {
@@ -293,7 +305,19 @@ struct InteractiveFileView: View {
         } else if filename.hasPrefix("~") {
             path = (filename as NSString).expandingTildeInPath
         } else {
-            path = (currentDirectory as NSString).appendingPathComponent(filename)
+            // Relative path
+            if isSSHSession {
+                // For remote files, resolve against remote working directory if available
+                if let remoteCWD = remoteWorkingDirectory {
+                    // Simple path join for unix-like systems
+                    let base = remoteCWD.hasSuffix("/") ? remoteCWD : remoteCWD + "/"
+                    path = base + filename
+                } else {
+                    path = filename
+                }
+            } else {
+                path = (currentDirectory as NSString).appendingPathComponent(filename)
+            }
         }
         
         let isDir = filename.hasSuffix("/")
@@ -303,25 +327,33 @@ struct InteractiveFileView: View {
     
     var body: some View {
         HStack(spacing: VeloDesign.Spacing.xs) {
-            // File icon
-            Image(systemName: fileInfo.type.icon)
-                .font(.system(size: 10))
-                .foregroundColor(fileInfo.type.color)
+            // File icon - HIDE in inline mode to preserve terminal alignment
+            if style == .standard {
+                Image(systemName: fileInfo.type.icon)
+                    .font(.system(size: 10))
+                    .foregroundColor(fileInfo.type.color)
+            }
             
             // Filename
             Text(filename)
                 .font(VeloDesign.Typography.monoFont)
                 .foregroundColor(isHovered ? VeloDesign.Colors.neonCyan : VeloDesign.Colors.textPrimary)
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
+                // In inline mode, apply specific background on text itself to avoid layout shift
+                .background(
+                    style == .inline && isHovered ? VeloDesign.Colors.neonCyan.opacity(0.2) : Color.clear
+                )
             
-            // Remote indicator for SSH
-            if isSSHSession {
+            // Remote indicator for SSH (only in standard mode to save space)
+            if isSSHSession && style == .standard {
                 Image(systemName: "network")
                     .font(.system(size: 8))
                     .foregroundColor(VeloDesign.Colors.neonPurple.opacity(0.7))
             }
         }
-        .padding(.horizontal, VeloDesign.Spacing.xs)
-        .padding(.vertical, 2)
+        .padding(.horizontal, style == .standard ? VeloDesign.Spacing.xs : 0) // No padding in inline
+        .padding(.vertical, style == .standard ? 2 : 0)
         .background(
             RoundedRectangle(cornerRadius: 4)
                 .fill(isHovered ? VeloDesign.Colors.neonCyan.opacity(0.1) : Color.clear)
@@ -391,28 +423,77 @@ struct InteractiveFileView: View {
         savePanel.nameFieldStringValue = fileInfo.name
         savePanel.canCreateDirectories = true
         savePanel.directoryURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
-        
+
         savePanel.begin { response in
             if response == .OK, let url = savePanel.url {
-                // Build scp command - user needs to replace with their SSH connection
-                // Format: scp user@host:remote_path local_path
-                let localPath = url.path
-                let remotePath = fileInfo.path
-                
-                // For folder, use -r flag
+                // Build scp command
+                var localPath = url.path
+                var remotePath = fileInfo.path
+
+                print("[FileAction] Original remote path: \(remotePath)")
+                print("[FileAction] Original local path: \(localPath)")
+
+                // Step 1: Strip ANSI escape sequences that might be embedded in paths
+                // These can come from terminal output (e.g., ]0;root@mail: for window title)
+                remotePath = stripANSISequences(from: remotePath)
+                localPath = stripANSISequences(from: localPath)
+                print("[FileAction] After ANSI strip - remote: \(remotePath)")
+                print("[FileAction] After ANSI strip - local: \(localPath)")
+
+                // Step 2: Clean up the remote path if it contains user@host: prefix (malformed)
+                // This can happen if the path was incorrectly constructed
+                if remotePath.contains("@") && remotePath.contains(":") {
+                    print("[FileAction] Path contains @ and :, cleaning...")
+                    // Extract just the path part after the FIRST ":" (to avoid issues with paths containing colons)
+                    // Split by colon and look for the path component
+                    let components = remotePath.components(separatedBy: ":")
+                    print("[FileAction] Split by colon: \(components)")
+
+                    // Find the LAST component that looks like a valid path AND doesn't contain @
+                    // This ensures we skip the malformed "user@host" part and get the actual path
+                    if let pathComponent = components.last(where: {
+                        ($0.hasPrefix("/") || $0.hasPrefix("~")) && !$0.contains("@")
+                    }) {
+                        remotePath = pathComponent
+                        print("[FileAction] Cleaned path: \(remotePath)")
+                    }
+                }
+
                 let scpFlag = fileInfo.isDirectory ? "-r " : ""
-                
-                // Display a message about the download command
-                // In real implementation, we'd need SSHConnection context
-                let downloadCommand = "# Run in a new terminal:\n# scp \(scpFlag)USER@HOST:\"\(remotePath)\" \"\(localPath)\""
-                
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(downloadCommand, forType: .string)
-                
-                // Show notification
-                NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.notifications")!)
+
+                // Construct command
+                // We use __download_scp__ prefix to tell TerminalViewModel to handle this
+                // automatically in background with logs + auto-auth.
+                let downloadCommand = "scp \(scpFlag)\(getUserHostString()):\"\(remotePath)\" \"\(localPath)\""
+
+                print("[FileAction] Final SCP command: \(downloadCommand)")
+                onAction("__download_scp__:\(downloadCommand)")
             }
         }
+    }
+    
+    private func getUserHostString() -> String {
+        return sshConnectionString ?? "user@host"
+    }
+
+    /// Strips ANSI escape sequences from a string
+    /// These can include color codes, cursor movement, window title sequences, etc.
+    private func stripANSISequences(from text: String) -> String {
+        var cleaned = text
+
+        // Step 1: Remove all control characters (ASCII 0-31 except newline and tab)
+        // This includes BEL (\x07), ESC (\x1B), etc.
+        let controlChars = CharacterSet(charactersIn: "\u{0001}"..."\u{001F}").subtracting(CharacterSet(charactersIn: "\n\t"))
+        cleaned = cleaned.components(separatedBy: controlChars).joined()
+
+        // Step 2: Remove raw ]N; sequences (OSC without ESC prefix)
+        // Pattern: ]0; or ]1; or ]2; followed by any text until newline or end
+        cleaned = cleaned.replacingOccurrences(of: "]\\d+;[^\n]*", with: "", options: .regularExpression)
+
+        // Step 3: Trim whitespace and newlines
+        cleaned = cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        return cleaned
     }
 }
 

@@ -64,6 +64,9 @@ struct OutputStreamView: View {
                                 currentDirectory: viewModel.currentDirectory,
                                 isInteractive: isInteractiveOutputEnabled,
                                 isDeepParsing: isDeepFileParsingEnabled,
+                                isSSHSession: viewModel.isSSHActive,
+                                sshConnectionString: viewModel.activeSSHConnectionString,
+                                remoteWorkingDirectory: viewModel.remoteWorkingDirectory,
                                 onFileAction: { viewModel.executeFileAction($0) }
                             )
                             .id(line.id)

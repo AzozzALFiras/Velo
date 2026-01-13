@@ -81,5 +81,12 @@ struct TerminalTabContent: View {
                 .transition(.move(edge: .trailing))
             }
         }
+        .sheet(isPresented: $terminalVM.showDownloadLogs) {
+            DownloadLogView(
+                logs: $terminalVM.downloadLogs,
+                isPresented: $terminalVM.showDownloadLogs,
+                isDownloading: terminalVM.isDownloading
+            )
+        }
     }
 }

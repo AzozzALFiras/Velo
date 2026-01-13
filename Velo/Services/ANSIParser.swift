@@ -59,8 +59,9 @@ final class ANSIParser {
         var result = AttributedString()
         var currentAttributes = TextAttributes()
         
-        // Regex to match ANSI escape sequences
-        let ansiPattern = "\u{001B}\\[(\\d+(?:;\\d+)*)m"
+        // Regex to match ANSI escape sequences (CSI and simple)
+        // \x1B\[[0-?]*[ -/]*[@-~]
+        let ansiPattern = "\\x1B\\[[0-?]*[ -/]*[@-~]"
         guard let regex = try? NSRegularExpression(pattern: ansiPattern) else {
             return AttributedString(input)
         }
@@ -80,11 +81,13 @@ final class ANSIParser {
                 result.append(attributed)
             }
             
-            // Parse the escape codes
-            if match.numberOfRanges > 1 {
-                let codesRange = match.range(at: 1)
-                let codesString = nsString.substring(with: codesRange)
-                let codes = codesString.split(separator: ";").compactMap { Int($0) }
+            // Parse the escape codes - ONLY if it is an SGR code (ends in 'm')
+            let fullMatchString = nsString.substring(with: match.range)
+            if fullMatchString.hasSuffix("m") {
+                // Extract parameters inside CSI ... m
+                // Remove prefix CSI (ESC [) and suffix m
+                let parameters = fullMatchString.dropFirst(2).dropLast()
+                let codes = parameters.split(separator: ";").compactMap { Int($0) }
                 updateAttributes(&currentAttributes, with: codes)
             }
             
@@ -109,7 +112,11 @@ final class ANSIParser {
     // MARK: - Strip ANSI Codes
     /// Remove all ANSI escape sequences from a string
     func stripANSI(_ input: String) -> String {
-        let pattern = "\u{001B}\\[[0-9;]*m"
+        // Matches CSI sequences (Start with ESC [, then optional parameter bytes, then intermediate bytes, then final byte)
+        // Also matches simple escapes if needed, but primarily CSI.
+        // Regex: \x1B\[[0-?]*[ -/]*[@-~]
+        let pattern = "\\x1B\\[[0-?]*[ -/]*[@-~]"
+        
         guard let regex = try? NSRegularExpression(pattern: pattern) else {
             return input
         }
