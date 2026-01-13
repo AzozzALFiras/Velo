@@ -54,6 +54,7 @@ Velo is a next-generation terminal emulator built for macOS, designed to bridge 
 - **SSH Quick Nav**: Clickable directory badge that works even in SSH sessions. It shows the current folder's contents and lets you hop to subfolders instantly.
 - **Intelligent Parsing**: Velo understands complex ANSI-colored outputs, ensuring directory suggestions are accurate even on heavily customized servers.
 - **Advanced Autocomplete**: Use `Tab` or `Right Arrow` to accept inline suggestions powered by your history and current context.
+- **Remote File Editor**: Edit remote files directly within Velo using a powerful VS Code-like editor. Features syntax highlighting, line numbers, and seamless saving back to the server.
 - **Decoupled Headers**: Sticky headers for command blocks that remain interactive independently of the scrolling log stream.
 
 ### 🔄 App Management
@@ -64,6 +65,25 @@ Velo is a next-generation terminal emulator built for macOS, designed to bridge 
 
 ## 🛠 Architecture
 
+Velo utilizes a **Strict Feature-Based Architecture** organized by domain, ensuring scalability and maintainability.
+
+### Directory Structure
+```
+Velo/
+├── App/           # Lifecycle & Entry Points
+├── Core/          # Shared Utilities, Design System, Extensions
+└── Features/      # Self-contained feature modules
+    ├── Terminal/
+    ├── SSH/
+    ├── History/
+    ├── AI/
+    ├── Theme/
+    ├── Predictions/
+    ├── Settings/
+    └── Tabs/
+```
+
+### Design Pattern
 Velo follows a clean **MVVM (Model-View-ViewModel)** architecture:
 
 - **Models**:

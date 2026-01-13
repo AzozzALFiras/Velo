@@ -67,6 +67,7 @@ struct OutputStreamView: View {
                                 isSSHSession: viewModel.isSSHActive,
                                 sshConnectionString: viewModel.activeSSHConnectionString,
                                 remoteWorkingDirectory: viewModel.remoteWorkingDirectory,
+                                fetchedFileContent: viewModel.fetchedFileContent,
                                 onFileAction: { viewModel.executeFileAction($0) }
                             )
                             .id(line.id)

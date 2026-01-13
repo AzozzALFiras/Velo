@@ -142,7 +142,7 @@ struct FileInfo {
                     FileAction(name: "📥 Download File", icon: "arrow.down.circle", color: VeloDesign.Colors.neonGreen, command: "__download_file__"),
                     FileAction(name: "Rename", icon: "pencil", color: VeloDesign.Colors.warning, command: "__rename__"),
                     FileAction(name: "Get Info", icon: "info.circle", command: "ls -la \"\(path)\" && file \"\(path)\""),
-                    FileAction(name: "Edit (nano)", icon: "pencil.line", command: "nano \"\(path)\""),
+                    FileAction(name: "✏️ Edit", icon: "pencil.line", color: VeloDesign.Colors.neonCyan, command: "__edit__"),
                 ]
             }
             // Delete action
@@ -320,8 +320,24 @@ struct InteractiveFileView: View {
             }
         }
         
-        let isDir = filename.hasSuffix("/")
-        let type: FileType = isDir ? .folder : FileType.detect(from: filename)
+        // Determine if directory:
+        // 1. Trailing slash means directory
+        // 2. For SSH: if no file extension, treat as potential folder (can't verify remotely)
+        let hasTrailingSlash = filename.hasSuffix("/")
+        let detectedType = FileType.detect(from: filename)
+        
+        // For SSH sessions with unknown type (no extension), treat as folder
+        let isDir: Bool
+        if hasTrailingSlash {
+            isDir = true
+        } else if isSSHSession && detectedType == .other {
+            // No extension = likely a folder on remote server
+            isDir = true
+        } else {
+            isDir = false
+        }
+        
+        let type: FileType = isDir ? .folder : detectedType
         return FileInfo(name: filename, path: path, type: type, isDirectory: isDir, isRemote: isSSHSession)
     }
     
@@ -410,66 +426,82 @@ struct InteractiveFileView: View {
             NSWorkspace.shared.open(url)
         case "__rename__":
             showingRenameSheet = true
-        case "__download_file__", "__download_folder__":
-            showSSHDownloadDialog()
+        case "__download_file__":
+            showSSHDownloadDialog(isFolder: false)
+        case "__download_folder__":
+            showSSHDownloadDialog(isFolder: true)
         default:
             onAction(action.command)
         }
     }
     
-    private func showSSHDownloadDialog() {
-        let savePanel = NSSavePanel()
-        savePanel.title = "Save to Local"
-        savePanel.nameFieldStringValue = fileInfo.name
-        savePanel.canCreateDirectories = true
-        savePanel.directoryURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
-
-        savePanel.begin { response in
-            if response == .OK, let url = savePanel.url {
-                // Build scp command
-                var localPath = url.path
-                var remotePath = fileInfo.path
-
-                print("[FileAction] Original remote path: \(remotePath)")
-                print("[FileAction] Original local path: \(localPath)")
-
-                // Step 1: Strip ANSI escape sequences that might be embedded in paths
-                // These can come from terminal output (e.g., ]0;root@mail: for window title)
-                remotePath = stripANSISequences(from: remotePath)
-                localPath = stripANSISequences(from: localPath)
-                print("[FileAction] After ANSI strip - remote: \(remotePath)")
-                print("[FileAction] After ANSI strip - local: \(localPath)")
-
-                // Step 2: Clean up the remote path if it contains user@host: prefix (malformed)
-                // This can happen if the path was incorrectly constructed
-                if remotePath.contains("@") && remotePath.contains(":") {
-                    print("[FileAction] Path contains @ and :, cleaning...")
-                    // Extract just the path part after the FIRST ":" (to avoid issues with paths containing colons)
-                    // Split by colon and look for the path component
-                    let components = remotePath.components(separatedBy: ":")
-                    print("[FileAction] Split by colon: \(components)")
-
-                    // Find the LAST component that looks like a valid path AND doesn't contain @
-                    // This ensures we skip the malformed "user@host" part and get the actual path
-                    if let pathComponent = components.last(where: {
-                        ($0.hasPrefix("/") || $0.hasPrefix("~")) && !$0.contains("@")
-                    }) {
-                        remotePath = pathComponent
-                        print("[FileAction] Cleaned path: \(remotePath)")
-                    }
+    private func showSSHDownloadDialog(isFolder: Bool) {
+        if isFolder {
+            // For folders, use NSOpenPanel to select destination directory
+            let openPanel = NSOpenPanel()
+            openPanel.title = "Select Download Destination"
+            openPanel.canChooseFiles = false
+            openPanel.canChooseDirectories = true
+            openPanel.canCreateDirectories = true
+            openPanel.allowsMultipleSelection = false
+            openPanel.directoryURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+            openPanel.prompt = "Download Here"
+            
+            openPanel.begin { response in
+                if response == .OK, let url = openPanel.url {
+                    self.performSCPDownload(destinationURL: url, isFolder: true)
                 }
+            }
+        } else {
+            // For files, use NSSavePanel
+            let savePanel = NSSavePanel()
+            savePanel.title = "Save to Local"
+            savePanel.nameFieldStringValue = fileInfo.name
+            savePanel.canCreateDirectories = true
+            savePanel.directoryURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
 
-                let scpFlag = fileInfo.isDirectory ? "-r " : ""
-
-                // Construct command
-                // We use __download_scp__ prefix to tell TerminalViewModel to handle this
-                // automatically in background with logs + auto-auth.
-                let downloadCommand = "scp \(scpFlag)\(getUserHostString()):\"\(remotePath)\" \"\(localPath)\""
-
-                print("[FileAction] Final SCP command: \(downloadCommand)")
-                onAction("__download_scp__:\(downloadCommand)")
+            savePanel.begin { response in
+                if response == .OK, let url = savePanel.url {
+                    self.performSCPDownload(destinationURL: url, isFolder: false)
+                }
             }
         }
+    }
+    
+    private func performSCPDownload(destinationURL: URL, isFolder: Bool) {
+        var localPath = destinationURL.path
+        var remotePath = fileInfo.path
+
+        // Step 1: Strip ANSI escape sequences that might be embedded in paths
+        remotePath = stripANSISequences(from: remotePath)
+        localPath = stripANSISequences(from: localPath)
+
+        // Step 2: Clean up the remote path if it contains user@host: prefix (malformed)
+        if remotePath.contains("@") && remotePath.contains(":") {
+            let components = remotePath.components(separatedBy: ":")
+            if let pathComponent = components.last(where: {
+                ($0.hasPrefix("/") || $0.hasPrefix("~")) && !$0.contains("@")
+            }) {
+                remotePath = pathComponent
+            }
+        }
+        
+        // Remove trailing slash from remote path for folders
+        if remotePath.hasSuffix("/") {
+            remotePath = String(remotePath.dropLast())
+        }
+
+        // For folders: -r flag and append folder name to local destination
+        let scpFlag = isFolder ? "-r " : ""
+        if isFolder {
+            // Append the folder name to destination
+            let folderName = (remotePath as NSString).lastPathComponent
+            localPath = (localPath as NSString).appendingPathComponent(folderName)
+        }
+
+        // Construct command
+        let downloadCommand = "scp \(scpFlag)\(getUserHostString()):\"\(remotePath)\" \"\(localPath)\""
+        onAction("__download_scp__:\(downloadCommand)")
     }
     
     private func getUserHostString() -> String {

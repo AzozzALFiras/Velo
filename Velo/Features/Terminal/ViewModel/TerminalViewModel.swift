@@ -13,7 +13,6 @@ import Combine
 @MainActor
 final class TerminalViewModel: ObservableObject, Identifiable {
     
-    // MARK: - Identity
     // MARK: - Published Properties
     @Published var currentDirectory: String
     @Published var outputLines: [OutputLine] = []
@@ -61,6 +60,12 @@ final class TerminalViewModel: ObservableObject, Identifiable {
     @Published var isDownloading = false
     @Published var showDownloadLogs = false
     @Published var downloadLogs = ""
+    @Published var fetchedFileContent: String? = nil
+    
+    private var isFetchingFile = false
+    private var fileFetchBuffer = ""
+    private var fetchProcessedCount = 0
+    private let fileFetchDelimiter = "__VELO_EOF__"
     private var downloadProcess: PTYProcess?
     private var downloadPasswordInjected = false
     
@@ -142,8 +147,6 @@ final class TerminalViewModel: ObservableObject, Identifiable {
             // For local CD, if auto-LS is on, we can manually trigger 'ls'
             if UserDefaults.standard.bool(forKey: "autoLSafterCD") && command.hasPrefix("cd ") {
                  Task {
-                     // Small delay to ensure cd completes
-                     try? await Task.sleep(nanoseconds: 100_000_000)
                      try? await Task.sleep(nanoseconds: 100_000_000)
                      await MainActor.run {
                          self.inputText = "ls"
@@ -316,6 +319,17 @@ final class TerminalViewModel: ObservableObject, Identifiable {
             return
         }
         
+        // Handle file fetch for editing
+        if command.hasPrefix("__fetch_file__:") {
+            let cmdToRun = String(command.dropFirst(15))
+            // Extract path from command "cat path"
+            if cmdToRun.hasPrefix("cat ") {
+                let path = String(cmdToRun.dropFirst(4)).replacingOccurrences(of: "\"", with: "")
+                startFileFetch(path: path)
+            }
+            return
+        }
+        
         // Handle background download
         if command.hasPrefix("__download_scp__:") {
             let cmdToRun = String(command.dropFirst(17))
@@ -337,8 +351,31 @@ final class TerminalViewModel: ObservableObject, Identifiable {
         // Sync output lines and parse for directory items
         terminalEngine.$outputLines
             .sink { [weak self] lines in
-                self?.outputLines = lines
-                self?.parseDirectoryItemsFromOutput(lines)
+                guard let self = self else { return }
+                self.outputLines = lines
+                self.parseDirectoryItemsFromOutput(lines)
+                
+                // Handle file fetch capture
+                if self.isFetchingFile {
+                    let currentCount = lines.count
+                    
+                    // Handle buffer clearing
+                    if currentCount < self.fetchProcessedCount {
+                        print("🔄 [TerminalVM] Buffer cleared (count \(currentCount) < \(self.fetchProcessedCount))")
+                        self.fetchProcessedCount = 0
+                    }
+                    
+                    if currentCount > self.fetchProcessedCount {
+                        print("📥 [TerminalVM] Processing \(currentCount - self.fetchProcessedCount) new lines (total: \(currentCount))")
+                        let newLines = lines[self.fetchProcessedCount..<currentCount]
+                        for line in newLines {
+                            if !self.isFetchingFile { break }
+                            // print("  line: \(line.text.prefix(50))...")
+                            self.handleFileFetchOutput(line.text)
+                        }
+                        self.fetchProcessedCount = currentCount
+                    }
+                }
             }
             .store(in: &cancellables)
         
@@ -386,13 +423,26 @@ final class TerminalViewModel: ObservableObject, Identifiable {
         let pathRegex = try? NSRegularExpression(pattern: "(?::|\\s)([\\/~][^\\s#$]*)[#$]\\s?$", options: [])
         
         for line in recentLines {
-            let text = line.text
+            var text = line.text
+            
+            // First, clean ANSI/OSC sequences from the line before regex matching
+            // Remove OSC sequences: ]0;...BEL or ]0;...
+            text = text.replacingOccurrences(of: "\\]\\d+;[^\u{07}\\n]*\u{07}?", with: "", options: .regularExpression)
+            // Remove ESC sequences
+            text = text.replacingOccurrences(of: "\u{1B}\\[[0-9;?]*[a-zA-Z]", with: "", options: .regularExpression)
+            text = text.replacingOccurrences(of: "\u{1B}", with: "")
+            text = text.replacingOccurrences(of: "\u{07}", with: "")
+            text = text.trimmingCharacters(in: .whitespacesAndNewlines)
             
             // 1. Try to detect remote CWD from prompt
+            // Pattern: user@host:/path# or user@host:~# or user@host:/path$
             if let match = pathRegex?.firstMatch(in: text, options: [], range: NSRange(text.startIndex..., in: text)) {
                 if let range = Range(match.range(at: 1), in: text) {
-                    let path = String(text[range]).trimmingCharacters(in: .whitespaces)
-                    if !path.isEmpty {
+                    var path = String(text[range]).trimmingCharacters(in: .whitespaces)
+                    // Additional cleanup - remove any embedded user@host: that might remain
+                    path = path.replacingOccurrences(of: "[a-zA-Z0-9_-]+@[a-zA-Z0-9_-]+:", with: "", options: .regularExpression)
+                    if !path.isEmpty && !path.contains("@") {
+                        print("📍 [TerminalVM] Detected remote CWD: '\(path)' from cleaned line: '\(text)'")
                         detectedRemoteCWD = path
                     }
                 }
@@ -419,21 +469,30 @@ final class TerminalViewModel: ObservableObject, Identifiable {
             
             for word in words {
                 // Remove ANSI codes fully
-                // Using \u{1B} for Escape character in regex replacement
                 var cleaned = word
-                    .replacingOccurrences(of: "\u{1B}\\[[0-9;?]*[a-zA-Z]", with: "", options: .regularExpression)
+                    // Remove CSI sequences: ESC [ ... letter
+                    .replacingOccurrences(of: "\\u{1B}\\[[0-9;?]*[a-zA-Z]", with: "", options: .regularExpression)
+                    // Remove OSC sequences: ESC ] ... BEL or ESC ] ... ST
+                    .replacingOccurrences(of: "\\u{1B}\\][^\u{07}]*\u{07}", with: "", options: .regularExpression)
+                    // Remove OSC without ESC: ]0; ]1; ]2; followed by content
+                    .replacingOccurrences(of: "\\]\\d+;[^\\s]*", with: "", options: .regularExpression)
+                    // Remove remaining ESC characters
                     .replacingOccurrences(of: "\u{1B}", with: "")
+                    // Remove BEL character
+                    .replacingOccurrences(of: "\u{07}", with: "")
 
                 // Preserve trailing / for directories!
-                // Trim other characters but NOT the trailing slash
                 let hasTrailingSlash = cleaned.hasSuffix("/")
-                cleaned = cleaned.trimmingCharacters(in: CharacterSet(charactersIn: "*/@ []\r\n"))
+                cleaned = cleaned.trimmingCharacters(in: CharacterSet(charactersIn: "*/@ []\\r\\n"))
                 if hasTrailingSlash && !cleaned.isEmpty {
                     cleaned += "/"
                 }
 
                 // Skip empty
                 guard !cleaned.isEmpty else { continue }
+                
+                // Skip if still contains control sequence patterns
+                if cleaned.contains("]0;") || cleaned.contains("]1;") || cleaned.contains("]2;") { continue }
                 
                 // If pure number, skip
                 if Int(cleaned) != nil { continue }
@@ -455,7 +514,6 @@ final class TerminalViewModel: ObservableObject, Identifiable {
         // Update state
         if let newRemoteCWD = detectedRemoteCWD, newRemoteCWD != remoteWorkingDirectory {
             remoteWorkingDirectory = newRemoteCWD
-          //  print("📍 Detected remote CWD: \(newRemoteCWD)")
         }
         
         // Update parsed items
@@ -722,6 +780,56 @@ final class TerminalViewModel: ObservableObject, Identifiable {
             downloadLogs += "Error: \(error.localizedDescription)\n"
             downloadLogs += "💡 Tip: Make sure SCP is installed and the SSH server is accessible.\n"
             print("[Download] ❌ Failed to execute: \(error)")
+        }
+    }
+    
+    // MARK: - File Fetching
+    func startFileFetch(path: String) {
+        isFetchingFile = true
+        fileFetchBuffer = ""
+        fetchedFileContent = nil // Reset
+        fetchProcessedCount = outputLines.count
+        print("🚀 [TerminalVM] Starting file fetch for: \(path). Start index: \(fetchProcessedCount)")
+        
+        // Run cat with a delimiter to know when it ends
+        // We use a unique delimiter that is unlikely to be in the file
+        let command = "cat \"\(path)\"; echo \"\(fileFetchDelimiter)\""
+        
+        Task {
+            // Execute without adding to history or showing in UI output if possible
+            // But for now, it will show in UI, we just capture it
+            // Ideally we'd have a hidden channel, but PTY is single channel
+            _ = try? await terminalEngine.executePTY(command)
+        }
+    }
+    
+    private func handleFileFetchOutput(_ line: String) {
+        // Check for delimiter
+        if line.contains(fileFetchDelimiter) {
+            print("🛑 [TerminalVM] Delimiter found in line: \(line)")
+            isFetchingFile = false
+            
+            // Remove delimiter from buffer if it got appended
+            if let range = fileFetchBuffer.range(of: fileFetchDelimiter) {
+                fileFetchBuffer.removeSubrange(range.lowerBound..<fileFetchBuffer.endIndex)
+            }
+            
+            // Also clean up any prompt that might have appeared after
+            // Publish result
+            DispatchQueue.main.async {
+                self.fetchedFileContent = self.fileFetchBuffer.trimmingCharacters(in: .whitespacesAndNewlines)
+                print("📝 [TerminalVM] File fetch complete. Size: \(self.fetchedFileContent?.count ?? 0) chars")
+            }
+        } else {
+            // Append line to buffer
+            // Skip the command echo if present (simple check)
+            if !line.contains("cat \"") {
+                // If it's a new line, add newline
+                if !fileFetchBuffer.isEmpty {
+                    fileFetchBuffer += "\n"
+                }
+                fileFetchBuffer += line
+            }
         }
     }
 }
