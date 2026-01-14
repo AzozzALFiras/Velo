@@ -428,29 +428,37 @@ final class TerminalViewModel: ObservableObject, Identifiable {
         // user@host:/var/log$
         // [user@host ~]$
         // Regex to extract path between : and # or $ (or inside [])
-        let pathRegex = try? NSRegularExpression(pattern: "(?::|\\s)([\\/~][^\\s#$]*)[#$]\\s?$", options: [])
+        // Regex to extract path: looks for something starting with / or ~ after a colon or space,
+        // and ending before a # or $ prompt.
+        let pathRegex = try? NSRegularExpression(pattern: "(?::|\\s)([\\/~][^\\s#$]*)[#$]", options: [])
         
         for line in recentLines {
             var text = line.text
             
             // First, clean ANSI/OSC sequences from the line before regex matching
-            // Remove OSC sequences: ]0;...BEL or ]0;...
+            // Remove OSC sequences: ]0;...BEL or ]0;... or ]1; ]2;
+            text = text.replacingOccurrences(of: "\\\\u{1B}\\\\].*?(?:\\\\u{07}|\\\\u{1B}\\\\\\\\)", with: "", options: .regularExpression)
             text = text.replacingOccurrences(of: "\\]\\d+;[^\u{07}\\n]*\u{07}?", with: "", options: .regularExpression)
-            // Remove ESC sequences
+            
+            // Remove ESC sequences (colors, cursor movement)
             text = text.replacingOccurrences(of: "\u{1B}\\[[0-9;?]*[a-zA-Z]", with: "", options: .regularExpression)
+            text = text.replacingOccurrences(of: "\u{1B}\\[[0-9;?]*[mK]", with: "", options: .regularExpression)
             text = text.replacingOccurrences(of: "\u{1B}", with: "")
             text = text.replacingOccurrences(of: "\u{07}", with: "")
-            text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            
+            // Handle mid-string prompts (e.g. from multiple commands) by looking at the last part
+            let cleanedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
             
             // 1. Try to detect remote CWD from prompt
-            // Pattern: user@host:/path# or user@host:~# or user@host:/path$
-            if let match = pathRegex?.firstMatch(in: text, options: [], range: NSRange(text.startIndex..., in: text)) {
-                if let range = Range(match.range(at: 1), in: text) {
-                    var path = String(text[range]).trimmingCharacters(in: .whitespaces)
+            if let match = pathRegex?.firstMatch(in: cleanedText, options: [], range: NSRange(cleanedText.startIndex..., in: cleanedText)) {
+                if let range = Range(match.range(at: 1), in: cleanedText) {
+                    var path = String(cleanedText[range]).trimmingCharacters(in: .whitespaces)
+                    
                     // Additional cleanup - remove any embedded user@host: that might remain
-                    path = path.replacingOccurrences(of: "[a-zA-Z0-9_-]+@[a-zA-Z0-9_-]+:", with: "", options: .regularExpression)
-                    if !path.isEmpty && !path.contains("@") {
-                        print("📍 [TerminalVM] Detected remote CWD: '\(path)' from cleaned line: '\(text)'")
+                    path = path.replacingOccurrences(of: "^[a-zA-Z0-9._-]+@[a-zA-Z0-9.-]+:", with: "", options: .regularExpression)
+                    
+                    if !path.isEmpty && (path.hasPrefix("/") || path.hasPrefix("~")) {
+                        print("📍 [TerminalVM] Detected remote CWD: '\(path)' from cleaned line: '\(cleanedText)'")
                         detectedRemoteCWD = path
                     }
                 }
@@ -596,7 +604,10 @@ final class TerminalViewModel: ObservableObject, Identifiable {
     }
     // MARK: - Background Download
     func startBackgroundDownload(command: String) {
+        print("📡 [TerminalVM] Starting background SCP download: \(command)")
+        
         guard !isDownloading else {
+            print("⚠️ [TerminalVM] Download already in progress, skipping.")
             downloadLogs += "⚠️ Download already in progress\n"
             return
         }
@@ -909,6 +920,10 @@ final class TerminalViewModel: ObservableObject, Identifiable {
     
     // MARK: - Background File Saving (SSH)
     func startBackgroundFileSave(path: String, content: String, userHost: String) {
+        startRemoteFileSave(path: path, content: content, userHost: userHost)
+    }
+
+    func startRemoteFileSave(path: String, content: String, userHost: String) {
         print("🚀 [TerminalVM] Starting background file save for: \(path)")
         
         // Parse user@host to find credentials
@@ -937,25 +952,13 @@ final class TerminalViewModel: ObservableObject, Identifiable {
             return
         }
         
-        // We reuse the PTY process logic to run SCP
-        // scp -o StrictHostKeyChecking=no local remote
-        // Note: We avoid -o BatchMode=yes so we can inject password if needed
         let scpCommand = "scp -o StrictHostKeyChecking=no \"\(tempFile.path)\" \(userHost):\"\(path)\""
         print("📡 [TerminalVM] Running save command: \(scpCommand)")
-        
-        // Create PTY process
-        // We use a local variable for the process but we must retain it until it finishes.
-        // Re-using fileFetchProcess for simplicity as they are both "background SSH operations"
-        // and unlikely to happen simultaneously (fetching vs saving).
-        if fileFetchProcess != nil {
-            print("⚠️ [TerminalVM] Warning: Overwriting existing background process")
-        }
         
         self.fileFetchPasswordInjected = false
         
         let saveProcess = PTYProcess { [weak self] text in
             guard let self = self else { return }
-            // Handle password prompt injection
             let lowerText = text.lowercased()
             if !self.fileFetchPasswordInjected && (lowerText.contains("password:") || lowerText.contains("passphrase:")) {
                 if let pwd = passwordToInject {
@@ -983,7 +986,6 @@ final class TerminalViewModel: ObservableObject, Identifiable {
                 let exitCode = saveProcess.waitForExit()
                 print("📝 [TerminalVM] File save exited with code: \(exitCode)")
                 
-                // Cleanup temp file
                 try? FileManager.default.removeItem(at: tempFile)
                 
                 DispatchQueue.main.async {
@@ -991,7 +993,6 @@ final class TerminalViewModel: ObservableObject, Identifiable {
                     
                     if exitCode == 0 {
                         print("✅ [TerminalVM] Save successful")
-                        // output line removed to prevent file list clutter (handled by Toast)
                     } else {
                         print("❌ [TerminalVM] Save failed with code: \(exitCode)")
                         self.addOutputLine("❌ Save failed with exit code: \(exitCode). Check permissions or connection.", isError: true)
@@ -1004,5 +1005,11 @@ final class TerminalViewModel: ObservableObject, Identifiable {
             try? FileManager.default.removeItem(at: tempFile)
             fileFetchProcess = nil
         }
+    }
+
+    /// Wrapper for background scp download
+    func startSCPDownload(command: String) {
+        // Delegate to the robust background download implementation
+        startBackgroundDownload(command: command)
     }
 }

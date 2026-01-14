@@ -74,7 +74,7 @@ struct GitPanel: View {
     private var panelHeader: some View {
         HStack {
             HStack(spacing: 10) {
-                Image(systemName: "branch")
+                Image(systemName: "arrow.branch")
                     .font(.system(size: 18))
                     .foregroundStyle(ColorTokens.accentSecondary)
                 

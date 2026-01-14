@@ -52,6 +52,9 @@ struct IntelligencePanel: View {
     var suggestions: [SuggestionItem] = []
     var scripts: [AutoScript] = []
     var currentDirectory: String = ""
+    var isSSH: Bool = false
+    var sshConnectionString: String? = nil
+    var parsedTerminalItems: [String] = [] // Re-added
     
     // Actions
     var onSendMessage: ((String) -> Void)?
@@ -373,47 +376,132 @@ struct IntelligencePanel: View {
     
     private var filesTab: some View {
         VStack(spacing: 0) {
-            // Path header
-            HStack {
+            // Current Directory Header / Breadcrumbs
+            HStack(spacing: 8) {
                 Image(systemName: "folder.fill")
                     .font(.system(size: 10))
-                    .foregroundStyle(ColorTokens.accentPrimary)
+                    .foregroundStyle(VeloDesign.Colors.neonCyan)
                 
-                Text(currentDirectory.replacingOccurrences(of: FileManager.default.homeDirectoryForCurrentUser.path, with: "~"))
-                    .font(.system(size: 11, design: .monospaced))
-                    .foregroundStyle(ColorTokens.textSecondary)
-                    .lineLimit(1)
-                
-                Spacer()
-            }
-            .padding(12)
-            .background(ColorTokens.layer1)
-            
-            Divider()
-            
-            ScrollView {
-                VStack(spacing: 0) {
-                    // This is a placeholder for actual file tracking
-                    // In a real implementation, we would list files from the current directory
-                    FileExplorerView(
-                        manager: fileManager,
-                        onEdit: { path in onEditFile?(path) },
-                        onChangeDirectory: { path in onChangeDirectory?(path) }
-                    )
-                    .onAppear {
-                        if fileManager.rootItems.isEmpty {
-                            Task {
-                                await fileManager.loadDirectory(currentDirectory)
-                            }
+                // Clickable Breadcrumbs or path
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 4) {
+                        let pathParts = currentDirectory.components(separatedBy: "/").filter { !$0.isEmpty }
+                        
+                        Button {
+                            onChangeDirectory?("/")
+                        } label: {
+                            Text(isSSH ? "/" : "根") // Root icon or /
+                                .font(VeloDesign.Typography.monoSmall)
                         }
-                    }
-                    .onChange(of: currentDirectory) { newDir in
-                        Task {
-                            await fileManager.loadDirectory(newDir)
+                        .buttonStyle(.plain)
+                        
+                        ForEach(0..<pathParts.count, id: \.self) { index in
+                            Text("/")
+                                .font(.system(size: 8))
+                                .foregroundStyle(VeloDesign.Colors.textMuted)
+                            
+                            Button {
+                                let targetPath = "/" + pathParts[0...index].joined(separator: "/")
+                                onChangeDirectory?(targetPath)
+                            } label: {
+                                Text(pathParts[index])
+                                    .font(VeloDesign.Typography.monoSmall)
+                            }
+                            .buttonStyle(.plain)
                         }
                     }
                 }
+                .foregroundStyle(VeloDesign.Colors.textSecondary)
+                
+                Spacer()
+                
+                // Refresh button
+                Button {
+                    Task { await fileManager.loadDirectory(currentDirectory) }
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.system(size: 10))
+                        .foregroundStyle(VeloDesign.Colors.textSecondary)
+                }
+                .buttonStyle(.plain)
+                .disabled(fileManager.isLoading)
             }
+            .padding(12)
+            .background(VeloDesign.Colors.darkSurface)
+            
+            Divider()
+                .background(VeloDesign.Colors.glassBorder)
+            
+            ScrollView {
+                VStack(spacing: 0) {
+                    FileExplorerView(
+                        manager: fileManager,
+                        isSSH: isSSH,
+                        sshConnectionString: sshConnectionString,
+                        onEdit: { path in onEditFile?(path) },
+                        onChangeDirectory: { path in onChangeDirectory?(path) },
+                        onRunCommand: { cmd in onRunCommand?(cmd) }
+                    )
+                    .onAppear {
+                        print("📂 [IntelligencePanel] Files tab appeared - loading: \(currentDirectory), isSSH: \(isSSH)")
+                        syncWithTerminalItems()
+                        fileManager.isSSH = isSSH
+                        fileManager.sshConnectionString = sshConnectionString
+                        Task { await fileManager.loadDirectory(currentDirectory) }
+                    }
+                    .onChange(of: currentDirectory) { oldDir, newDir in
+                        print("📂 [IntelligencePanel] Directory changed: \(oldDir) -> \(newDir)")
+                        fileManager.isSSH = isSSH
+                        fileManager.sshConnectionString = sshConnectionString
+                        Task { await fileManager.loadDirectory(newDir) }
+                    }
+                    .onChange(of: isSSH) { _, newValue in
+                        print("📂 [IntelligencePanel] isSSH changed to: \(newValue)")
+                        fileManager.isSSH = newValue
+                        Task { await fileManager.loadDirectory(currentDirectory) }
+                    }
+                    .onChange(of: sshConnectionString) { _, newValue in
+                        print("📂 [IntelligencePanel] sshConnectionString changed: \(newValue ?? "nil")")
+                        fileManager.sshConnectionString = newValue
+                        Task { await fileManager.loadDirectory(currentDirectory) }
+                    }
+                    .onChange(of: parsedTerminalItems) { _, _ in
+                        syncWithTerminalItems()
+                    }
+                }
+            }
+        }
+    }
+    
+    private func syncWithTerminalItems() {
+        guard isSSH && fileManager.rootItems.isEmpty && !parsedTerminalItems.isEmpty else { return }
+        print("📂 [IntelligencePanel] Syncing with terminal items: \(parsedTerminalItems.count) found")
+        
+        let host = sshConnectionString ?? "host"
+        let items = parsedTerminalItems.map { name -> FileItem in
+            let isDir = name.hasSuffix("/")
+            let cleanName = isDir ? String(name.dropLast()) : name
+            let separator = currentDirectory.hasSuffix("/") ? "" : "/"
+            let fullPath = "\(currentDirectory)\(separator)\(cleanName)"
+            
+            return FileItem(
+                id: "terminal-ssh:\(host):\(fullPath)",
+                name: cleanName,
+                path: fullPath,
+                isDirectory: isDir,
+                type: isDir ? .folder : FileType.detect(from: cleanName) == .code ? .file : .file,
+                children: isDir ? [] : nil,
+                size: nil,
+                modificationDate: nil
+            )
+        }.sorted { (a, b) in
+            if a.isDirectory != b.isDirectory { return a.isDirectory }
+            return a.name.lowercased() < b.name.lowercased()
+        }
+        
+        // Update manager's items directly if empty
+        if !items.isEmpty {
+            fileManager.rootItems = items
         }
     }
     
@@ -849,24 +937,67 @@ private struct HistoryRow: View {
 
 private struct FileExplorerView: View {
     @ObservedObject var manager: FileExplorerManager
+    let isSSH: Bool
+    let sshConnectionString: String?
     let onEdit: (String) -> Void
     let onChangeDirectory: (String) -> Void
+    let onRunCommand: (String) -> Void
     
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if manager.isLoading && manager.rootItems.isEmpty {
-                VStack {
+                VStack(spacing: 12) {
                     ProgressView()
                         .scaleEffect(0.8)
-                        .padding()
-                    Text("Scanning files...")
-                        .font(.system(size: 11))
-                        .foregroundStyle(ColorTokens.textTertiary)
+                    Text("Scanning remote files...")
+                        .font(VeloDesign.Typography.caption)
+                        .foregroundStyle(VeloDesign.Colors.textSecondary)
                 }
-                .frame(maxWidth: .infinity, alignment: .center)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 40)
+            } else if manager.rootItems.isEmpty {
+                VStack(spacing: 12) {
+                    Image(systemName: isSSH ? "network" : "folder.badge.questionmark")
+                        .font(.system(size: 24))
+                        .foregroundStyle(VeloDesign.Colors.textMuted)
+                    
+                    Text(isSSH ? "Unable to list remote files" : "Empty folder")
+                        .font(VeloDesign.Typography.caption)
+                        .foregroundStyle(VeloDesign.Colors.textSecondary)
+                    
+                    if isSSH {
+                        Text("Verify SSH keys or run 'ls' in terminal")
+                            .font(.system(size: 9))
+                            .foregroundStyle(VeloDesign.Colors.textMuted)
+                        
+                        Button {
+                            Task { await manager.loadDirectory(manager.rootItems.isEmpty ? "" : manager.rootItems[0].path) }
+                        } label: {
+                            Text("Retry Connection")
+                                .font(.system(size: 10, weight: .bold))
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 4)
+                                .background(VeloDesign.Colors.neonCyan.opacity(0.2))
+                                .cornerRadius(4)
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.top, 4)
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 40)
             } else {
                 ForEach(manager.rootItems) { item in
-                    FileItemRow(item: item, manager: manager, depth: 0, onEdit: onEdit, onChangeDirectory: onChangeDirectory)
+                    FileItemRow(
+                        item: item,
+                        manager: manager,
+                        depth: 0,
+                        isSSH: isSSH,
+                        sshConnectionString: sshConnectionString,
+                        onEdit: onEdit,
+                        onChangeDirectory: onChangeDirectory,
+                        onRunCommand: onRunCommand
+                    )
                 }
             }
         }
@@ -877,47 +1008,68 @@ private struct FileItemRow: View {
     let item: FileItem
     @ObservedObject var manager: FileExplorerManager
     let depth: Int
+    let isSSH: Bool
+    let sshConnectionString: String?
     let onEdit: (String) -> Void
     let onChangeDirectory: (String) -> Void
+    let onRunCommand: (String) -> Void
     
     @State private var isHovered = false
     @State private var showingRename = false
     @State private var showingInfo = false
     @State private var newName = ""
+    @State private var isExpandingRemote = false
+    
+    // Use FileType from FileActionView
+    private var fileType: FileType {
+        item.isDirectory ? .folder : FileType.detect(from: item.name)
+    }
     
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 6) {
                 // Indent
                 if depth > 0 {
-                    Spacer()
-                        .frame(width: CGFloat(depth * 12))
+                    Rectangle()
+                        .fill(VeloDesign.Colors.glassBorder.opacity(0.3))
+                        .frame(width: 1)
+                        .padding(.leading, CGFloat(depth * 12) - 6)
+                        .padding(.trailing, 5)
                 }
                 
                 // Chevron for folders
                 if item.isDirectory {
-                    Image(systemName: item.isExpanded ? "chevron.down" : "chevron.right")
-                        .font(.system(size: 8, weight: .bold))
-                        .foregroundStyle(ColorTokens.textTertiary)
-                        .frame(width: 10)
-                        .onTapGesture {
-                            manager.toggleExpansion(path: item.path)
+                    ZStack {
+                        if isExpandingRemote {
+                            ProgressView()
+                                .scaleEffect(0.4)
+                        } else {
+                            Image(systemName: item.isExpanded ? "chevron.down" : "chevron.right")
+                                .font(.system(size: 8, weight: .bold))
+                                .foregroundStyle(VeloDesign.Colors.textMuted)
                         }
+                    }
+                    .frame(width: 12)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        toggleExpansion()
+                    }
                 } else {
-                    Spacer().frame(width: 10)
+                    Spacer().frame(width: 12)
                 }
                 
-                // Icon
-                Image(systemName: item.isDirectory ? "folder.fill" : fileIcon(for: item.name))
+                // Icon using FileActionView logic
+                Image(systemName: fileType.icon)
                     .font(.system(size: 11))
-                    .foregroundStyle(item.isDirectory ? ColorTokens.accentPrimary : ColorTokens.textTertiary)
+                    .foregroundStyle(isHovered ? VeloDesign.Colors.textPrimary : fileType.color.opacity(0.8))
                     .frame(width: 14)
                 
-                // Name
+                // Name or Rename Field
                 if showingRename {
                     TextField("Rename", text: $newName)
                         .textFieldStyle(.plain)
-                        .font(.system(size: 11, design: .monospaced))
+                        .font(VeloDesign.Typography.monoSmall)
+                        .foregroundStyle(VeloDesign.Colors.textPrimary)
                         .onSubmit {
                             manager.rename(item: item, to: newName)
                             showingRename = false
@@ -927,33 +1079,53 @@ private struct FileItemRow: View {
                         }
                 } else {
                     Text(item.name)
-                        .font(.system(size: 11, design: .monospaced))
-                        .foregroundStyle(ColorTokens.textSecondary)
+                        .font(VeloDesign.Typography.monoSmall)
+                        .foregroundStyle(isHovered ? VeloDesign.Colors.neonCyan : VeloDesign.Colors.textSecondary)
                         .lineLimit(1)
                 }
                 
                 Spacer()
+                
+                // Quick actions on hover
+                if isHovered && !showingRename {
+                    HStack(spacing: 8) {
+                        if isSSH && !item.isDirectory {
+                            Button {
+                                onRunCommand("__edit__:\(item.path)")
+                            } label: {
+                                Image(systemName: "pencil")
+                            }
+                        }
+                        
+                        if isSSH {
+                            Button {
+                                let flag = item.isDirectory ? "-r " : ""
+                                onRunCommand("__download_scp__:scp \(flag)\(sshConnectionString ?? "user@host"):'\(item.path)' ~/Downloads/")
+                            } label: {
+                                Image(systemName: "arrow.down.circle")
+                            }
+                        }
+                    }
+                    .font(.system(size: 10))
+                    .foregroundStyle(VeloDesign.Colors.textMuted)
+                    .transition(.opacity)
+                }
             }
-            .padding(.horizontal, 12)
+            .padding(.horizontal, 10)
             .padding(.vertical, 4)
-            .background(isHovered ? ColorTokens.layer2 : Color.clear)
-            .clipped()
+            .background(isHovered ? VeloDesign.Colors.neonCyan.opacity(0.05) : Color.clear)
+            .contentShape(Rectangle())
             .onHover { hovering in
                 withAnimation(.easeOut(duration: 0.1)) {
                     isHovered = hovering
                 }
             }
-            .contentShape(Rectangle())
             .onTapGesture {
                 if item.isDirectory {
-                    manager.toggleExpansion(path: item.path)
+                    toggleExpansion()
                 } else {
                     onEdit(item.path)
                 }
-            }
-            .onTapGesture(count: 2) {
-                // Double tap to open with system
-                NSWorkspace.shared.open(URL(fileURLWithPath: item.path))
             }
             .contextMenu {
                 fileContextMenu
@@ -964,10 +1136,44 @@ private struct FileItemRow: View {
             
             // Nested children
             if item.isExpanded, let children = item.children {
-                ForEach(children) { child in
-                    FileItemRow(item: child, manager: manager, depth: depth + 1, onEdit: onEdit, onChangeDirectory: onChangeDirectory)
+                if children.isEmpty && isSSH {
+                    HStack {
+                        Spacer().frame(width: CGFloat((depth + 1) * 12) + 18)
+                        Text("No items found")
+                            .font(.system(size: 9))
+                            .foregroundStyle(VeloDesign.Colors.textMuted)
+                        Spacer()
+                    }
+                    .padding(.vertical, 4)
+                } else {
+                    ForEach(children) { child in
+                        FileItemRow(
+                            item: child,
+                            manager: manager,
+                            depth: depth + 1,
+                            isSSH: isSSH,
+                            sshConnectionString: sshConnectionString,
+                            onEdit: onEdit,
+                            onChangeDirectory: onChangeDirectory,
+                            onRunCommand: onRunCommand
+                        )
+                    }
                 }
             }
+        }
+    }
+    
+    private func toggleExpansion() {
+        if isSSH && !item.isExpanded && (item.children == nil || item.children!.isEmpty) {
+            isExpandingRemote = true
+            Task {
+                manager.toggleExpansion(path: item.path)
+                // Wait for manager to finish (simulated or tracked)
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                isExpandingRemote = false
+            }
+        } else {
+            manager.toggleExpansion(path: item.path)
         }
     }
     
@@ -976,12 +1182,51 @@ private struct FileItemRow: View {
         Group {
             Button {
                 if item.isDirectory {
-                    manager.toggleExpansion(path: item.path)
+                    toggleExpansion()
                 } else {
                     onEdit(item.path)
                 }
             } label: {
                 Label(item.isDirectory ? "Open Folder" : "Edit File", systemImage: item.isDirectory ? "folder" : "pencil")
+            }
+            
+            if item.isDirectory {
+                Button {
+                    onRunCommand("cd \"\(item.path)\"")
+                } label: {
+                    Label("cd to Folder", systemImage: "terminal")
+                }
+                
+                Button {
+                    onRunCommand("ls -la \"\(item.path)\"")
+                } label: {
+                    Label("List Contents", systemImage: "list.bullet")
+                }
+            } else {
+                Button {
+                    onRunCommand("cat \"\(item.path)\"")
+                } label: {
+                    Label("View Content", systemImage: "eye")
+                }
+            }
+            
+            Divider()
+            
+            // Actions from FileActionView logic
+            if isSSH {
+                Button {
+                    let flag = item.isDirectory ? "-r " : ""
+                    let remotePath = item.path.replacingOccurrences(of: "'", with: "'\\''")
+                    onRunCommand("__download_scp__:scp \(flag)\(sshConnectionString ?? "user@host"):'\(remotePath)' ~/Downloads/")
+                } label: {
+                    Label("📥 Download", systemImage: "arrow.down.circle")
+                }
+                
+                Button {
+                    onRunCommand("du -sh \"\(item.path)\"")
+                } label: {
+                    Label("Get Size", systemImage: "chart.bar")
+                }
             }
             
             Divider()
@@ -1004,16 +1249,15 @@ private struct FileItemRow: View {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(item.path, forType: .string)
             } label: {
-                Label("Copy Path", systemImage: "doc.on.doc")
+                Label("Copy Path", systemImage: "doc.on.clipboard")
             }
             
             Divider()
             
             Button {
-                // Transition / Change context
                 onChangeDirectory(item.path)
             } label: {
-                Label("Go to Folder", systemImage: "arrow.right.circle")
+                Label("Change CWD to here", systemImage: "arrow.right.circle")
             }
             .disabled(!item.isDirectory)
             
@@ -1022,23 +1266,14 @@ private struct FileItemRow: View {
             } label: {
                 Label("Get Info", systemImage: "info.circle")
             }
-        }
-    }
-    
-    private func fileIcon(for name: String) -> String {
-        let ext = (name as NSString).pathExtension.lowercased()
-        switch ext {
-        case "swift": return "swift"
-        case "py": return "python"
-        case "js", "ts": return "javascript"
-        case "html": return "chevron.left.forwardslash.chevron.right"
-        case "css": return "leaf.fill"
-        case "json": return "braces"
-        case "md": return "doc.text"
-        case "png", "jpg", "jpeg", "svg": return "photo"
-        case "mp4", "mov": return "play.rectangle"
-        case "zip", "gz": return "doc.zipper"
-        default: return "doc.text"
+            
+            Divider()
+            
+            Button(role: .destructive) {
+                onRunCommand("rm -rf \"\(item.path)\"")
+            } label: {
+                Label("Delete Permanently", systemImage: "trash")
+            }
         }
     }
 }
@@ -1047,27 +1282,30 @@ private struct FileInfoPopover: View {
     let item: FileItem
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Image(systemName: item.isDirectory ? "folder.fill" : "doc.fill")
-                    .foregroundStyle(item.isDirectory ? ColorTokens.accentPrimary : ColorTokens.textTertiary)
+                    .font(.system(size: 16))
+                    .foregroundStyle(item.isDirectory ? VeloDesign.Colors.neonCyan : ColorTokens.textTertiary)
                 Text(item.name)
-                    .font(.system(size: 13, weight: .bold))
+                    .font(VeloDesign.Typography.headline)
+                    .foregroundColor(VeloDesign.Colors.textPrimary)
             }
             
             Divider()
+                .background(VeloDesign.Colors.glassBorder)
             
             VStack(alignment: .leading, spacing: 6) {
                 InfoRow(label: "Type", value: item.isDirectory ? "Folder" : "File")
-                InfoRow(label: "Size", value: formattedSize(item.size ?? 0))
-                InfoRow(label: "Path", value: item.path)
-                if let date = item.modificationDate {
-                    InfoRow(label: "Modified", value: date.formatted())
+                InfoRow(label: "Location", value: item.path)
+                if let size = item.size {
+                    InfoRow(label: "Size", value: formattedSize(size))
                 }
             }
         }
-        .padding(16)
+        .padding()
         .frame(width: 300)
+        .background(VeloDesign.Colors.darkSurface)
     }
     
     private func InfoRow(label: String, value: String) -> some View {
@@ -1109,7 +1347,8 @@ private struct FileInfoPopover: View {
         ],
         scripts: [
             AutoScript(name: "Deploy Script", commands: ["git pull", "npm install", "npm run build"])
-        ]
+        ],
+        parsedTerminalItems: []
     )
     .frame(width: 300, height: 600)
 }

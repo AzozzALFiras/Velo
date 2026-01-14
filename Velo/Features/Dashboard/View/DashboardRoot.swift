@@ -57,6 +57,7 @@ struct DashboardRoot: View {
     @State private var showPasswordPrompt = false
     @State private var passwordInput = ""
     @State private var pendingSSHConnection: SSHConnection? = nil
+    @State private var showSSHConnectionSheet = false
     
     // AI state
     @State private var aiMessages: [AIMessage] = []
@@ -112,75 +113,40 @@ struct DashboardRoot: View {
                         .background(ColorTokens.border)
                     
                     // Main workspace area or specialized panel
-                    Group {
-                        if sidebarSection == .git {
+                    if sidebarSection == .git {
                         GitPanel(contextManager: contextManager, currentDirectory: currentDirectory)
                             .transition(.asymmetric(insertion: .move(edge: .trailing), removal: .opacity))
-                        } else if sidebarSection == .docker {
-                            DockerPanel(manager: dockerManager)
-                                .transition(.asymmetric(insertion: .move(edge: .trailing), removal: .opacity))
-                        } else {
-                            HStack(spacing: 0) {
-                                // Workspace
-                                DashboardWorkspace(
-                                    contextManager: contextManager,
-                                    blocks: blocks,
-                                    inputText: $inputText,
-                                    isExecuting: $isExecuting,
-                                    currentDirectory: currentDirectory,
-                                    onExecute: executeCommand,
-                                    onBlockAction: handleBlockAction,
-                                    onRetryBlock: retryBlock,
-                                    onAskAI: askAI,
-                                    onOpenPath: { path in
-                                        editFile(at: path)
-                                    },
-                                    onSync: gitSync,
-                                    onBranchSwitch: showBranchSwitcher,
-                                    onShowShortcuts: { showShortcuts = true },
-                                    onShowFiles: {
-                                        selectedIntelligenceTab = .files
-                                        withAnimation { showIntelligencePanel = true }
-                                    },
-                                    onShowHistory: {
-                                        selectedIntelligenceTab = .history
-                                        withAnimation { showIntelligencePanel = true }
-                                    }
-                                )
-                                
-                                // Intelligence Panel
-                                if showIntelligencePanel {
-                                    Divider()
-                                        .background(ColorTokens.border)
-                                    
-                                    IntelligencePanel(
-                                        selectedTab: $selectedIntelligenceTab,
-                                        historyManager: historyManager,
-                                        aiMessages: aiMessages,
-                                        recentErrors: recentErrors,
-                                        suggestions: suggestions,
-                                        scripts: scripts,
-                                        currentDirectory: currentDirectory,
-                                        onSendMessage: sendAIMessage,
-                                        onRunCommand: runCommand,
-                                        onExplainError: explainError,
-                                        onFixError: fixError,
-                                        onRunScript: runScript,
-                                        onEditFile: { path in
-                                            editFile(at: path)
-                                        },
-                                        onChangeDirectory: { path in
-                                            tabManager.activeSession?.currentDirectory = path
-                                            // Trigger context update
-                                            Task { await contextManager.updateContext(for: path) }
-                                        }
-                                    )
-                                    .frame(width: 340)
-                                    .transition(.move(edge: .trailing))
-                                }
-                            }
-                            .transition(.opacity)
-                        }
+                    } else if sidebarSection == .docker {
+                        DockerPanel(manager: dockerManager)
+                            .transition(.asymmetric(insertion: .move(edge: .trailing), removal: .opacity))
+                    } else if let session = tabManager.activeSession {
+                        ActiveSessionContainer(
+                            session: session,
+                            contextManager: contextManager,
+                            blocks: $blocks,
+                            historyManager: historyManager,
+                            aiMessages: aiMessages,
+                            recentErrors: recentErrors,
+                            suggestions: suggestions,
+                            scripts: scripts,
+                            showIntelligencePanel: $showIntelligencePanel,
+                            selectedIntelligenceTab: $selectedIntelligenceTab,
+                            inputText: $inputText,
+                            isExecuting: $isExecuting,
+                            executeCommand: executeCommand,
+                            handleBlockAction: handleBlockAction,
+                            retryBlock: retryBlock,
+                            askAI: askAI,
+                            editFile: editFile,
+                            gitSync: gitSync,
+                            showBranchSwitcher: showBranchSwitcher,
+                            showShortcuts: $showShortcuts,
+                            sendAIMessage: sendAIMessage,
+                            runCommand: runCommand,
+                            explainError: explainError,
+                            fixError: fixError,
+                            runScript: runScript
+                        )
                     }
                 }
                 .background(ColorTokens.layer0)
@@ -228,11 +194,17 @@ struct DashboardRoot: View {
                 setupInitialState()
                 systemMonitor.startMonitoring()
             }
-            .onDisappear {
-                systemMonitor.stopMonitoring()
-            }
             .onChange(of: tabManager.activeSessionId) { _, _ in
                 syncWithActiveSession()
+            }
+            .onChange(of: tabManager.activeSession?.fetchedFileContent) { _, newContent in
+                if let content = newContent {
+                    editingFileContent = content
+                    // Ensure editor is showing if we were waiting for it
+                    if let _ = editingFile {
+                        showEditor = true
+                    }
+                }
             }
             .blur(radius: showCommandBar ? 8 : 0)
             .disabled(showCommandBar)
@@ -286,7 +258,16 @@ struct DashboardRoot: View {
                 }
             )
         }
+        .sheet(isPresented: $showSSHConnectionSheet) {
+            SSHConnectionSheet(
+                serverName: pendingSSHConnection?.name ?? "SSH Server",
+                host: "\(pendingSSHConnection?.username ?? "user")@\(pendingSSHConnection?.host ?? "host")",
+                onCancel: cancelSSHConnection
+            )
+        }
         .onReceive(NotificationCenter.default.publisher(for: .sshPasswordRequired)) { _ in
+            // Dismiss connection sheet if password is needed
+            showSSHConnectionSheet = false
             handleSSHPasswordPrompt()
         }
     }
@@ -294,7 +275,10 @@ struct DashboardRoot: View {
     // MARK: - Computed Properties
     
     private var currentDirectory: String {
-        tabManager.activeSession?.currentDirectory ?? FileManager.default.homeDirectoryForCurrentUser.path
+        if let session = tabManager.activeSession, session.isSSHActive, let remoteDir = session.remoteWorkingDirectory {
+            return remoteDir
+        }
+        return tabManager.activeSession?.currentDirectory ?? FileManager.default.homeDirectoryForCurrentUser.path
     }
     
     private var activeSession: TerminalViewModel? {
@@ -329,7 +313,12 @@ struct DashboardRoot: View {
     // MARK: - Actions
     
     private func executeCommand() {
-        guard !inputText.isEmpty, !isExecuting else { return }
+        guard !inputText.isEmpty else { return }
+        
+        // Allow execution if not already executing, OR if we are in an SSH session
+        // (SSH sessions keep isExecuting=true, but we still want to send input)
+        let isSSH = isCurrentSessionSSH
+        if isExecuting && !isSSH { return }
         
         var command = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         
@@ -362,10 +351,30 @@ struct DashboardRoot: View {
             // Set the command on the active session
             session.inputText = command
             
-            // Execute the command
+            // If it's an interactive session, we send input to the existing process
+            // If it's a new command, it will start a new process
             session.executeCommand()
             
-            // Wait for command to complete (observe isExecuting flag)
+            // For SSH sessions, we don't want to wait for the process to exit
+            // because the process IS the SSH session itself.
+            // Instead, we wait just a moment for the output to start streaming,
+            // then we release the UI lock so the user can type the next command.
+            if isSSH {
+                // Short wait to capture immediate output
+                try? await Task.sleep(for: .milliseconds(500))
+                
+                // Final sync for this block's initial burst
+                let syncOutput = session.outputLines.suffix(max(0, session.outputLines.count - block.output.count))
+                for line in syncOutput {
+                    block.appendOutput(text: line.text, isError: line.isError)
+                }
+                
+                block.status = .success // Mark as "sent" or "done" for this block
+                isExecuting = false // Release lock
+                return
+            }
+            
+            // For standard local commands, wait for completion as usual
             while session.isExecuting {
                 try? await Task.sleep(for: .milliseconds(100))
                 
@@ -490,6 +499,28 @@ struct DashboardRoot: View {
     }
     
     private func runCommand(_ command: String) {
+        // Handle special internal commands
+        if command.hasPrefix("__edit__:") {
+            let path = String(command.dropFirst(9))
+            editFile(at: path)
+            return
+        }
+        
+        if command.hasPrefix("__download_scp__:") {
+            let scpCmd = String(command.dropFirst(17))
+            if let session = tabManager.activeSession {
+                session.startBackgroundDownload(command: scpCmd)
+            }
+            return
+        }
+        
+        if command.hasPrefix("__copy_path__:") {
+            let path = String(command.dropFirst(14))
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(path, forType: .string)
+            return
+        }
+
         inputText = command
         executeCommand()
     }
@@ -510,6 +541,21 @@ struct DashboardRoot: View {
     }
     
     private func editFile(at path: String) {
+        // Handle Remote SSH Editing
+        if let session = tabManager.activeSession, session.isSSHActive {
+            if let userHost = session.activeSSHConnectionString {
+                session.startBackgroundFileFetch(path: path, userHost: userHost)
+                // We'll show the editor once the content is fetched
+                // Monitoring is done via onChange(of: session.fetchedFileContent)
+                
+                // Show a temporary "Loading" state in the editor if possible or just wait
+                editingFile = path
+                editingFileContent = "// Loading remote file: \(path)..."
+                showEditor = true
+                return
+            }
+        }
+
         let url = URL(fileURLWithPath: path)
         
         // 1. Check if it's a binary file or too large (simple heuristic)
@@ -553,6 +599,17 @@ struct DashboardRoot: View {
     }
     
     private func saveFile(at path: String, content: String) {
+        // Handle remote save
+        if let session = tabManager.activeSession, session.isSSHActive {
+            if let userHost = session.activeSSHConnectionString {
+                session.startRemoteFileSave(path: path, content: content, userHost: userHost)
+                alertTitle = "Saving..."
+                alertMessage = "Upload started for \(path)"
+                showAlert = true
+                return
+            }
+        }
+        
         do {
             try content.write(toFile: path, atomically: true, encoding: .utf8)
             editingFileContent = content
@@ -593,6 +650,10 @@ struct DashboardRoot: View {
     }
     
     private func connectToSSH(_ connection: SSHConnection) {
+        // Store connection and show progress sheet
+        pendingSSHConnection = connection
+        showSSHConnectionSheet = true
+        
         // Mark as connected
         sshManager.markAsConnected(connection)
         
@@ -607,8 +668,18 @@ struct DashboardRoot: View {
             password: savedPassword
         )
         
-        // Store connection for potential password prompt
-        pendingSSHConnection = connection
+        // Auto-dismiss sheet after connection completes (or timeout)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+            if showSSHConnectionSheet {
+                showSSHConnectionSheet = false
+            }
+        }
+    }
+    
+    private func cancelSSHConnection() {
+        showSSHConnectionSheet = false
+        pendingSSHConnection = nil
+        // Could also terminate the session here if needed
     }
     
     /// Called when terminal detects password prompt
@@ -659,4 +730,133 @@ struct DashboardRoot: View {
 #Preview {
     DashboardRoot()
         .frame(width: 1400, height: 800)
+}
+
+// MARK: - Active Session Container
+
+/// A container that observes the active session to ensure the UI re-renders on session property changes
+private struct ActiveSessionContainer: View {
+    @ObservedObject var session: TerminalViewModel
+    var contextManager: ContextManager
+    @Binding var blocks: [CommandBlock]
+    @ObservedObject var historyManager: CommandHistoryManager
+    
+    var aiMessages: [AIMessage]
+    var recentErrors: [ErrorItem]
+    var suggestions: [SuggestionItem]
+    var scripts: [AutoScript]
+    
+    @Binding var showIntelligencePanel: Bool
+    @Binding var selectedIntelligenceTab: IntelligenceTab
+    @Binding var inputText: String
+    @Binding var isExecuting: Bool
+    
+    var executeCommand: () -> Void
+    var handleBlockAction: (CommandBlock, BlockAction) -> Void
+    var retryBlock: (CommandBlock) -> Void
+    var askAI: (String) -> Void
+    var editFile: (String) -> Void
+    var gitSync: () -> Void
+    var showBranchSwitcher: () -> Void
+    @Binding var showShortcuts: Bool
+    
+    var sendAIMessage: (String) -> Void
+    var runCommand: (String) -> Void
+    var explainError: (ErrorItem) -> Void
+    var fixError: (ErrorItem) -> Void
+    var runScript: (AutoScript) -> Void
+    
+    private var currentDirectory: String {
+        if session.isSSHActive, let remoteDir = session.remoteWorkingDirectory {
+            return remoteDir
+        }
+        return session.currentDirectory
+    }
+    
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 0) {
+                // Workspace
+                DashboardWorkspace(
+                    contextManager: contextManager,
+                    blocks: blocks,
+                    inputText: $inputText,
+                    isExecuting: $isExecuting,
+                    currentDirectory: currentDirectory,
+                    onExecute: executeCommand,
+                    onBlockAction: handleBlockAction,
+                    onRetryBlock: retryBlock,
+                    onAskAI: askAI,
+                    onOpenPath: { path in
+                        editFile(path)
+                    },
+                    onSync: gitSync,
+                    onBranchSwitch: showBranchSwitcher,
+                    onShowShortcuts: { showShortcuts = true },
+                    onShowFiles: {
+                        selectedIntelligenceTab = .files
+                        withAnimation { showIntelligencePanel = true }
+                    },
+                    onShowHistory: {
+                        selectedIntelligenceTab = .history
+                        withAnimation { showIntelligencePanel = true }
+                    }
+                )
+                
+                // Intelligence Panel
+                if showIntelligencePanel {
+                    Divider()
+                        .background(ColorTokens.border)
+                    
+                    IntelligencePanel(
+                        selectedTab: $selectedIntelligenceTab,
+                        historyManager: historyManager,
+                        aiMessages: aiMessages,
+                        recentErrors: recentErrors,
+                        suggestions: suggestions,
+                        scripts: scripts,
+                        currentDirectory: currentDirectory,
+                        isSSH: session.isSSHActive,
+                        sshConnectionString: session.activeSSHConnectionString,
+                        parsedTerminalItems: session.parsedDirectoryItems,
+                        onSendMessage: sendAIMessage,
+                        onRunCommand: runCommand,
+                        onExplainError: explainError,
+                        onFixError: fixError,
+                        onRunScript: runScript,
+                        onEditFile: { path in
+                            editFile(path)
+                        },
+                        onChangeDirectory: { path in
+                            session.currentDirectory = path
+                            Task { await contextManager.updateContext(for: path) }
+                        }
+                    )
+                    .frame(width: 340)
+                    .transition(.move(edge: .trailing))
+                }
+            }
+            
+            // Integrated Command Bar spanning both columns
+            TerminalInputBar(
+                inputText: $inputText,
+                isExecuting: $isExecuting,
+                currentDirectory: currentDirectory,
+                isGitRepository: contextManager.isGitRepository,
+                hasDocker: contextManager.isDockerProject,
+                onExecute: executeCommand,
+                onShowFiles: {
+                    selectedIntelligenceTab = .files
+                    withAnimation { showIntelligencePanel = true }
+                },
+                onShowHistory: {
+                    selectedIntelligenceTab = .history
+                    withAnimation { showIntelligencePanel = true }
+                },
+                onShowShortcuts: { showShortcuts = true },
+                onAskAI: askAI
+            )
+        }
+        .transition(.opacity)
+    }
 }

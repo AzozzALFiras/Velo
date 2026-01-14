@@ -28,7 +28,7 @@ enum SidebarSection: String, CaseIterable, Identifiable {
         case .servers: return "server.rack"
         case .files: return "folder"
         case .aiActions: return "sparkles"
-        case .git: return "branch"
+        case .git: return "arrow.branch"
         case .docker: return "shippingbox"
         case .commands: return "text.alignleft"
         default: return "circle"
@@ -163,7 +163,7 @@ struct DashboardSidebar: View {
             }
             
             SidebarButton(
-                icon: "branch",
+                icon: "arrow.branch",
                 label: "Git Status",
                 isActive: selectedSection == .git
             ) {

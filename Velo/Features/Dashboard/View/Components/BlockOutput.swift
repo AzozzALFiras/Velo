@@ -169,7 +169,7 @@ private struct OutputLineView: View {
     
     @ViewBuilder
     private var pathActions: some View {
-        let paths = FilePathDetector.extractPaths(from: line.text)
+        let paths = Array(Set(FilePathDetector.extractPaths(from: line.text))).sorted()
         ForEach(paths, id: \.self) { path in
             InlineActionButton(
                 icon: "doc.text",

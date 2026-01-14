@@ -43,13 +43,24 @@ class FileExplorerManager: ObservableObject {
     @Published var isLoading = false
     @Published var errorMessage: String?
     
+    // SSH support
+    var isSSH: Bool = false
+    var sshConnectionString: String? = nil
+    
     private let fileManager = FileManager.default
+    private var sshLSProcess: PTYProcess?
     
     /// Load files for a specific directory
     func loadDirectory(_ path: String, into item: FileItem? = nil) async {
         isLoading = true
         defer { isLoading = false }
         
+        if isSSH, let host = sshConnectionString {
+            await loadRemoteDirectory(path, sshHost: host, into: item)
+            return
+        }
+        
+        // Local logic (existing)
         do {
             let urls = try fileManager.contentsOfDirectory(at: URL(fileURLWithPath: path),
                                                            includingPropertiesForKeys: [.isDirectoryKey, .fileSizeKey, .contentModificationDateKey],
@@ -89,6 +100,174 @@ class FileExplorerManager: ObservableObject {
             }
         } catch {
             errorMessage = error.localizedDescription
+        }
+    }
+    
+    private func loadRemoteDirectory(_ path: String, sshHost: String, into item: FileItem? = nil) async {
+        print("📂 [FileExplorer] Loading remote directory: '\(path)' via \(sshHost)")
+        
+        let targetDirectory = path.isEmpty ? "~" : path
+        let delimiter = "---VELO-FILES-START---"
+        
+        // Find saved password if available
+        var passwordToInject: String?
+        let userHostParts = sshHost.components(separatedBy: "@")
+        let username = userHostParts.first ?? ""
+        let host = userHostParts.last ?? ""
+        
+        // Use SSHManager to look up connection and password
+        let manager = SSHManager()
+        if let conn = manager.connections.first(where: { $0.host == host && $0.username == username }) {
+            if let pwd = manager.getPassword(for: conn) {
+                print("🔑 [FileExplorer] Found password for \(sshHost)")
+                passwordToInject = pwd
+            }
+        }
+        
+        let result = await withCheckedContinuation { (continuation: CheckedContinuation<(String, Error?), Never>) in
+            var accumulatedOutput = ""
+            var passwordInjected = false
+            
+            let pty = PTYProcess { [weak self] text in
+                accumulatedOutput += text
+                
+                // Handle password prompt injection
+                let lowerText = text.lowercased()
+                if !passwordInjected && (lowerText.contains("password:") || lowerText.contains("passphrase:")) {
+                    if let pwd = passwordToInject {
+                        print("🔐 [FileExplorer] Injecting password for directory load")
+                        // Wait a tiny bit for the prompt to be fully ready
+                        DispatchQueue.global().asyncAfter(deadline: .now() + 0.1) {
+                            self?.sshLSProcess?.write(pwd + "\n")
+                        }
+                        passwordInjected = true
+                    }
+                }
+            }
+            
+            self.sshLSProcess = pty
+            
+            let escapedPath = targetDirectory.replacingOccurrences(of: "'", with: "'\\''")
+            // Use ls -1ap for clear listing with file types.
+            let lsCommand = "ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 \(sshHost) \"echo '\(delimiter)'; ls -1ap --color=never '\(escapedPath)'\""
+            
+            var env = ProcessInfo.processInfo.environment
+            env["SSH_ASKPASS"] = ""
+            
+            do {
+                try pty.execute(
+                    command: lsCommand,
+                    environment: env,
+                    workingDirectory: FileManager.default.homeDirectoryForCurrentUser.path
+                )
+                
+                DispatchQueue.global().async { [weak self] in
+                    let exitCode = pty.waitForExit()
+                    print("📝 [FileExplorer] SSH ls exited with code: \(exitCode)")
+                    
+                    self?.sshLSProcess = nil
+                    
+                    if exitCode != 0 {
+                        let errorMsg = accumulatedOutput.lowercased().contains("permission denied") 
+                            ? "Permission denied (password). Ensure credentials are saved in SSH Settings."
+                            : "SSH exit code \(exitCode)"
+                        continuation.resume(returning: (accumulatedOutput, NSError(domain: "VeloSSH", code: Int(exitCode), userInfo: [NSLocalizedDescriptionKey: errorMsg])))
+                        return
+                    }
+                    
+                    // Split by delimiter to ignore banners/prompts
+                    if let range = accumulatedOutput.range(of: delimiter) {
+                        let actualOutput = String(accumulatedOutput[range.upperBound...])
+                        continuation.resume(returning: (actualOutput, nil))
+                    } else {
+                        // If delimiter didn't appear, return what we have
+                        let cleaned = accumulatedOutput.replacingOccurrences(of: lsCommand, with: "")
+                        continuation.resume(returning: (cleaned, nil))
+                    }
+                }
+            } catch {
+                continuation.resume(returning: ("", error))
+            }
+        }
+        
+        if let error = result.1 {
+            await MainActor.run {
+                self.errorMessage = error.localizedDescription
+                self.isLoading = false
+            }
+            return
+        }
+        
+        let output = result.0
+        // We always parse if the command succeeded, to allow for empty directories.
+        // We only skip if the output is suspiciously large and delimiter-less (likely a banner mess).
+        if output.count < 10000 {
+            await parseAndUpdateItems(output: output, path: path, sshHost: sshHost, item: item)
+        } else if output.contains(delimiter) {
+            await parseAndUpdateItems(output: output, path: path, sshHost: sshHost, item: item)
+        }
+    }
+    
+    private func parseAndUpdateItems(output: String, path: String, sshHost: String, item: FileItem?) async {
+        // Clean ANSI/OSC sequences aggressively
+        var cleanedOutput = output
+        // Remove OSC sequences: BEL or ST terminated
+        cleanedOutput = cleanedOutput.replacingOccurrences(of: "\u{1B}\\][^\u{07}\u{1B}]*[\u{07}]", with: "", options: .regularExpression)
+        cleanedOutput = cleanedOutput.replacingOccurrences(of: "\u{1B}\\][^\u{07}\u{1B}]*\\u{1B}\\\\", with: "", options: .regularExpression)
+        // Remove CSI sequences (colors, etc.)
+        cleanedOutput = cleanedOutput.replacingOccurrences(of: "\u{1B}\\[[0-9;?]*[a-zA-Z]", with: "", options: .regularExpression)
+        // Remove naked ESC and BEL
+        cleanedOutput = cleanedOutput.replacingOccurrences(of: "\u{1B}", with: "")
+        cleanedOutput = cleanedOutput.replacingOccurrences(of: "\u{07}", with: "")
+        
+        let lines = cleanedOutput.components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { line in
+                // Extremely important: filter out terminal junk
+                !line.isEmpty && 
+                line != "./" && 
+                line != "../" && 
+                !line.contains("Welcome to") &&
+                !line.contains("Last login:") &&
+                !line.hasPrefix("ls -") &&
+                !line.contains("root@") && // Avoid prompts appearing as files
+                !line.contains("[") // Simple check for bracketed prompts
+            }
+        
+        print("📂 [FileExplorer] Parsed \(lines.count) items for \(path)")
+        
+        let loadedItems = lines.map { line -> FileItem in
+            let isDir = line.hasSuffix("/")
+            let name = isDir ? String(line.dropLast()) : line
+            
+            let separator = path.hasSuffix("/") ? "" : "/"
+            let fullPath = "\(path)\(separator)\(name)"
+            
+            return FileItem(
+                id: "ssh:\(sshHost):\(fullPath)",
+                name: name,
+                path: fullPath,
+                isDirectory: isDir,
+                type: isDir ? .folder : detectType(from: name),
+                children: isDir ? [] : nil,
+                size: nil,
+                modificationDate: nil
+            )
+        }.sorted { (a, b) in
+            if a.isDirectory != b.isDirectory {
+                return a.isDirectory
+            }
+            return a.name.lowercased() < b.name.lowercased()
+        }
+        
+        await MainActor.run {
+            if let targetItem = item {
+                if let index = findItemIndex(path: targetItem.path) {
+                    updateChildren(at: index, with: loadedItems)
+                }
+            } else {
+                rootItems = loadedItems
+            }
         }
     }
     
