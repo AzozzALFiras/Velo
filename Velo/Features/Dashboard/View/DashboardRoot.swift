@@ -54,9 +54,6 @@ struct DashboardRoot: View {
     @State private var showSettings = false
     @State private var showShortcuts = false
     
-    // SSH Connections (loaded from existing SSHManager or storage)
-    @State private var sshConnections: [SSHConnection] = []
-    
     // AI state
     @State private var aiMessages: [AIMessage] = []
     @State private var recentErrors: [ErrorItem] = []
@@ -66,6 +63,7 @@ struct DashboardRoot: View {
     // Command Bar
     @State private var showCommandBar = false
     @StateObject private var sshManager = SSHManager()
+    @StateObject private var aiService = CloudAIService()
     @State private var dockerManager = DockerManager()
     
     // MARK: - Initialization
@@ -86,7 +84,7 @@ struct DashboardRoot: View {
                     selectedSection: $sidebarSection,
                     sessions: tabManager.sessions,
                     activeSessionId: tabManager.activeSessionId,
-                    sshConnections: sshConnections,
+                    sshConnections: sshManager.connections,
                     onNewSession: { tabManager.addSession() },
                     onSelectSession: { id in tabManager.switchToSession(id: id) },
                     onConnectSSH: connectToSSH,
@@ -335,22 +333,61 @@ struct DashboardRoot: View {
         isExecuting = true
         
         Task {
+            guard let session = activeSession else {
+                block.status = .error
+                block.appendOutput(text: "No active session", isError: true)
+                isExecuting = false
+                return
+            }
+            
             // Set the command on the active session
-            activeSession?.inputText = command
-            activeSession?.executeCommand()
+            session.inputText = command
             
-            // Simulate completion (in real implementation, this would come from terminal output)
-            try? await Task.sleep(for: .seconds(0.5))
+            // Execute the command
+            session.executeCommand()
             
-            // Update block status (would be driven by actual execution)
-            block.status = .success
+            // Wait for command to complete (observe isExecuting flag)
+            while session.isExecuting {
+                try? await Task.sleep(for: .milliseconds(100))
+                
+                // Stream output to block as it arrives
+                let newOutput = session.outputLines.suffix(max(0, session.outputLines.count - block.output.count))
+                for line in newOutput {
+                    block.appendOutput(text: line.text, isError: line.isError)
+                }
+            }
+            
+            // Final sync of any remaining output
+            let remainingOutput = session.outputLines.suffix(max(0, session.outputLines.count - block.output.count))
+            for line in remainingOutput {
+                block.appendOutput(text: line.text, isError: line.isError)
+            }
+            
+            // Update block status based on exit code
+            let exitCode = session.lastExitCode
+            block.status = (exitCode == 0) ? .success : .error
             block.endTime = Date()
-            block.appendOutput(text: "Command executed successfully")
+            block.exitCode = exitCode
+            
+            // Update current directory if changed
+            if session.currentDirectory != currentDirectory {
+                tabManager.activeSession?.currentDirectory = session.currentDirectory
+            }
+            
+            // Add to history
+            historyManager.addCommand(CommandModel(
+                command: command,
+                output: block.output.map { $0.text }.joined(separator: "\n"),
+                exitCode: exitCode,
+                duration: block.duration,
+                workingDirectory: currentDirectory,
+                context: .detect(from: command)
+            ))
             
             isExecuting = false
             
             // Refresh context after command
-            await contextManager.refreshGitStatus()
+            await contextManager.updateContext(for: session.currentDirectory)
         }
     }
     
@@ -376,28 +413,54 @@ struct DashboardRoot: View {
         if query.isEmpty {
             // Just open the panel and focus
             showIntelligencePanel = true
+            selectedIntelligenceTab = .chat
         } else {
             aiMessages.append(AIMessage(content: query, isUser: true))
             showIntelligencePanel = true
+            selectedIntelligenceTab = .chat
             
-            // Trigger AI response (would connect to existing CloudAIService)
+            // Use CloudAIService for real response
             Task {
-                // Simulate AI response
-                try? await Task.sleep(for: .seconds(1))
-                aiMessages.append(AIMessage(
-                    content: "I'll help you with that. Here's a suggestion:",
-                    isUser: false,
-                    codeBlocks: ["git status"]
-                ))
+                await aiService.sendMessage(query)
+                
+                // Sync AI service messages to local state
+                if let lastMessage = aiService.messages.last, lastMessage.role == .assistant {
+                    // Extract code blocks from response
+                    let codeBlocks = extractCodeBlocks(from: lastMessage.content)
+                    aiMessages.append(AIMessage(
+                        content: lastMessage.content,
+                        isUser: false,
+                        codeBlocks: codeBlocks
+                    ))
+                }
             }
         }
     }
     
     private func sendAIMessage(_ message: String) {
-        aiMessages.append(AIMessage(content: message, isUser: true))
+        askAI(message)
+    }
+    
+    /// Extract code blocks from markdown-style AI response
+    private func extractCodeBlocks(from text: String) -> [String] {
+        var blocks: [String] = []
+        let pattern = "```(?:\\w+)?\\n([\\s\\S]*?)```"
         
-        // Connect to existing AI service
-        activeSession?.askAI(query: message)
+        if let regex = try? NSRegularExpression(pattern: pattern, options: []) {
+            let range = NSRange(text.startIndex..., in: text)
+            let matches = regex.matches(in: text, options: [], range: range)
+            
+            for match in matches {
+                if let codeRange = Range(match.range(at: 1), in: text) {
+                    let code = String(text[codeRange]).trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !code.isEmpty {
+                        blocks.append(code)
+                    }
+                }
+            }
+        }
+        
+        return blocks
     }
     
     private func runCommand(_ command: String) {

@@ -253,12 +253,53 @@ struct GitPanel: View {
     // MARK: - Actions
     
     private func commit() {
+        guard !commitMessage.isEmpty else { return }
         isCommitting = true
-        // Simulate git commit
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-            commitMessage = ""
-            isCommitting = false
-            Task { await contextManager.refreshGitStatus() }
+        
+        Task {
+            // Run actual git commit
+            await executeGitCommand("git add -A && git commit -m \"\(commitMessage.replacingOccurrences(of: "\"", with: "\\\""))\"")
+            
+            await MainActor.run {
+                commitMessage = ""
+                isCommitting = false
+            }
+            
+            await contextManager.refreshGitStatus()
+        }
+    }
+    
+    private func stageFile(_ path: String) {
+        Task {
+            await executeGitCommand("git add \"\(path)\"")
+            await contextManager.refreshGitStatus()
+        }
+    }
+    
+    private func unstageFile(_ path: String) {
+        Task {
+            await executeGitCommand("git restore --staged \"\(path)\"")
+            await contextManager.refreshGitStatus()
+        }
+    }
+    
+    private func executeGitCommand(_ command: String) async {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                let process = Process()
+                process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+                process.arguments = ["-c", command]
+                process.currentDirectoryURL = URL(fileURLWithPath: self.currentDirectory)
+                
+                do {
+                    try process.run()
+                    process.waitUntilExit()
+                } catch {
+                    print("Git command failed: \(error)")
+                }
+                
+                continuation.resume()
+            }
         }
     }
 }
