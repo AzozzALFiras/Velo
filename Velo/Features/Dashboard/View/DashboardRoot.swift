@@ -47,12 +47,16 @@ struct DashboardRoot: View {
     @State private var inputText = ""
     @State private var isExecuting = false
     
-    // Alerts & UI
     @State private var showAlert = false
     @State private var alertTitle = ""
     @State private var alertMessage = ""
     @State private var showSettings = false
     @State private var showShortcuts = false
+    
+    // SSH Password Prompt
+    @State private var showPasswordPrompt = false
+    @State private var passwordInput = ""
+    @State private var pendingSSHConnection: SSHConnection? = nil
     
     // AI state
     @State private var aiMessages: [AIMessage] = []
@@ -270,6 +274,21 @@ struct DashboardRoot: View {
             .keyboardShortcut("k", modifiers: [.command])
             .opacity(0)
         )
+        .sheet(isPresented: $showPasswordPrompt) {
+            SSHPasswordSheet(
+                serverName: pendingSSHConnection?.name ?? "SSH Server",
+                password: $passwordInput,
+                onSubmit: submitSSHPassword,
+                onCancel: {
+                    passwordInput = ""
+                    showPasswordPrompt = false
+                    pendingSSHConnection = nil
+                }
+            )
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .sshPasswordRequired)) { _ in
+            handleSSHPasswordPrompt()
+        }
     }
     
     // MARK: - Computed Properties
@@ -354,6 +373,13 @@ struct DashboardRoot: View {
                 let newOutput = session.outputLines.suffix(max(0, session.outputLines.count - block.output.count))
                 for line in newOutput {
                     block.appendOutput(text: line.text, isError: line.isError)
+                    
+                    // Detect SSH password prompt
+                    if line.text.lowercased().contains("password:") && pendingSSHConnection != nil {
+                        await MainActor.run {
+                            NotificationCenter.default.post(name: .sshPasswordRequired, object: nil)
+                        }
+                    }
                 }
             }
             
@@ -567,13 +593,45 @@ struct DashboardRoot: View {
     }
     
     private func connectToSSH(_ connection: SSHConnection) {
+        // Mark as connected
+        sshManager.markAsConnected(connection)
+        
+        // Try to get password from Keychain first
+        let savedPassword = sshManager.getPassword(for: connection)
+        
         tabManager.createSSHSession(
             host: connection.host,
             user: connection.username,
             port: connection.port,
             keyPath: connection.privateKeyPath,
-            password: nil  // Would be fetched from keychain
+            password: savedPassword
         )
+        
+        // Store connection for potential password prompt
+        pendingSSHConnection = connection
+    }
+    
+    /// Called when terminal detects password prompt
+    private func handleSSHPasswordPrompt() {
+        guard pendingSSHConnection != nil else { return }
+        showPasswordPrompt = true
+    }
+    
+    /// Submit password to SSH session
+    private func submitSSHPassword() {
+        guard let session = activeSession, !passwordInput.isEmpty else { return }
+        
+        // Send password to terminal
+        session.terminalEngine.sendInput(passwordInput + "\n")
+        
+        // Optionally save to Keychain
+        if let connection = pendingSSHConnection {
+            sshManager.savePassword(passwordInput, for: connection)
+        }
+        
+        passwordInput = ""
+        showPasswordPrompt = false
+        pendingSSHConnection = nil
     }
     
     // MARK: - Setup
