@@ -15,8 +15,8 @@ struct VeloApp: App {
     
     var body: some Scene {
         WindowGroup {
-            TerminalWallView()
-                .frame(minWidth: 900, minHeight: 600)
+            ContentView()
+                .frame(minWidth: 1200, minHeight: 700)
                 .preferredColorScheme(.dark)
                 .environmentObject(themeManager)
                 .environmentObject(sshManager)

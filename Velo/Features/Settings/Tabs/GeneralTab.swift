@@ -16,6 +16,9 @@ struct GeneralTab: View {
     @AppStorage("isInteractiveOutputEnabled") private var isInteractiveOutputEnabled = true
     @AppStorage("isDeepFileParsingEnabled") private var isDeepFileParsingEnabled = true
     @AppStorage("autoLSafterCD") private var autoLSafterCD = false
+    
+    // Experimental
+    @AppStorage("useDashboardUI") private var useDashboardUI = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: VeloDesign.Spacing.xl) {
@@ -84,6 +87,21 @@ struct GeneralTab: View {
                         title: "Auto-List After CD",
                         subtitle: "Automatically run 'ls' after navigating with 'cd' to refresh suggestions.",
                         isOn: $autoLSafterCD
+                    )
+                }
+                .padding(VeloDesign.Spacing.md)
+                .elevated(.low)
+            }
+            
+            // Experimental Section
+            VStack(alignment: .leading, spacing: VeloDesign.Spacing.md) {
+                SectionHeader(title: "Experimental")
+
+                VStack(spacing: 0) {
+                    ToggleRow(
+                        title: "New Dashboard UI",
+                        subtitle: "Enable the new 3-panel dashboard layout with command blocks, Git HUD, and integrated AI panel. Requires restart.",
+                        isOn: $useDashboardUI
                     )
                 }
                 .padding(VeloDesign.Spacing.md)
