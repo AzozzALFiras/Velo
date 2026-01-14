@@ -16,6 +16,8 @@ enum SidebarSection: String, CaseIterable, Identifiable {
     case servers = "SSH Servers"
     case files = "Files"
     case aiActions = "AI Actions"
+    case git = "Git"
+    case docker = "Docker"
     case commands = "Commands"
     
     var id: String { rawValue }
@@ -26,9 +28,14 @@ enum SidebarSection: String, CaseIterable, Identifiable {
         case .servers: return "server.rack"
         case .files: return "folder"
         case .aiActions: return "sparkles"
+        case .git: return "branch"
+        case .docker: return "shippingbox"
         case .commands: return "text.alignleft"
+        default: return "circle"
         }
     }
+    
+    var label: String { rawValue }
 }
 
 // MARK: - Dashboard Sidebar
@@ -153,6 +160,22 @@ struct DashboardSidebar: View {
                 shortcut: "⌘⇧N"
             ) {
                 onNewSSH?()
+            }
+            
+            SidebarButton(
+                icon: "branch",
+                label: "Git Status",
+                isActive: selectedSection == .git
+            ) {
+                selectedSection = .git
+            }
+            
+            SidebarButton(
+                icon: "shippingbox",
+                label: "Docker Panel",
+                isActive: selectedSection == .docker
+            ) {
+                selectedSection = .docker
             }
         }
     }
@@ -396,6 +419,7 @@ struct SidebarButton: View {
     var shortcut: String? = nil
     var color: Color = ColorTokens.textSecondary
     var style: Style = .standard
+    var isActive: Bool = false
     let action: () -> Void
     
     @State private var isHovered = false
@@ -405,12 +429,12 @@ struct SidebarButton: View {
             HStack(spacing: 8) {
                 Image(systemName: icon)
                     .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(isHovered ? color : ColorTokens.textTertiary)
+                    .foregroundStyle((isActive || isHovered) ? color : ColorTokens.textTertiary)
                     .frame(width: 16)
                 
                 Text(label)
-                    .font(.system(size: 12, weight: style == .subtle ? .regular : .medium))
-                    .foregroundStyle(isHovered ? ColorTokens.textPrimary : ColorTokens.textSecondary)
+                    .font(.system(size: 12, weight: (style == .subtle && !isActive) ? .regular : .medium))
+                    .foregroundStyle((isActive || isHovered) ? ColorTokens.textPrimary : ColorTokens.textSecondary)
                 
                 Spacer()
                 
@@ -422,8 +446,12 @@ struct SidebarButton: View {
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 6)
-            .background(isHovered ? ColorTokens.layer2 : .clear)
+            .background(isActive ? ColorTokens.accentPrimary.opacity(0.15) : (isHovered ? ColorTokens.layer2 : .clear))
             .clipShape(RoundedRectangle(cornerRadius: 6))
+            .overlay(
+                RoundedRectangle(cornerRadius: 6)
+                    .strokeBorder(isActive ? ColorTokens.accentPrimary.opacity(0.3) : .clear, lineWidth: 1)
+            )
         }
         .buttonStyle(.plain)
         .onHover { hovering in

@@ -36,6 +36,9 @@ struct DashboardRoot: View {
     @State private var showIntelligencePanel = true
     @State private var sidebarSection: SidebarSection? = .sessions
     @State private var selectedIntelligenceTab: IntelligenceTab = .chat
+    @State private var editingFile: String? = nil
+    @State private var editingFileContent: String = ""
+    @State private var showEditor = false
     
     // Column visibility
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
@@ -44,7 +47,10 @@ struct DashboardRoot: View {
     @State private var inputText = ""
     @State private var isExecuting = false
     
-    // Settings
+    // Alerts & UI
+    @State private var showAlert = false
+    @State private var alertTitle = ""
+    @State private var alertMessage = ""
     @State private var showSettings = false
     @State private var showShortcuts = false
     
@@ -57,6 +63,11 @@ struct DashboardRoot: View {
     @State private var suggestions: [SuggestionItem] = []
     @State private var scripts: [AutoScript] = []
     
+    // Command Bar
+    @State private var showCommandBar = false
+    @StateObject private var sshManager = SSHManager()
+    @State private var dockerManager = DockerManager()
+    
     // MARK: - Initialization
     
     init() {
@@ -68,118 +79,199 @@ struct DashboardRoot: View {
     // MARK: - Body
     
     var body: some View {
-        NavigationSplitView(columnVisibility: $columnVisibility) {
-            // Left Sidebar
-            DashboardSidebar(
-                selectedSection: $sidebarSection,
-                sessions: tabManager.sessions,
-                activeSessionId: tabManager.activeSessionId,
-                sshConnections: sshConnections,
-                onNewSession: { tabManager.addSession() },
-                onSelectSession: { id in tabManager.switchToSession(id: id) },
-                onConnectSSH: connectToSSH,
-                onNewSSH: { showSettings = true },
-                onAIAction: handleAIAction,
-                onOpenSettings: { showSettings = true },
-                onOpenShortcuts: { showShortcuts = true }
-            )
-            .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 320)
-        } detail: {
-            // Main Content Area - System Info + Workspace + Intelligence Panel
-            VStack(spacing: 0) {
-                // System Info Bar
-                SystemInfoBar(
-                    monitor: systemMonitor,
-                    isSSH: isCurrentSessionSSH,
-                    serverName: currentSSHServerName
+        ZStack {
+            NavigationSplitView(columnVisibility: $columnVisibility) {
+                // Left Sidebar
+                DashboardSidebar(
+                    selectedSection: $sidebarSection,
+                    sessions: tabManager.sessions,
+                    activeSessionId: tabManager.activeSessionId,
+                    sshConnections: sshConnections,
+                    onNewSession: { tabManager.addSession() },
+                    onSelectSession: { id in tabManager.switchToSession(id: id) },
+                    onConnectSSH: connectToSSH,
+                    onNewSSH: { showSettings = true },
+                    onAIAction: handleAIAction,
+                    onOpenSettings: { showSettings = true },
+                    onOpenShortcuts: { showShortcuts = true }
                 )
-                
-                Divider()
-                    .background(ColorTokens.border)
-                
-                // Main workspace area
-                HStack(spacing: 0) {
-                    // Workspace
-                    DashboardWorkspace(
-                        contextManager: contextManager,
-                        blocks: blocks,
-                        inputText: $inputText,
-                        isExecuting: $isExecuting,
-                        currentDirectory: currentDirectory,
-                        onExecute: executeCommand,
-                        onBlockAction: handleBlockAction,
-                        onRetryBlock: retryBlock,
-                        onAskAI: askAI,
-                        onSync: gitSync,
-                        onBranchSwitch: showBranchSwitcher,
-                        onShowShortcuts: { showShortcuts = true },
-                        onShowFiles: {
-                            selectedIntelligenceTab = .files
-                            withAnimation { showIntelligencePanel = true }
-                        },
-                        onShowHistory: {
-                            selectedIntelligenceTab = .history
-                            withAnimation { showIntelligencePanel = true }
-                        }
+                .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 320)
+            } detail: {
+                // Main Content Area - System Info + Workspace + Intelligence Panel
+                VStack(spacing: 0) {
+                    // System Info Bar
+                    SystemInfoBar(
+                        monitor: systemMonitor,
+                        isSSH: isCurrentSessionSSH,
+                        serverName: currentSSHServerName
                     )
                     
-                    // Intelligence Panel
-                    if showIntelligencePanel {
-                        Divider()
-                            .background(ColorTokens.border)
-                        
-                        IntelligencePanel(
-                            selectedTab: $selectedIntelligenceTab,
-                            historyManager: historyManager,
-                            aiMessages: aiMessages,
-                            recentErrors: recentErrors,
-                            suggestions: suggestions,
-                            scripts: scripts,
-                            currentDirectory: currentDirectory,
-                            onSendMessage: sendAIMessage,
-                            onRunCommand: runCommand,
-                            onExplainError: explainError,
-                            onFixError: fixError,
-                            onRunScript: runScript
+                    Divider()
+                        .background(ColorTokens.border)
+                    
+                    // Main workspace area or specialized panel
+                    Group {
+                        if sidebarSection == .git {
+                        GitPanel(contextManager: contextManager, currentDirectory: currentDirectory)
+                            .transition(.asymmetric(insertion: .move(edge: .trailing), removal: .opacity))
+                        } else if sidebarSection == .docker {
+                            DockerPanel(manager: dockerManager)
+                                .transition(.asymmetric(insertion: .move(edge: .trailing), removal: .opacity))
+                        } else {
+                            HStack(spacing: 0) {
+                                // Workspace
+                                DashboardWorkspace(
+                                    contextManager: contextManager,
+                                    blocks: blocks,
+                                    inputText: $inputText,
+                                    isExecuting: $isExecuting,
+                                    currentDirectory: currentDirectory,
+                                    onExecute: executeCommand,
+                                    onBlockAction: handleBlockAction,
+                                    onRetryBlock: retryBlock,
+                                    onAskAI: askAI,
+                                    onOpenPath: { path in
+                                        editFile(at: path)
+                                    },
+                                    onSync: gitSync,
+                                    onBranchSwitch: showBranchSwitcher,
+                                    onShowShortcuts: { showShortcuts = true },
+                                    onShowFiles: {
+                                        selectedIntelligenceTab = .files
+                                        withAnimation { showIntelligencePanel = true }
+                                    },
+                                    onShowHistory: {
+                                        selectedIntelligenceTab = .history
+                                        withAnimation { showIntelligencePanel = true }
+                                    }
+                                )
+                                
+                                // Intelligence Panel
+                                if showIntelligencePanel {
+                                    Divider()
+                                        .background(ColorTokens.border)
+                                    
+                                    IntelligencePanel(
+                                        selectedTab: $selectedIntelligenceTab,
+                                        historyManager: historyManager,
+                                        aiMessages: aiMessages,
+                                        recentErrors: recentErrors,
+                                        suggestions: suggestions,
+                                        scripts: scripts,
+                                        currentDirectory: currentDirectory,
+                                        onSendMessage: sendAIMessage,
+                                        onRunCommand: runCommand,
+                                        onExplainError: explainError,
+                                        onFixError: fixError,
+                                        onRunScript: runScript,
+                                        onEditFile: { path in
+                                            editFile(at: path)
+                                        },
+                                        onChangeDirectory: { path in
+                                            tabManager.activeSession?.currentDirectory = path
+                                            // Trigger context update
+                                            Task { await contextManager.updateContext(for: path) }
+                                        }
+                                    )
+                                    .frame(width: 340)
+                                    .transition(.move(edge: .trailing))
+                                }
+                            }
+                            .transition(.opacity)
+                        }
+                    }
+                }
+                .background(ColorTokens.layer0)
+                .sheet(isPresented: $showEditor) {
+                    if let path = editingFile {
+                        RemoteFileEditorView(
+                            filename: (path as NSString).lastPathComponent,
+                            remotePath: path,
+                            sshConnectionString: currentSSHServerName ?? "local",
+                            initialContent: editingFileContent,
+                            onSave: { newContent in
+                                saveFile(at: path, content: newContent)
+                            },
+                            onCancel: { showEditor = false }
                         )
-                        .frame(width: 340)
-                        .transition(.move(edge: .trailing))
+                    }
+                }
+                .toolbar {
+                    ToolbarItemGroup(placement: .primaryAction) {
+                        toolbarItems
                     }
                 }
             }
-            .background(ColorTokens.layer0)
-            .toolbar {
-                ToolbarItemGroup(placement: .primaryAction) {
-                    toolbarItems
+            .navigationSplitViewStyle(.balanced)
+            .alert(alertTitle, isPresented: $showAlert) {
+                Button("OK", role: .cancel) { }
+            } message: {
+                Text(alertMessage)
+            }
+            .sheet(isPresented: $showSettings) {
+                SettingsView(onClose: { showSettings = false })
+            }
+            .sheet(isPresented: $showShortcuts) {
+                ShortcutsPanel(manager: shortcutsManager) { shortcut in
+                    showShortcuts = false
+                    inputText = shortcut.command
+                    executeCommand()
+                } onAddShortcut: {
+                    // Future: show add shortcut sheet
+                }
+                .frame(width: 400, height: 500)
+            }
+            .onAppear {
+                loadSSHConnections()
+                setupInitialState()
+                systemMonitor.startMonitoring()
+            }
+            .onDisappear {
+                systemMonitor.stopMonitoring()
+            }
+            .onChange(of: tabManager.activeSessionId) { _, _ in
+                syncWithActiveSession()
+            }
+            .blur(radius: showCommandBar ? 8 : 0)
+            .disabled(showCommandBar)
+            
+            // Global Command Bar Overlay
+            if showCommandBar {
+                CommandBarView(
+                    isPresented: $showCommandBar,
+                    commands: historyManager.recentCommands.map { $0.command },
+                    servers: sshManager.connections.map { $0.name },
+                    files: [], // Future: recent files
+                    onRunCommand: { cmd in
+                        inputText = cmd
+                        executeCommand()
+                    },
+                    onSelectServer: { name in
+                        if let conn = sshManager.connections.first(where: { $0.name == name }) {
+                            connectToSSH(conn)
+                        }
+                    },
+                    onOpenFile: { path in
+                        editFile(at: path)
+                    },
+                    onAskAI: { query in
+                        askAI(query)
+                    }
+                )
+                .transition(.opacity.combined(with: .scale(scale: 0.95)))
+                .zIndex(100)
+            }
+        }
+        .background(
+            // Hidden button for keyboard shortcut
+            Button("") {
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                    showCommandBar.toggle()
                 }
             }
-        }
-        .navigationSplitViewStyle(.balanced)
-        .background(ColorTokens.layer0)
-        .sheet(isPresented: $showSettings) {
-            SettingsView(onClose: { showSettings = false })
-        }
-        .sheet(isPresented: $showShortcuts) {
-            ShortcutsPanel(manager: shortcutsManager) { shortcut in
-                showShortcuts = false
-                inputText = shortcut.command
-                executeCommand()
-            } onAddShortcut: {
-                // Future: show add shortcut sheet
-            }
-            .frame(width: 400, height: 500)
-        }
-        .onAppear {
-            loadSSHConnections()
-            setupInitialState()
-            systemMonitor.startMonitoring()
-        }
-        .onDisappear {
-            systemMonitor.stopMonitoring()
-        }
-        .onChange(of: tabManager.activeSessionId) { _, _ in
-            syncWithActiveSession()
-        }
+            .keyboardShortcut("k", modifiers: [.command])
+            .opacity(0)
+        )
     }
     
     // MARK: - Computed Properties
@@ -325,6 +417,60 @@ struct DashboardRoot: View {
         for command in script.commands {
             inputText = command
             executeCommand()
+        }
+    }
+    
+    private func editFile(at path: String) {
+        let url = URL(fileURLWithPath: path)
+        
+        // 1. Check if it's a binary file or too large (simple heuristic)
+        // For now, try to load as string, if it fails, open with system
+        do {
+            let data = try Data(contentsOf: url, options: .mappedIfSafe)
+            
+            // Heuristic for binary: check for null bytes in the first 8kb
+            let range = 0..<min(data.count, 8192)
+            let isBinary = data.subdata(in: range).contains(0)
+            
+            if isBinary {
+                // Open with system
+                NSWorkspace.shared.open(url)
+                return
+            }
+            
+            if data.count > 1024 * 1024 * 2 { // > 2MB
+                alertTitle = "File Too Large"
+                alertMessage = "This file is too large to open in the dashboard editor. Opening with system default instead."
+                showAlert = true
+                NSWorkspace.shared.open(url)
+                return
+            }
+            
+            guard let content = String(data: data, encoding: .utf8) else {
+                // Not UTF-8, probably binary or encoded differently
+                NSWorkspace.shared.open(url)
+                return
+            }
+            
+            editingFile = path
+            editingFileContent = content
+            showEditor = true
+            
+        } catch {
+            alertTitle = "Error Opening File"
+            alertMessage = error.localizedDescription
+            showAlert = true
+        }
+    }
+    
+    private func saveFile(at path: String, content: String) {
+        do {
+            try content.write(toFile: path, atomically: true, encoding: .utf8)
+            editingFileContent = content
+        } catch {
+            alertTitle = "Save Failed"
+            alertMessage = error.localizedDescription
+            showAlert = true
         }
     }
     

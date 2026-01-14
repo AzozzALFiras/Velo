@@ -43,6 +43,7 @@ struct IntelligencePanel: View {
     @State private var chatInput: String = ""
     @State private var isExpanded: Bool = false
     @State private var historySearchText: String = ""
+    @StateObject private var fileManager = FileExplorerManager()
     
     // Data
     @ObservedObject var historyManager: CommandHistoryManager
@@ -59,6 +60,8 @@ struct IntelligencePanel: View {
     var onFixError: ((ErrorItem) -> Void)?
     var onRunScript: ((AutoScript) -> Void)?
     var onOpenSettings: (() -> Void)?
+    var onEditFile: ((String) -> Void)?
+    var onChangeDirectory: ((String) -> Void)?
     
     var body: some View {
         VStack(spacing: 0) {
@@ -392,7 +395,23 @@ struct IntelligencePanel: View {
                 VStack(spacing: 0) {
                     // This is a placeholder for actual file tracking
                     // In a real implementation, we would list files from the current directory
-                    FileListPlaceholder(directory: currentDirectory)
+                    FileExplorerView(
+                        manager: fileManager,
+                        onEdit: { path in onEditFile?(path) },
+                        onChangeDirectory: { path in onChangeDirectory?(path) }
+                    )
+                    .onAppear {
+                        if fileManager.rootItems.isEmpty {
+                            Task {
+                                await fileManager.loadDirectory(currentDirectory)
+                            }
+                        }
+                    }
+                    .onChange(of: currentDirectory) { newDir in
+                        Task {
+                            await fileManager.loadDirectory(newDir)
+                        }
+                    }
                 }
             }
         }
@@ -828,58 +847,243 @@ private struct HistoryRow: View {
     }
 }
 
-private struct FileListPlaceholder: View {
-    let directory: String
+private struct FileExplorerView: View {
+    @ObservedObject var manager: FileExplorerManager
+    let onEdit: (String) -> Void
+    let onChangeDirectory: (String) -> Void
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 1) {
-            // Simulated file list for UI demonstration
-            FileItemView(name: "app", type: IntelligenceFileType.folder)
-            FileItemView(name: "config", type: IntelligenceFileType.folder)
-            FileItemView(name: "database", type: IntelligenceFileType.folder)
-            FileItemView(name: "public", type: IntelligenceFileType.folder)
-            FileItemView(name: "resources", type: IntelligenceFileType.folder)
-            FileItemView(name: "routes", type: IntelligenceFileType.folder)
-            FileItemView(name: "storage", type: IntelligenceFileType.folder)
-            FileItemView(name: "tests", type: IntelligenceFileType.folder)
-            FileItemView(name: "artisan", type: IntelligenceFileType.file)
-            FileItemView(name: "composer.json", type: IntelligenceFileType.file)
-            FileItemView(name: "package.json", type: IntelligenceFileType.file)
-            FileItemView(name: "README.md", type: IntelligenceFileType.file)
-            FileItemView(name: "webpack.mix.js", type: IntelligenceFileType.file)
-            FileItemView(name: ".env", type: IntelligenceFileType.file)
+        VStack(alignment: .leading, spacing: 0) {
+            if manager.isLoading && manager.rootItems.isEmpty {
+                VStack {
+                    ProgressView()
+                        .scaleEffect(0.8)
+                        .padding()
+                    Text("Scanning files...")
+                        .font(.system(size: 11))
+                        .foregroundStyle(ColorTokens.textTertiary)
+                }
+                .frame(maxWidth: .infinity, alignment: .center)
+            } else {
+                ForEach(manager.rootItems) { item in
+                    FileItemRow(item: item, manager: manager, depth: 0, onEdit: onEdit, onChangeDirectory: onChangeDirectory)
+                }
+            }
         }
     }
 }
 
-private enum IntelligenceFileType {
-    case file, folder
-}
-
-private struct FileItemView: View {
-    let name: String
-    let type: IntelligenceFileType
+private struct FileItemRow: View {
+    let item: FileItem
+    @ObservedObject var manager: FileExplorerManager
+    let depth: Int
+    let onEdit: (String) -> Void
+    let onChangeDirectory: (String) -> Void
+    
     @State private var isHovered = false
+    @State private var showingRename = false
+    @State private var showingInfo = false
+    @State private var newName = ""
     
     var body: some View {
-        HStack(spacing: 8) {
-            Image(systemName: type == IntelligenceFileType.folder ? "folder.fill" : "doc.fill")
-                .font(.system(size: 11))
-                .foregroundStyle(type == IntelligenceFileType.folder ? ColorTokens.accentPrimary : ColorTokens.textTertiary)
-                .frame(width: 16)
+        VStack(spacing: 0) {
+            HStack(spacing: 6) {
+                // Indent
+                if depth > 0 {
+                    Spacer()
+                        .frame(width: CGFloat(depth * 12))
+                }
+                
+                // Chevron for folders
+                if item.isDirectory {
+                    Image(systemName: item.isExpanded ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundStyle(ColorTokens.textTertiary)
+                        .frame(width: 10)
+                        .onTapGesture {
+                            manager.toggleExpansion(path: item.path)
+                        }
+                } else {
+                    Spacer().frame(width: 10)
+                }
+                
+                // Icon
+                Image(systemName: item.isDirectory ? "folder.fill" : fileIcon(for: item.name))
+                    .font(.system(size: 11))
+                    .foregroundStyle(item.isDirectory ? ColorTokens.accentPrimary : ColorTokens.textTertiary)
+                    .frame(width: 14)
+                
+                // Name
+                if showingRename {
+                    TextField("Rename", text: $newName)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 11, design: .monospaced))
+                        .onSubmit {
+                            manager.rename(item: item, to: newName)
+                            showingRename = false
+                        }
+                        .onExitCommand {
+                            showingRename = false
+                        }
+                } else {
+                    Text(item.name)
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundStyle(ColorTokens.textSecondary)
+                        .lineLimit(1)
+                }
+                
+                Spacer()
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 4)
+            .background(isHovered ? ColorTokens.layer2 : Color.clear)
+            .clipped()
+            .onHover { hovering in
+                withAnimation(.easeOut(duration: 0.1)) {
+                    isHovered = hovering
+                }
+            }
+            .contentShape(Rectangle())
+            .onTapGesture {
+                if item.isDirectory {
+                    manager.toggleExpansion(path: item.path)
+                } else {
+                    onEdit(item.path)
+                }
+            }
+            .onTapGesture(count: 2) {
+                // Double tap to open with system
+                NSWorkspace.shared.open(URL(fileURLWithPath: item.path))
+            }
+            .contextMenu {
+                fileContextMenu
+            }
+            .popover(isPresented: $showingInfo) {
+                FileInfoPopover(item: item)
+            }
             
-            Text(name)
-                .font(.system(size: 12))
+            // Nested children
+            if item.isExpanded, let children = item.children {
+                ForEach(children) { child in
+                    FileItemRow(item: child, manager: manager, depth: depth + 1, onEdit: onEdit, onChangeDirectory: onChangeDirectory)
+                }
+            }
+        }
+    }
+    
+    @ViewBuilder
+    private var fileContextMenu: some View {
+        Group {
+            Button {
+                if item.isDirectory {
+                    manager.toggleExpansion(path: item.path)
+                } else {
+                    onEdit(item.path)
+                }
+            } label: {
+                Label(item.isDirectory ? "Open Folder" : "Edit File", systemImage: item.isDirectory ? "folder" : "pencil")
+            }
+            
+            Divider()
+            
+            Button {
+                newName = item.name
+                showingRename = true
+            } label: {
+                Label("Rename", systemImage: "pencil.line")
+            }
+            
+            Button {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(item.name, forType: .string)
+            } label: {
+                Label("Copy Name", systemImage: "textformat")
+            }
+            
+            Button {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(item.path, forType: .string)
+            } label: {
+                Label("Copy Path", systemImage: "doc.on.doc")
+            }
+            
+            Divider()
+            
+            Button {
+                // Transition / Change context
+                onChangeDirectory(item.path)
+            } label: {
+                Label("Go to Folder", systemImage: "arrow.right.circle")
+            }
+            .disabled(!item.isDirectory)
+            
+            Button {
+                showingInfo = true
+            } label: {
+                Label("Get Info", systemImage: "info.circle")
+            }
+        }
+    }
+    
+    private func fileIcon(for name: String) -> String {
+        let ext = (name as NSString).pathExtension.lowercased()
+        switch ext {
+        case "swift": return "swift"
+        case "py": return "python"
+        case "js", "ts": return "javascript"
+        case "html": return "chevron.left.forwardslash.chevron.right"
+        case "css": return "leaf.fill"
+        case "json": return "braces"
+        case "md": return "doc.text"
+        case "png", "jpg", "jpeg", "svg": return "photo"
+        case "mp4", "mov": return "play.rectangle"
+        case "zip", "gz": return "doc.zipper"
+        default: return "doc.text"
+        }
+    }
+}
+
+private struct FileInfoPopover: View {
+    let item: FileItem
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Image(systemName: item.isDirectory ? "folder.fill" : "doc.fill")
+                    .foregroundStyle(item.isDirectory ? ColorTokens.accentPrimary : ColorTokens.textTertiary)
+                Text(item.name)
+                    .font(.system(size: 13, weight: .bold))
+            }
+            
+            Divider()
+            
+            VStack(alignment: .leading, spacing: 6) {
+                InfoRow(label: "Type", value: item.isDirectory ? "Folder" : "File")
+                InfoRow(label: "Size", value: formattedSize(item.size ?? 0))
+                InfoRow(label: "Path", value: item.path)
+                if let date = item.modificationDate {
+                    InfoRow(label: "Modified", value: date.formatted())
+                }
+            }
+        }
+        .padding(16)
+        .frame(width: 300)
+    }
+    
+    private func InfoRow(label: String, value: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label)
+                .font(.system(size: 10, weight: .bold))
+                .foregroundStyle(ColorTokens.textTertiary)
+            Text(value)
+                .font(.system(size: 11, design: .monospaced))
                 .foregroundStyle(ColorTokens.textSecondary)
-            
-            Spacer()
+                .lineLimit(3)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
-        .background(isHovered ? ColorTokens.layer2 : .clear)
-        .onHover { hovering in
-            isHovered = hovering
-        }
+    }
+    
+    private func formattedSize(_ size: Int64) -> String {
+        ByteCountFormatter.string(fromByteCount: size, countStyle: .file)
     }
 }
 

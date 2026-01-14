@@ -57,6 +57,11 @@ final class ContextManager {
     var modifiedCount: Int = 0
     var untrackedCount: Int = 0
     
+    // File lists for panels
+    var stagedFiles: [String] = []
+    var modifiedFiles: [String] = []
+    var untrackedFiles: [String] = []
+    
     // MARK: - Project Context
     
     var isDockerProject: Bool = false
@@ -193,12 +198,18 @@ final class ContextManager {
         modifiedCount = 0
         untrackedCount = 0
         
+        stagedFiles = []
+        modifiedFiles = []
+        untrackedFiles = []
+        
         for line in output.components(separatedBy: "\n") where !line.isEmpty {
             let index = line.prefix(2)
+            let path = String(line.dropFirst(3))
             
             // Staged changes (first character)
             if let first = index.first, first != " " && first != "?" {
                 stagedCount += 1
+                stagedFiles.append(path)
             }
             
             // Modified/unstaged changes (second character)
@@ -206,12 +217,14 @@ final class ContextManager {
                 let second = index[index.index(after: index.startIndex)]
                 if second == "M" || second == "D" {
                     modifiedCount += 1
+                    modifiedFiles.append(path)
                 }
             }
             
             // Untracked files
             if index.hasPrefix("??") {
                 untrackedCount += 1
+                untrackedFiles.append(path)
             }
         }
     }

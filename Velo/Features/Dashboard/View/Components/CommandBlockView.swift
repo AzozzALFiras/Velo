@@ -16,6 +16,7 @@ struct CommandBlockView: View {
     let block: CommandBlock
     var onAction: ((BlockAction) -> Void)?
     var onAskAI: ((String) -> Void)?
+    var onOpenPath: ((String) -> Void)?
     var onRetry: (() -> Void)?
     
     @State private var isHovered = false
@@ -34,7 +35,8 @@ struct CommandBlockView: View {
                 
                 BlockOutput(
                     block: block,
-                    onAskAI: onAskAI
+                    onAskAI: onAskAI,
+                    onOpenPath: onOpenPath
                 )
             }
         }
@@ -118,6 +120,7 @@ struct BlockListView: View {
     let blocks: [CommandBlock]
     var onAction: ((CommandBlock, BlockAction) -> Void)?
     var onAskAI: ((String) -> Void)?
+    var onOpenPath: ((String) -> Void)?
     var onRetry: ((CommandBlock) -> Void)?
     
     var body: some View {
@@ -131,6 +134,7 @@ struct BlockListView: View {
                                 onAction?(block, action)
                             },
                             onAskAI: onAskAI,
+                            onOpenPath: onOpenPath,
                             onRetry: {
                                 onRetry?(block)
                             }

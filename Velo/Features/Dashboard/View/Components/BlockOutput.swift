@@ -111,9 +111,9 @@ private struct OutputLineView: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
             
-            // Inline actions for error lines
-            if line.isError && isHovered {
-                errorActions
+            // Contextual actions on hover
+            if isHovered {
+                lineActions
                     .transition(.opacity.combined(with: .move(edge: .trailing)))
             }
         }
@@ -128,7 +128,23 @@ private struct OutputLineView: View {
         }
     }
     
-    // MARK: - Error Actions
+    // MARK: - Actions
+    
+    @ViewBuilder
+    private var lineActions: some View {
+        HStack(spacing: 4) {
+            // Error actions
+            if line.isError {
+                errorActions
+            }
+            
+            // Path actions
+            pathActions
+            
+            // Git actions
+            gitLineActions
+        }
+    }
     
     @ViewBuilder
     private var errorActions: some View {
@@ -147,6 +163,49 @@ private struct OutputLineView: View {
                 color: ColorTokens.accentPrimary
             ) {
                 onAskAI?("How do I fix this error: \(line.text)")
+            }
+        }
+    }
+    
+    @ViewBuilder
+    private var pathActions: some View {
+        let paths = FilePathDetector.extractPaths(from: line.text)
+        ForEach(paths, id: \.self) { path in
+            InlineActionButton(
+                icon: "doc.text",
+                label: "Open \( (path as NSString).lastPathComponent )",
+                color: ColorTokens.accentPrimary
+            ) {
+                onOpenPath?(path)
+            }
+        }
+    }
+    
+    @ViewBuilder
+    private var gitLineActions: some View {
+        // Detect "modified:   path/to/file.ext"
+        if let range = line.text.range(of: #"(?:modified|deleted|new file|renamed):\s+([^\s]+)"#, options: .regularExpression) {
+            let actionText = String(line.text[range])
+            let parts = actionText.components(separatedBy: .whitespaces).filter { !$0.isEmpty }
+            if parts.count >= 2 {
+                let path = parts.last!
+                HStack(spacing: 4) {
+                    InlineActionButton(
+                        icon: "plus.circle",
+                        label: "Stage",
+                        color: ColorTokens.success
+                    ) {
+                        onAskAI?("Stage the file: \(path)")
+                    }
+                    
+                    InlineActionButton(
+                        icon: "arrow.uturn.backward",
+                        label: "Restore",
+                        color: ColorTokens.warning
+                    ) {
+                        onAskAI?("Restore the file: \(path)")
+                    }
+                }
             }
         }
     }

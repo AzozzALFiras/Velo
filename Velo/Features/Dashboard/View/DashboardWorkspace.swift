@@ -29,6 +29,7 @@ struct DashboardWorkspace: View {
     var onBlockAction: ((CommandBlock, BlockAction) -> Void)?
     var onRetryBlock: ((CommandBlock) -> Void)?
     var onAskAI: ((String) -> Void)?
+    var onOpenPath: ((String) -> Void)?
     var onSync: (() -> Void)?
     var onBranchSwitch: (() -> Void)?
     var onShowShortcuts: (() -> Void)?
@@ -68,6 +69,7 @@ struct DashboardWorkspace: View {
                         blocks: blocks,
                         onAction: onBlockAction,
                         onAskAI: onAskAI,
+                        onOpenPath: onOpenPath,
                         onRetry: onRetryBlock
                     )
                 }
