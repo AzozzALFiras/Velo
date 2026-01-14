@@ -78,7 +78,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             window.titlebarAppearsTransparent = true
             window.titleVisibility = .hidden
             window.backgroundColor = NSColor(VeloDesign.Colors.deepSpace)
-            window.isMovableByWindowBackground = true
+            window.isMovableByWindowBackground = false  // Disabled - was causing drag issues
             
             // Add vibrancy
             window.contentView?.wantsLayer = true

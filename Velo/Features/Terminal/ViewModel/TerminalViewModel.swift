@@ -13,6 +13,10 @@ import Combine
 @MainActor
 final class TerminalViewModel: ObservableObject, Identifiable {
     
+    // Notifications
+    static let downloadFinishedNotification = Notification.Name("VeloBackgroundDownloadFinished")
+    
+    
     // MARK: - Published Properties
     @Published var currentDirectory: String
     @Published var outputLines: [OutputLine] = []
@@ -22,6 +26,9 @@ final class TerminalViewModel: ObservableObject, Identifiable {
     @Published var errorMessage: String?
     @Published var commandStartTime: Date?
     @Published var activeCommand: String = ""
+    
+    /// Command blocks for this session (per-session history)
+    @Published var blocks: [CommandBlock] = []
     
     // Derived state
     var isSSHActive: Bool {
@@ -60,8 +67,33 @@ final class TerminalViewModel: ObservableObject, Identifiable {
     @Published var isDownloading = false
     @Published var showDownloadLogs = false
     @Published var downloadLogs = ""
+    @Published var downloadFileName = "" // Current file being downloaded
+    @Published var downloadStartTime: Date? = nil // When download started
     @Published var fetchedFileContent: String? = nil
     @Published var fetchingFilePath: String? = nil  // Track which file is being fetched
+    
+    // MARK: - Toast Notifications
+    @Published var showToast = false
+    @Published var toastMessage = ""
+    @Published var toastIsSuccess = true
+    
+    func showSuccessToast(_ message: String) {
+        toastMessage = message
+        toastIsSuccess = true
+        showToast = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+            self.showToast = false
+        }
+    }
+    
+    func showErrorToast(_ message: String) {
+        toastMessage = message
+        toastIsSuccess = false
+        showToast = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 4) {
+            self.showToast = false
+        }
+    }
     
     private var isFetchingFile = false
     private var fileFetchBuffer = ""
@@ -343,6 +375,13 @@ final class TerminalViewModel: ObservableObject, Identifiable {
             return
         }
         
+        // Handle background upload (drag-drop to SSH)
+        if command.hasPrefix("__upload_scp__:") {
+            let cmdToRun = String(command.dropFirst(15))
+            startBackgroundUpload(command: cmdToRun)
+            return
+        }
+        
         // Handle background file save (SSH)
         if command.hasPrefix("__save_file_blob__:") {
             // Format: __save_file_blob__:userHost:::path:::base64Content
@@ -606,19 +645,24 @@ final class TerminalViewModel: ObservableObject, Identifiable {
     func startBackgroundDownload(command: String) {
         print("📡 [TerminalVM] Starting background SCP download: \(command)")
         
-        guard !isDownloading else {
-            print("⚠️ [TerminalVM] Download already in progress, skipping.")
-            downloadLogs += "⚠️ Download already in progress\n"
-            return
-        }
-        
         isDownloading = true
         showDownloadLogs = true
-        downloadLogs = "🚀 Starting download...\n"
+        downloadStartTime = Date()
+        
+        // Extract filename from command
+        if let firstQuote = command.firstIndex(of: "'"),
+           let secondQuote = command[command.index(after: firstQuote)...].firstIndex(of: "'") {
+            let pathRange = command.index(after: firstQuote)..<secondQuote
+            let filePath = String(command[pathRange])
+            downloadFileName = (filePath as NSString).lastPathComponent
+        } else {
+            downloadFileName = "file"
+        }
+        
+        downloadLogs = "� Downloading: \(downloadFileName)...\n"
         downloadLogs += "Command: \(command)\n"
-        downloadLogs += "Timestamp: \(Date())\n"
         downloadLogs += String(repeating: "-", count: 50) + "\n\n"
-        downloadPasswordInjected = false // Reset flag
+        downloadPasswordInjected = false
         
         // 1. Try to find password
         var passwordToInject: String?
@@ -759,19 +803,23 @@ final class TerminalViewModel: ObservableObject, Identifiable {
                 
                 DispatchQueue.main.async {
                     self.isDownloading = false
+                    
+                    // Calculate elapsed time
+                    let elapsed = self.downloadStartTime.map { Date().timeIntervalSince($0) } ?? 0
+                    let elapsedStr = String(format: "%.1f", elapsed)
+                    
                     self.downloadLogs += "\n" + String(repeating: "=", count: 50) + "\n"
-                    self.downloadLogs += "🏁 Process completed\n"
-                    self.downloadLogs += "Exit code: \(code)\n"
-                    self.downloadLogs += "Timestamp: \(Date())\n"
-                    self.downloadLogs += String(repeating: "=", count: 50) + "\n\n"
+                    self.downloadLogs += "⏱ Duration: \(elapsedStr)s\n"
                     self.downloadProcess = nil
                     
                     if code == 0 {
                         self.downloadLogs += "✅ Download successful!\n"
-                        self.downloadLogs += "💡 Check your Downloads folder for the file.\n"
+                        self.downloadLogs += "💡 Check your Downloads folder (or destination) for the file.\n"
+                        self.showSuccessToast("✅ \(self.downloadFileName) downloaded (\(elapsedStr)s)")
                         print("[Download] ✅ Download completed successfully")
                     } else {
                         self.downloadLogs += "❌ Download failed with exit code \(code).\n"
+                        self.showErrorToast("❌ Download failed (code: \(code))")
                         print("[Download] ❌ Download failed with code: \(code)")
                         
                         if passwordToInject == nil {
@@ -790,6 +838,17 @@ final class TerminalViewModel: ObservableObject, Identifiable {
                             self.downloadLogs += "  Check the output above for error details\n"
                         }
                     }
+                    
+                    self.downloadStartTime = nil
+                    self.downloadFileName = ""
+                    
+                    // Notify observers that download finished
+                    print("🚀 [TerminalVM] Posting downloadFinishedNotification for: \(command) (code: \(code))")
+                    NotificationCenter.default.post(
+                        name: TerminalViewModel.downloadFinishedNotification,
+                        object: nil,
+                        userInfo: ["command": command, "code": code]
+                    )
                 }
             }
             
@@ -799,6 +858,137 @@ final class TerminalViewModel: ObservableObject, Identifiable {
             downloadLogs += "Error: \(error.localizedDescription)\n"
             downloadLogs += "💡 Tip: Make sure SCP is installed and the SSH server is accessible.\n"
             print("[Download] ❌ Failed to execute: \(error)")
+        }
+    }
+    
+    // MARK: - Background Upload (Drag-Drop to SSH)
+    @Published var isUploading = false
+    @Published var uploadLogs = ""
+    @Published var uploadFileName = ""  // Current file being uploaded
+    @Published var uploadStartTime: Date? = nil  // When upload started
+    @Published var uploadProgress: Double = 0.0 // 0.0 to 1.0
+    private var uploadProcess: PTYProcess?
+    private var uploadPasswordInjected = false
+    
+    func startBackgroundUpload(command: String) {
+        print("📤 [TerminalVM] Starting background SCP upload: \(command)")
+        
+        guard !isUploading else {
+            print("⚠️ [TerminalVM] Upload already in progress, skipping.")
+            return
+        }
+        
+        isUploading = true
+        showDownloadLogs = true
+        uploadStartTime = Date()  // Track when upload started
+        
+        // Extract filename from command (e.g., scp '/path/to/file' ...)
+        if let firstQuote = command.firstIndex(of: "'"),
+           let secondQuote = command[command.index(after: firstQuote)...].firstIndex(of: "'") {
+            let pathRange = command.index(after: firstQuote)..<secondQuote
+            let filePath = String(command[pathRange])
+            uploadFileName = (filePath as NSString).lastPathComponent
+        } else {
+            uploadFileName = "file"
+        }
+        
+        downloadLogs = "📤 Uploading: \(uploadFileName)...\n"
+        downloadLogs += "Command: \(command)\n"
+        downloadLogs += String(repeating: "-", count: 50) + "\n\n"
+        uploadPasswordInjected = false
+        
+        // Parse SCP upload command to find password
+        var passwordToInject: String?
+        let parts = command.components(separatedBy: .whitespaces).filter { !$0.isEmpty }
+        
+        // Find the destination part (contains @ and :) - e.g. user@host:'/path'
+        if let destPart = parts.first(where: { $0.contains("@") && $0.contains(":") }) {
+            let colonIndex = destPart.firstIndex(of: ":")!
+            let userHost = String(destPart[..<colonIndex])
+            let userHostParts = userHost.components(separatedBy: "@")
+            
+            if userHostParts.count == 2 {
+                let username = userHostParts[0]
+                let host = userHostParts[1]
+                
+                // Get password from keychain
+                let manager = SSHManager()
+                if let conn = manager.connections.first(where: { $0.host == host && $0.username == username }),
+                   let pwd = manager.getPassword(for: conn) {
+                    passwordToInject = pwd
+                    downloadLogs += "✅ Password found for \(username)@\(host)\n\n"
+                }
+            }
+        }
+        
+        // Start upload process
+        uploadProcess = PTYProcess { [weak self] text in
+            guard let self = self else { return }
+            self.downloadLogs += text
+            
+            // Try to parse percentage (e.g., " 45% ")
+            if let range = text.range(of: #"\d+%"#, options: .regularExpression) {
+                let percentStr = String(text[range]).dropLast()
+                if let percentValue = Double(percentStr) {
+                    DispatchQueue.main.async {
+                        self.uploadProgress = percentValue / 100.0
+                    }
+                }
+            }
+            
+            // Password injection
+            let lowerText = text.lowercased()
+            let isPasswordPrompt = lowerText.contains("password:") || lowerText.hasSuffix("password: ")
+            
+            if let pwd = passwordToInject, !self.uploadPasswordInjected, isPasswordPrompt {
+                self.downloadLogs += "\n🔐 Auto-injecting password...\n"
+                self.uploadProcess?.write(pwd + "\n")
+                self.uploadPasswordInjected = true
+            }
+        }
+        
+        do {
+            try uploadProcess?.execute(
+                command: command,
+                environment: ProcessInfo.processInfo.environment,
+                workingDirectory: FileManager.default.homeDirectoryForCurrentUser.path
+            )
+            
+            downloadLogs += "✓ Upload process started\n"
+            
+            // Monitor for completion
+            DispatchQueue.global().async { [weak self] in
+                guard let self = self else { return }
+                let code = self.uploadProcess?.waitForExit() ?? -1
+                
+                DispatchQueue.main.async {
+                    self.isUploading = false
+                    
+                    // Calculate elapsed time
+                    let elapsed = self.uploadStartTime.map { Date().timeIntervalSince($0) } ?? 0
+                    let elapsedStr = String(format: "%.1f", elapsed)
+                    
+                    self.downloadLogs += "\n" + String(repeating: "=", count: 50) + "\n"
+                    self.downloadLogs += "⏱ Duration: \(elapsedStr)s\n"
+                    
+                    if code == 0 {
+                        self.downloadLogs += "✅ Upload successful!\n"
+                        self.showSuccessToast("✅ \(self.uploadFileName) uploaded (\(elapsedStr)s)")
+                    } else {
+                        self.downloadLogs += "❌ Upload failed with exit code \(code)\n"
+                        self.showErrorToast("❌ Upload failed (code: \(code))")
+                    }
+                    
+                    self.uploadProcess = nil
+                    self.uploadStartTime = nil
+                    self.uploadFileName = ""
+                    self.uploadProgress = 0.0
+                }
+            }
+        } catch {
+            isUploading = false
+            downloadLogs += "\n❌ Failed to start upload: \(error.localizedDescription)\n"
+            showErrorToast("❌ Upload failed to start")
         }
     }
     

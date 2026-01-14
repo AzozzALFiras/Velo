@@ -17,58 +17,64 @@ struct BlockHeader: View {
     var onAction: ((BlockAction) -> Void)?
     
     @State private var isHovered = false
-    @State private var showAllActions = false
     
     var body: some View {
-        HStack(spacing: 12) {
-            // Status icon
-            statusIcon
+        HStack(spacing: 6) {
+            // Terminal-style prompt
+            promptView
             
-            // Command text
+            // Command text - no truncation for better readability
             Text(block.command)
-                .font(.system(size: 13, weight: .medium, design: .monospaced))
+                .font(.system(size: 12, design: .monospaced))
                 .foregroundStyle(ColorTokens.textPrimary)
-                .lineLimit(1)
+                .textSelection(.enabled)
             
-            Spacer()
+            Spacer(minLength: 8)
             
-            // Duration / Timer
-            durationView
-            
-            // Action buttons (visible on hover or always for errors)
-            if isHovered || block.isError {
-                actionButtons
-                    .transition(.opacity.combined(with: .scale(scale: 0.95)))
+            // Minimal right side: duration + status dot
+            HStack(spacing: 8) {
+                durationView
+                statusDot
             }
-            
-            // More menu
-            moreMenu
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .background(headerBackground)
-        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .padding(.leading, 12)
+        .padding(.trailing, 20)
+        .padding(.vertical, 6)
+        .contentShape(Rectangle())
         .onHover { hovering in
-            withAnimation(.easeOut(duration: 0.15)) {
+            withAnimation(.easeOut(duration: 0.1)) {
                 isHovered = hovering
             }
         }
+        .contextMenu { contextMenuContent }
     }
     
-    // MARK: - Status Icon
+    // MARK: - Prompt View (Terminal-style)
     
     @ViewBuilder
-    private var statusIcon: some View {
-        Group {
+    private var promptView: some View {
+        HStack(spacing: 4) {
             if block.isRunning {
-                // Animated running indicator
                 RunningIndicator()
+                    .font(.system(size: 10))
             } else {
-                Image(systemName: block.status.icon)
+                Text("$")
+                    .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(block.isError ? ColorTokens.error : ColorTokens.success)
             }
         }
-        .font(.system(size: 14, weight: .semibold))
-        .foregroundStyle(block.status.color)
+        .frame(width: 14)
+    }
+    
+    // MARK: - Status Dot (Minimal)
+    
+    @ViewBuilder
+    private var statusDot: some View {
+        if !block.isRunning {
+            Circle()
+                .fill(block.status.color)
+                .frame(width: 6, height: 6)
+        }
     }
     
     // MARK: - Duration View
@@ -76,88 +82,49 @@ struct BlockHeader: View {
     @ViewBuilder
     private var durationView: some View {
         if block.isRunning {
-            // Live timer
-            TimelineView(.animation(minimumInterval: 0.1)) { timeline in
+            TimelineView(.animation(minimumInterval: 0.1)) { _ in
                 Text(formatDuration(Date().timeIntervalSince(block.startTime)))
-                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                    .font(.system(size: 10, design: .monospaced))
                     .foregroundStyle(ColorTokens.warning)
             }
         } else if block.status != .idle {
             Text(block.formattedDuration)
-                .font(.system(size: 11, weight: .medium, design: .monospaced))
+                .font(.system(size: 10, design: .monospaced))
                 .foregroundStyle(ColorTokens.textTertiary)
         }
     }
+    
+    // MARK: - Context Menu (All actions here)
     
     @ViewBuilder
-    private var actionButtons: some View {
-        HStack(spacing: 6) {
-            // Primary actions based on status
-            ForEach(primaryActions, id: \.self) { action in
-                BlockActionButton(action: action, onTap: {
-                    onAction?(action)
-                })
+    private var contextMenuContent: some View {
+        // Primary actions first
+        if block.isError {
+            Button { onAction?(.fix) } label: {
+                Label("Fix", systemImage: "wrench.and.screwdriver")
             }
-        }
-    }
-    
-    private var primaryActions: [BlockAction] {
-        switch block.status {
-        case .error:
-            return [.fix, .explain, .retry]
-        case .success:
-            return [.retry, .copy]
-        case .running:
-            return []
-        case .idle:
-            return []
-        }
-    }
-    
-    // MARK: - More Menu
-    
-    private var moreMenu: some View {
-        Menu {
-            ForEach(BlockAction.actions(for: block.status), id: \.self) { action in
-                Button {
-                    onAction?(action)
-                } label: {
-                    Label(action.rawValue, systemImage: action.icon)
-                }
+            Button { onAction?(.explain) } label: {
+                Label("Explain", systemImage: "questionmark.circle")
             }
-            
             Divider()
-            
-            Button(role: .destructive) {
-                onAction?(.delete)
-            } label: {
-                Label("Delete", systemImage: "trash")
-            }
-        } label: {
-            Image(systemName: "ellipsis")
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(ColorTokens.textTertiary)
-                .frame(width: 24, height: 24)
-                .background(
-                    Circle()
-                        .fill(isHovered ? ColorTokens.layer2 : .clear)
-                )
         }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-    }
-    
-    // MARK: - Background
-    
-    private var headerBackground: some View {
-        Group {
-            if block.isError {
-                ColorTokens.error.opacity(0.08)
-            } else if isHovered {
-                ColorTokens.layer2
-            } else {
-                ColorTokens.layer1
-            }
+        
+        Button { onAction?(.retry) } label: {
+            Label("Retry", systemImage: "arrow.clockwise")
+        }
+        
+        Button { onAction?(.copy) } label: {
+            Label("Copy Command", systemImage: "doc.on.doc")
+        }
+        
+        Button { onAction?(.copyOutput) } label: {
+            Label("Copy Output", systemImage: "doc.on.clipboard")
+        }
+        
+        Divider()
+        
+        Button(role: .destructive) { onAction?(.delete) } label: {
+            Label("Delete", systemImage: "trash")
         }
     }
     
@@ -196,56 +163,7 @@ private struct RunningIndicator: View {
     }
 }
 
-// MARK: - Block Action Button
 
-/// Small action button for block header
-private struct BlockActionButton: View {
-    
-    let action: BlockAction
-    let onTap: () -> Void
-    
-    @State private var isHovered = false
-    
-    var body: some View {
-        Button(action: onTap) {
-            HStack(spacing: 4) {
-                Image(systemName: action.icon)
-                    .font(.system(size: 10, weight: .semibold))
-                
-                Text(action.rawValue)
-                    .font(.system(size: 10, weight: .medium))
-            }
-            .foregroundStyle(buttonColor)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(buttonBackground)
-            .clipShape(Capsule())
-        }
-        .buttonStyle(.plain)
-        .onHover { hovering in
-            withAnimation(.easeOut(duration: 0.1)) {
-                isHovered = hovering
-            }
-        }
-    }
-    
-    private var buttonColor: Color {
-        switch action {
-        case .fix:
-            return ColorTokens.accentPrimary
-        case .explain:
-            return ColorTokens.accentSecondary
-        case .retry:
-            return ColorTokens.success
-        default:
-            return ColorTokens.textSecondary
-        }
-    }
-    
-    private var buttonBackground: Color {
-        isHovered ? buttonColor.opacity(0.15) : buttonColor.opacity(0.08)
-    }
-}
 
 // MARK: - Preview
 

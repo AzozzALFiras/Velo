@@ -113,7 +113,7 @@ struct SSHPasswordSheet: View {
 
 #Preview {
     SSHPasswordSheet(
-        serverName: "root@79.137.89.47",
+        serverName: "root@192.168.1.100",
         password: .constant(""),
         onSubmit: {},
         onCancel: {}

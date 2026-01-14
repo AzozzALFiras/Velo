@@ -5,7 +5,22 @@
 Velo is a next-generation terminal emulator built for macOS, designed to bridge the gap between classic command-line power and modern AI intelligence. It features a futuristic "glassmorphism" UI, intelligent command prediction, multi-tab support, cloud AI integration, and a high-performance rendering engine that eliminates UI blocking.
 
 ![Velo Terminal UI](https://raw.githubusercontent.com/AzozzALFiras/Velo/refs/heads/main/Velo/screenshots/1.png)
+
 ## ✨ Key Features
+
+### 🖥️ Dashboard Layout (NEW)
+- **3-Panel Layout**: Modern NavigationSplitView with Sidebar, Workspace, and Intelligence Panel
+- **Collapsible Sidebar**: Quick access to sessions, files, git, and docker panels
+- **Intelligence Panel**: AI Chat, History, Files, Errors, Suggestions all in one place
+- **Session Tabs Bar**: Multi-session management with visual indicators for SSH/Local
+
+### 📁 File Explorer & Drag-Drop (NEW)
+- **Integrated File Browser**: Browse local and remote (SSH) files directly in the app
+- **Drag-Out to Finder**: Drag files from SSH sessions directly to Desktop/Finder
+- **Drag-In Upload**: Drop local files onto SSH folders to upload via SCP
+- **Auto-Authentication**: Password injection for seamless SCP transfers
+- **Progress Tracking**: Real-time upload/download progress indicators
+- **Toast Notifications**: Clear feedback for file operations
 
 ### 🎨 Theme Customization
 - **4 Built-in Themes**: Choose from Neon Dark (default), Classic Dark, Light, and Cyberpunk themes
@@ -22,6 +37,7 @@ Velo is a next-generation terminal emulator built for macOS, designed to bridge 
 - **Quick Connect**: Fast connection via popover in tab bar with recent/saved hosts
 - **Import from Config**: One-click import from `~/.ssh/config`
 - **Custom Icons & Colors**: Personalize connections for easy identification
+- **Remote Directory Tracking**: Accurate CWD detection even in complex SSH sessions
 
 ### 🧠 AI & Intelligence
 - **Multi-Provider Cloud AI**: Integrated support for OpenAI, Anthropic, and DeepSeek with dynamic model configuration from the Velo API.
@@ -73,6 +89,20 @@ Velo/
 ├── App/           # Lifecycle & Entry Points
 ├── Core/          # Shared Utilities, Design System, Extensions
 └── Features/      # Self-contained feature modules
+    ├── Dashboard/    # NEW: Main 3-panel layout
+    │   ├── View/
+    │   │   ├── DashboardRoot.swift
+    │   │   ├── DashboardSidebar.swift
+    │   │   ├── DashboardWorkspace.swift
+    │   │   ├── IntelligencePanel.swift
+    │   │   ├── DockerPanel.swift
+    │   │   └── GitPanel.swift
+    │   ├── Service/
+    │   │   └── SSHFilePromiseProvider.swift
+    │   └── Components/
+    │       ├── SessionTabsBar.swift
+    │       ├── CommandBlockView.swift
+    │       └── TerminalInputBar.swift
     ├── Terminal/
     ├── SSH/
     ├── History/
@@ -103,11 +133,12 @@ Velo follows a clean **MVVM (Model-View-ViewModel)** architecture:
   - `HistoryViewModel`: Handles command history UI and interactions.
   - `PredictionViewModel`: Manages autocomplete suggestions and inline predictions.
 - **Views**:
-  - `TerminalWallView`: The main orchestrator view with tab management.
+  - `DashboardRoot`: The main 3-panel layout orchestrator (NEW)
+  - `IntelligencePanel`: Combined AI, History, Files, Errors panel (NEW)
+  - `SessionTabsBar`: Multi-session tab management (NEW)
   - `TabBarView`: Horizontal tab switcher with close and new tab buttons.
   - `TerminalTabContent`: Content view for each terminal tab.
   - `OutputStreamView`: High-performance list rendering for logs.
-  - `AIInsightPanel`: Cloud AI chat interface with thinking animations.
   - `ThemeSettingsView`: Theme customization UI with preview cards and editor.
   - `SettingsView`: Comprehensive settings panel with update checking.
 

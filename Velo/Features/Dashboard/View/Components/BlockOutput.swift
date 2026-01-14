@@ -35,7 +35,8 @@ struct BlockOutput: View {
                 collapseIndicator
             }
         }
-        .padding(.horizontal, 14)
+        .padding(.leading, 14)
+        .padding(.trailing, 20)
         .padding(.vertical, 10)
     }
     
@@ -91,176 +92,67 @@ struct BlockOutput: View {
 
 // MARK: - Output Line View
 
-/// Single line of output with potential inline actions
+/// Single line of output - clean terminal style with context menu only
 private struct OutputLineView: View {
     
     let line: OutputLine
     var onAskAI: ((String) -> Void)?
     var onOpenPath: ((String) -> Void)?
     
-    @State private var isHovered = false
-    
     var body: some View {
-        HStack(alignment: .top, spacing: 8) {
-            // Line content
-            Text(line.attributedText)
-                .font(.system(size: 12, design: .monospaced))
-                .foregroundStyle(line.isError ? ColorTokens.error : ColorTokens.textPrimary)
-                .textSelection(.enabled)
-                .lineLimit(nil)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            
-            // Contextual actions on hover
-            if isHovered {
-                lineActions
-                    .transition(.opacity.combined(with: .move(edge: .trailing)))
-            }
-        }
-        .padding(.vertical, 2)
-        .padding(.horizontal, 8)
-        .background(lineBackground)
-        .clipShape(RoundedRectangle(cornerRadius: 4))
-        .onHover { hovering in
-            withAnimation(.easeOut(duration: 0.1)) {
-                isHovered = hovering
-            }
-        }
+        Text(line.attributedText)
+            .font(.system(size: 12, design: .monospaced))
+            .foregroundStyle(line.isError ? ColorTokens.error : ColorTokens.textPrimary)
+            .textSelection(.enabled)
+            .lineLimit(nil)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.vertical, 1)
+            .padding(.horizontal, 4)
+            .background(line.isError ? ColorTokens.error.opacity(0.05) : Color.clear)
+            .contextMenu { lineContextMenu }
     }
     
-    // MARK: - Actions
+    // MARK: - Context Menu
     
     @ViewBuilder
-    private var lineActions: some View {
-        HStack(spacing: 4) {
-            // Error actions
-            if line.isError {
-                errorActions
+    private var lineContextMenu: some View {
+        // Copy this line
+        Button {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(line.text, forType: .string)
+        } label: {
+            Label("Copy Line", systemImage: "doc.on.doc")
+        }
+        
+        // Error-specific actions
+        if line.isError {
+            Divider()
+            
+            Button { onAskAI?("Explain this error: \(line.text)") } label: {
+                Label("Explain Error", systemImage: "questionmark.circle")
             }
             
-            // Path actions
-            pathActions
+            Button { onAskAI?("How do I fix this error: \(line.text)") } label: {
+                Label("Fix Error", systemImage: "wrench.and.screwdriver")
+            }
+        }
+        
+        // Path actions
+        let paths = FilePathDetector.extractPaths(from: line.text)
+        if !paths.isEmpty {
+            Divider()
             
-            // Git actions
-            gitLineActions
-        }
-    }
-    
-    @ViewBuilder
-    private var errorActions: some View {
-        HStack(spacing: 4) {
-            InlineActionButton(
-                icon: "sparkles",
-                label: "Explain",
-                color: ColorTokens.accentSecondary
-            ) {
-                onAskAI?("Explain this error: \(line.text)")
-            }
-            
-            InlineActionButton(
-                icon: "wrench.and.screwdriver",
-                label: "Fix",
-                color: ColorTokens.accentPrimary
-            ) {
-                onAskAI?("How do I fix this error: \(line.text)")
-            }
-        }
-    }
-    
-    @ViewBuilder
-    private var pathActions: some View {
-        let paths = Array(Set(FilePathDetector.extractPaths(from: line.text))).sorted()
-        ForEach(paths, id: \.self) { path in
-            InlineActionButton(
-                icon: "doc.text",
-                label: "Open \( (path as NSString).lastPathComponent )",
-                color: ColorTokens.accentPrimary
-            ) {
-                onOpenPath?(path)
-            }
-        }
-    }
-    
-    @ViewBuilder
-    private var gitLineActions: some View {
-        // Detect "modified:   path/to/file.ext"
-        if let range = line.text.range(of: #"(?:modified|deleted|new file|renamed):\s+([^\s]+)"#, options: .regularExpression) {
-            let actionText = String(line.text[range])
-            let parts = actionText.components(separatedBy: .whitespaces).filter { !$0.isEmpty }
-            if parts.count >= 2 {
-                let path = parts.last!
-                HStack(spacing: 4) {
-                    InlineActionButton(
-                        icon: "plus.circle",
-                        label: "Stage",
-                        color: ColorTokens.success
-                    ) {
-                        onAskAI?("Stage the file: \(path)")
-                    }
-                    
-                    InlineActionButton(
-                        icon: "arrow.uturn.backward",
-                        label: "Restore",
-                        color: ColorTokens.warning
-                    ) {
-                        onAskAI?("Restore the file: \(path)")
-                    }
+            ForEach(Array(Set(paths)).sorted(), id: \.self) { path in
+                Button { onOpenPath?(path) } label: {
+                    Label("Open \((path as NSString).lastPathComponent)", systemImage: "doc.text")
                 }
             }
         }
     }
-    
-    // MARK: - Background
-    
-    private var lineBackground: some View {
-        Group {
-            if line.isError {
-                ColorTokens.error.opacity(isHovered ? 0.12 : 0.06)
-            } else if isHovered {
-                ColorTokens.layer2.opacity(0.5)
-            } else {
-                Color.clear
-            }
-        }
-    }
 }
 
-// MARK: - Inline Action Button
 
-/// Small inline action button for error lines
-private struct InlineActionButton: View {
-    
-    let icon: String
-    let label: String
-    let color: Color
-    let action: () -> Void
-    
-    @State private var isPressed = false
-    
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 3) {
-                Image(systemName: icon)
-                    .font(.system(size: 9, weight: .semibold))
-                
-                Text(label)
-                    .font(.system(size: 9, weight: .medium))
-            }
-            .foregroundStyle(color)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 3)
-            .background(color.opacity(0.15))
-            .clipShape(Capsule())
-            .scaleEffect(isPressed ? 0.95 : 1.0)
-        }
-        .buttonStyle(.plain)
-        .onLongPressGesture(minimumDuration: 0, pressing: { pressing in
-            withAnimation(.easeOut(duration: 0.1)) {
-                isPressed = pressing
-            }
-        }, perform: {})
-    }
-}
 
 // MARK: - File Path Detector
 

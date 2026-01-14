@@ -7,6 +7,7 @@
 //
 
 import SwiftUI
+import UniformTypeIdentifiers
 
 // MARK: - Intelligence Tab
 
@@ -55,6 +56,12 @@ struct IntelligencePanel: View {
     var isSSH: Bool = false
     var sshConnectionString: String? = nil
     var parsedTerminalItems: [String] = [] // Re-added
+    
+    // Upload state for progress indicator
+    var isUploading: Bool = false
+    var uploadFileName: String = ""
+    var uploadStartTime: Date? = nil
+    var uploadProgress: Double = 0.0
     
     // Actions
     var onSendMessage: ((String) -> Void)?
@@ -376,6 +383,65 @@ struct IntelligencePanel: View {
     
     private var filesTab: some View {
         VStack(spacing: 0) {
+            // Upload Progress Banner
+            if isUploading {
+                VStack(spacing: 0) {
+                    HStack(spacing: 8) {
+                        ProgressView()
+                            .scaleEffect(0.7)
+                        
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Uploading: \(uploadFileName)")
+                                .font(.system(size: 10, weight: .medium))
+                                .foregroundColor(.white)
+                            
+                            HStack(spacing: 4) {
+                                if uploadProgress > 0 {
+                                    Text("\(Int(uploadProgress * 100))%")
+                                        .font(.system(size: 9, weight: .bold))
+                                        .foregroundColor(VeloDesign.Colors.neonCyan)
+                                }
+                                
+                                if let startTime = uploadStartTime {
+                                    Text(elapsedTimeString(from: startTime))
+                                        .font(.system(size: 9))
+                                        .foregroundColor(VeloDesign.Colors.textMuted)
+                                }
+                            }
+                        }
+                        
+                        Spacer()
+                        
+                        Image(systemName: "arrow.up.circle.fill")
+                            .foregroundColor(VeloDesign.Colors.neonCyan)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    
+                    if uploadProgress > 0 {
+                        GeometryReader { geo in
+                            ZStack(alignment: .leading) {
+                                Rectangle()
+                                    .frame(height: 2)
+                                    .foregroundColor(VeloDesign.Colors.neonCyan.opacity(0.1))
+                                
+                                Rectangle()
+                                    .frame(width: geo.size.width * CGFloat(uploadProgress), height: 2)
+                                    .foregroundColor(VeloDesign.Colors.neonCyan)
+                            }
+                        }
+                        .frame(height: 2)
+                    }
+                }
+                .background(VeloDesign.Colors.neonCyan.opacity(0.15))
+                .overlay(
+                    Rectangle()
+                        .frame(height: 1)
+                        .foregroundColor(VeloDesign.Colors.neonCyan.opacity(0.3)),
+                    alignment: .bottom
+                )
+            }
+            
             // Current Directory Header / Breadcrumbs
             HStack(spacing: 8) {
                 Image(systemName: "folder.fill")
@@ -502,6 +568,18 @@ struct IntelligencePanel: View {
         // Update manager's items directly if empty
         if !items.isEmpty {
             fileManager.rootItems = items
+        }
+    }
+    
+    /// Format elapsed time for upload progress
+    private func elapsedTimeString(from startTime: Date) -> String {
+        let elapsed = Date().timeIntervalSince(startTime)
+        let minutes = Int(elapsed) / 60
+        let seconds = Int(elapsed) % 60
+        if minutes > 0 {
+            return "\(minutes)m \(seconds)s elapsed"
+        } else {
+            return "\(seconds)s elapsed"
         }
     }
     
@@ -1001,6 +1079,69 @@ private struct FileExplorerView: View {
                 }
             }
         }
+        // Drop destination for entire Files panel (drops to root/current directory)
+        .dropDestination(for: URL.self) { urls, _ in
+            print("📥 [DragDrop] ROOT Drop - URLs: \(urls.count)")
+            for url in urls {
+                print("📥 [DragDrop] ROOT - URL: \(url.path)")
+            }
+            handleRootDrop(urls: urls)
+            return true
+        }
+    }
+    
+    /// Handle files dropped onto the Files panel root
+    private func handleRootDrop(urls: [URL]) {
+        print("📂 [DragDrop] handleRootDrop called")
+        print("📂 [DragDrop] rootItems count: \(manager.rootItems.count)")
+        
+        guard let currentDir = manager.rootItems.first?.path.components(separatedBy: "/").dropLast().joined(separator: "/") else {
+            print("❌ [DragDrop] Could not determine current directory from root items")
+            return
+        }
+        
+        print("📂 [DragDrop] Current directory: \(currentDir)")
+        print("📂 [DragDrop] isSSH: \(isSSH)")
+        
+        for url in urls {
+            let filename = url.lastPathComponent
+            let destinationPath = (currentDir as NSString).appendingPathComponent(filename)
+            print("📂 [DragDrop] Processing: \(filename) → \(destinationPath)")
+            
+            if isSSH {
+                // SSH upload via SCP
+                let escapedLocalPath = url.path.replacingOccurrences(of: "'", with: "'\\''")
+                let escapedRemotePath = destinationPath.replacingOccurrences(of: "'", with: "'\\''")
+                
+                // Check if source is a directory (needs -r flag)
+                var isDirectory: ObjCBool = false
+                let isDir = FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) && isDirectory.boolValue
+                let recursiveFlag = isDir ? "-r " : ""
+                print("📂 [DragDrop] Source is directory: \(isDir)")
+                
+                let scpCommand = "scp \(recursiveFlag)'\(escapedLocalPath)' \(sshConnectionString ?? "user@host"):'\(escapedRemotePath)'"
+                print("📤 [DragDrop] SSH Upload command: \(scpCommand)")
+                onRunCommand("__upload_scp__:\(scpCommand)")
+            } else {
+                // Local file copy
+                print("📁 [DragDrop] Local copy: \(url.path) → \(destinationPath)")
+                do {
+                    let destURL = URL(fileURLWithPath: destinationPath)
+                    if FileManager.default.fileExists(atPath: destURL.path) {
+                        print("📁 [DragDrop] Removing existing file")
+                        try FileManager.default.removeItem(at: destURL)
+                    }
+                    try FileManager.default.copyItem(at: url, to: destURL)
+                    print("✅ [DragDrop] Copy successful!")
+                    // Refresh file list
+                    Task {
+                        await manager.loadDirectory(currentDir)
+                    }
+                } catch {
+                    print("❌ [DragDrop] Failed to copy file: \(error)")
+                }
+            }
+        }
     }
 }
 
@@ -1019,6 +1160,7 @@ private struct FileItemRow: View {
     @State private var showingInfo = false
     @State private var newName = ""
     @State private var isExpandingRemote = false
+    @State private var isDropTarget = false  // For drop zone highlighting
     
     // Use FileType from FileActionView
     private var fileType: FileType {
@@ -1133,6 +1275,79 @@ private struct FileItemRow: View {
             .popover(isPresented: $showingInfo) {
                 FileInfoPopover(item: item)
             }
+            // MARK: - Drag & Drop Support
+            // SSH files use NSItemProvider with file promise, local files use standard .draggable
+            .if(isSSH) { view in
+                view.onDrag {
+                    createSSHDragItem()
+                } preview: {
+                    HStack(spacing: 6) {
+                        Image(systemName: fileType.icon)
+                            .foregroundStyle(fileType.color)
+                        Text(item.name)
+                            .font(.system(size: 11, weight: .medium))
+                        Image(systemName: "icloud.and.arrow.down")
+                            .font(.system(size: 8))
+                            .foregroundStyle(VeloDesign.Colors.neonCyan)
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(.ultraThinMaterial)
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                }
+            }
+            .if(!isSSH) { view in
+                view.draggable(URL(fileURLWithPath: item.path)) {
+                    HStack(spacing: 6) {
+                        Image(systemName: fileType.icon)
+                            .foregroundStyle(fileType.color)
+                        Text(item.name)
+                            .font(.system(size: 11, weight: .medium))
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(.ultraThinMaterial)
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                }
+            }
+            // MARK: - Drop Support (Drag disabled for SSH - was causing window drag)
+            // Drop destination works on both files AND folders
+            .dropDestination(for: URL.self) { urls, _ in
+                print("📥 [DragDrop] Drop received on item: \(item.name), isDirectory: \(item.isDirectory)")
+                print("📥 [DragDrop] URLs dropped: \(urls.count)")
+                for url in urls {
+                    print("📥 [DragDrop] - URL: \(url.path)")
+                }
+                
+                // Determine target folder: if file, use parent folder; if folder, use the folder itself
+                let targetFolder: String
+                if item.isDirectory {
+                    targetFolder = item.path
+                    print("📂 [DragDrop] Target is folder: \(targetFolder)")
+                } else {
+                    targetFolder = (item.path as NSString).deletingLastPathComponent
+                    print("📂 [DragDrop] Target is file, using parent: \(targetFolder)")
+                }
+                
+                handleFileDrop(urls: urls, toFolder: targetFolder)
+                return true
+            } isTargeted: { targeted in
+                if targeted {
+                    print("🎯 [DragDrop] Hovering over: \(item.name)")
+                }
+                withAnimation(.easeOut(duration: 0.15)) {
+                    isDropTarget = targeted // Highlight ALL items, not just folders
+                }
+            }
+            // Drop zone visual feedback
+            .overlay {
+                if isDropTarget {
+                    RoundedRectangle(cornerRadius: 4)
+                        .stroke(VeloDesign.Colors.neonCyan, lineWidth: 2)
+                        .background(VeloDesign.Colors.neonCyan.opacity(0.1))
+                        .clipShape(RoundedRectangle(cornerRadius: 4))
+                }
+            }
             
             // Nested children
             if item.isExpanded, let children = item.children {
@@ -1174,6 +1389,95 @@ private struct FileItemRow: View {
             }
         } else {
             manager.toggleExpansion(path: item.path)
+        }
+    }
+    
+    // MARK: - SSH Drag Item Helper
+    
+    /// Triggers SSH file download and returns a simple item provider
+    /// Note: Due to macOS limitations, SSH files are downloaded to ~/Downloads
+    /// and a notification is shown when ready
+    private func createSSHDragItem() -> NSItemProvider {
+        let fileItem = self.item
+        let sshHost = sshConnectionString ?? "user@host"
+        let isDir = fileItem.isDirectory
+        
+        // Download destination: ~/Downloads with EXACT original filename
+        let downloadsURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first!
+        let destURL = downloadsURL.appendingPathComponent(fileItem.name)
+        
+        print("🚀 [DragOut] Triggering download for: \(fileItem.name) to ~/Downloads")
+        
+        // Trigger download to Downloads folder
+        let flag = isDir ? "-r " : ""
+        let escapedLocal = destURL.path.replacingOccurrences(of: "'", with: "'\\''")
+        let escapedRemote = fileItem.path.replacingOccurrences(of: "'", with: "'\\''")
+        let scpCmd = "__download_scp__:scp \(flag)\(sshHost):'\(escapedRemote)' '\(escapedLocal)'"
+        
+        onRunCommand(scpCmd)
+        
+        // Create item provider with explicit suggested name to preserve original filename
+        let provider = NSItemProvider()
+        provider.suggestedName = fileItem.name
+        
+        // Register as file URL with the exact filename
+        provider.registerFileRepresentation(
+            forTypeIdentifier: isDir ? "public.folder" : "public.item",
+            visibility: .all
+        ) { completion in
+            // Return the destination URL where file will be downloaded
+            completion(destURL, false, nil)
+            return nil
+        }
+        
+        return provider
+    }
+    
+    /// Handle files dropped onto this folder
+    private func handleFileDrop(urls: [URL], toFolder destinationPath: String) {
+        print("📂 [DragDrop] handleFileDrop called")
+        print("📂 [DragDrop] Destination: \(destinationPath)")
+        print("📂 [DragDrop] isSSH: \(isSSH)")
+        print("📂 [DragDrop] sshConnectionString: \(sshConnectionString ?? "nil")")
+        
+        for url in urls {
+            let filename = url.lastPathComponent
+            let destinationFullPath = (destinationPath as NSString).appendingPathComponent(filename)
+            print("📂 [DragDrop] Processing: \(filename) → \(destinationFullPath)")
+            
+            if isSSH {
+                // SSH upload via SCP
+                let escapedLocalPath = url.path.replacingOccurrences(of: "'", with: "'\\''")
+                let escapedRemotePath = destinationFullPath.replacingOccurrences(of: "'", with: "'\\''")
+                
+                // Check if source is a directory (needs -r flag)
+                var isDirectory: ObjCBool = false
+                let isDir = FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) && isDirectory.boolValue
+                let recursiveFlag = isDir ? "-r " : ""
+                print("📂 [DragDrop] Source is directory: \(isDir)")
+                
+                let scpCommand = "scp \(recursiveFlag)'\(escapedLocalPath)' \(sshConnectionString ?? "user@host"):'\(escapedRemotePath)'"
+                print("📤 [DragDrop] SSH Upload command: \(scpCommand)")
+                onRunCommand("__upload_scp__:\(scpCommand)")
+            } else {
+                // Local file copy
+                print("📁 [DragDrop] Local copy: \(url.path) → \(destinationFullPath)")
+                do {
+                    let destURL = URL(fileURLWithPath: destinationFullPath)
+                    if FileManager.default.fileExists(atPath: destURL.path) {
+                        print("📁 [DragDrop] Removing existing file at destination")
+                        try FileManager.default.removeItem(at: destURL)
+                    }
+                    try FileManager.default.copyItem(at: url, to: destURL)
+                    print("✅ [DragDrop] Copy successful!")
+                    // Refresh file list
+                    Task {
+                        await manager.loadDirectory((destinationPath as NSString).deletingLastPathComponent)
+                    }
+                } catch {
+                    print("❌ [DragDrop] Failed to copy file: \(error)")
+                }
+            }
         }
     }
     

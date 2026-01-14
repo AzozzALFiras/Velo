@@ -28,9 +28,6 @@ struct DashboardRoot: View {
     // Command shortcuts manager
     @State private var shortcutsManager = CommandShortcutsManager()
     
-    // Command blocks for current session
-    @State private var blocks: [CommandBlock] = []
-    
     // Panel visibility
     @State private var showSidebar = true
     @State private var showIntelligencePanel = true
@@ -100,13 +97,22 @@ struct DashboardRoot: View {
                 )
                 .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 320)
             } detail: {
-                // Main Content Area - System Info + Workspace + Intelligence Panel
+                // Main Content Area - System Info + Sessions + Workspace + Intelligence Panel
                 VStack(spacing: 0) {
                     // System Info Bar
                     SystemInfoBar(
                         monitor: systemMonitor,
                         isSSH: isCurrentSessionSSH,
                         serverName: currentSSHServerName
+                    )
+                    
+                    // Session Tabs
+                    SessionTabsBar(
+                        sessions: tabManager.sessions,
+                        activeSessionId: tabManager.activeSessionId,
+                        onSelectSession: { id in tabManager.switchToSession(id: id) },
+                        onCloseSession: { id in tabManager.closeSession(id: id) },
+                        onNewSession: { tabManager.addSession() }
                     )
                     
                     Divider()
@@ -123,7 +129,6 @@ struct DashboardRoot: View {
                         ActiveSessionContainer(
                             session: session,
                             contextManager: contextManager,
-                            blocks: $blocks,
                             historyManager: historyManager,
                             aiMessages: aiMessages,
                             recentErrors: recentErrors,
@@ -329,25 +334,21 @@ struct DashboardRoot: View {
         
         inputText = ""
         
-        // Create a new block
+        // Get active session and append block to it
+        guard let session = activeSession else { return }
+        
+        // Create a new block for this session
         let block = CommandBlock(
             command: command,
             status: .running,
             workingDirectory: currentDirectory
         )
-        blocks.append(block)
+        session.blocks.append(block)
         
         // Execute via terminal VM
         isExecuting = true
         
         Task {
-            guard let session = activeSession else {
-                block.status = .error
-                block.appendOutput(text: "No active session", isError: true)
-                isExecuting = false
-                return
-            }
-            
             // Set the command on the active session
             session.inputText = command
             
@@ -429,7 +430,7 @@ struct DashboardRoot: View {
     private func handleBlockAction(_ block: CommandBlock, _ action: BlockAction) {
         switch action {
         case .delete:
-            blocks.removeAll { $0.id == block.id }
+            activeSession?.blocks.removeAll { $0.id == block.id }
         case .pin:
             // Handle pin
             break
@@ -510,6 +511,15 @@ struct DashboardRoot: View {
             let scpCmd = String(command.dropFirst(17))
             if let session = tabManager.activeSession {
                 session.startBackgroundDownload(command: scpCmd)
+            }
+            return
+        }
+        
+        // Handle SCP upload (drag-drop to SSH)
+        if command.hasPrefix("__upload_scp__:") {
+            let scpCmd = String(command.dropFirst(15))
+            if let session = tabManager.activeSession {
+                session.startBackgroundUpload(command: scpCmd)
             }
             return
         }
@@ -639,7 +649,7 @@ struct DashboardRoot: View {
                 fixError(lastError)
             }
         case .explain:
-            if let lastBlock = blocks.last {
+            if let lastBlock = activeSession?.blocks.last {
                 askAI("Explain what this command does: \(lastBlock.command)")
             }
         case .generate:
@@ -738,7 +748,6 @@ struct DashboardRoot: View {
 private struct ActiveSessionContainer: View {
     @ObservedObject var session: TerminalViewModel
     var contextManager: ContextManager
-    @Binding var blocks: [CommandBlock]
     @ObservedObject var historyManager: CommandHistoryManager
     
     var aiMessages: [AIMessage]
@@ -779,7 +788,7 @@ private struct ActiveSessionContainer: View {
                 // Workspace
                 DashboardWorkspace(
                     contextManager: contextManager,
-                    blocks: blocks,
+                    blocks: session.blocks,
                     inputText: $inputText,
                     isExecuting: $isExecuting,
                     currentDirectory: currentDirectory,
@@ -819,6 +828,10 @@ private struct ActiveSessionContainer: View {
                         isSSH: session.isSSHActive,
                         sshConnectionString: session.activeSSHConnectionString,
                         parsedTerminalItems: session.parsedDirectoryItems,
+                        isUploading: session.isUploading,
+                        uploadFileName: session.uploadFileName,
+                        uploadStartTime: session.uploadStartTime,
+                        uploadProgress: session.uploadProgress,
                         onSendMessage: sendAIMessage,
                         onRunCommand: runCommand,
                         onExplainError: explainError,
@@ -858,5 +871,30 @@ private struct ActiveSessionContainer: View {
             )
         }
         .transition(.opacity)
+        // Toast overlay for upload/download notifications
+        .overlay(alignment: .bottom) {
+            if session.showToast {
+                HStack(spacing: 8) {
+                    Image(systemName: session.toastIsSuccess ? "checkmark.circle.fill" : "xmark.circle.fill")
+                        .foregroundColor(session.toastIsSuccess ? ColorTokens.success : ColorTokens.error)
+                    
+                    Text(session.toastMessage)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(.white)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .background(Color.black.opacity(0.85))
+                .cornerRadius(20)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 20)
+                        .stroke(Color.white.opacity(0.15), lineWidth: 1)
+                )
+                .shadow(color: Color.black.opacity(0.3), radius: 10, x: 0, y: 5)
+                .padding(.bottom, 80)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .animation(.spring(), value: session.showToast)
+            }
+        }
     }
 }

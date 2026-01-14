@@ -19,20 +19,15 @@ struct CommandBlockView: View {
     var onOpenPath: ((String) -> Void)?
     var onRetry: (() -> Void)?
     
-    @State private var isHovered = false
-    
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Block Header
+            // Block Header (terminal-style prompt)
             BlockHeader(block: block) { action in
                 handleAction(action)
             }
             
-            // Block Output (if any)
+            // Block Output (if any) - clean terminal output
             if !block.output.isEmpty {
-                Divider()
-                    .background(ColorTokens.borderSubtle)
-                
                 BlockOutput(
                     block: block,
                     onAskAI: onAskAI,
@@ -40,45 +35,11 @@ struct CommandBlockView: View {
                 )
             }
         }
-        .background(blockBackground)
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .strokeBorder(borderColor, lineWidth: 1)
-        )
-        .shadow(color: shadowColor, radius: isHovered ? 8 : 4, y: 2)
-        .onHover { hovering in
-            withAnimation(.easeOut(duration: 0.15)) {
-                isHovered = hovering
-            }
-        }
+        // Minimal error styling only
+        .background(block.isError ? ColorTokens.error.opacity(0.02) : Color.clear)
     }
     
-    // MARK: - Styling
-    
-    private var blockBackground: some View {
-        ColorTokens.layer1
-    }
-    
-    private var borderColor: Color {
-        if block.isError {
-            return ColorTokens.error.opacity(0.3)
-        } else if block.isRunning {
-            return ColorTokens.warning.opacity(0.3)
-        } else if isHovered {
-            return ColorTokens.borderHover
-        } else {
-            return ColorTokens.border
-        }
-    }
-    
-    private var shadowColor: Color {
-        if block.isError {
-            return ColorTokens.error.opacity(0.1)
-        } else {
-            return Color.black.opacity(0.15)
-        }
-    }
+
     
     // MARK: - Actions
     
@@ -114,7 +75,7 @@ struct CommandBlockView: View {
 
 // MARK: - Block List View
 
-/// A list of command blocks with proper spacing
+/// A list of command blocks with terminal-like clean layout
 struct BlockListView: View {
     
     let blocks: [CommandBlock]
@@ -126,25 +87,34 @@ struct BlockListView: View {
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(spacing: 16) {
-                    ForEach(blocks) { block in
-                        CommandBlockView(
-                            block: block,
-                            onAction: { action in
-                                onAction?(block, action)
-                            },
-                            onAskAI: onAskAI,
-                            onOpenPath: onOpenPath,
-                            onRetry: {
-                                onRetry?(block)
+                LazyVStack(spacing: 0) {
+                    ForEach(Array(blocks.enumerated()), id: \.element.id) { index, block in
+                        VStack(spacing: 0) {
+                            CommandBlockView(
+                                block: block,
+                                onAction: { action in
+                                    onAction?(block, action)
+                                },
+                                onAskAI: onAskAI,
+                                onOpenPath: onOpenPath,
+                                onRetry: {
+                                    onRetry?(block)
+                                }
+                            )
+                            .id(block.id)
+                            
+                            // Separator between blocks
+                            if index < blocks.count - 1 {
+                                Divider()
+                                    .background(ColorTokens.borderSubtle)
+                                    .padding(.vertical, 6)
+                                    .padding(.horizontal, 12)
                             }
-                        )
-                        .frame(minWidth: 400)
-                        .id(block.id)
+                        }
                     }
                 }
-                .padding(.horizontal, 20)
-                .padding(.vertical, 16)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
             }
             .onChange(of: blocks.count) { _, _ in
                 // Scroll to latest block
