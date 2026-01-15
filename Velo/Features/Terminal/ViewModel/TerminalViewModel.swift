@@ -15,6 +15,7 @@ final class TerminalViewModel: ObservableObject, Identifiable {
     
     // Notifications
     static let downloadFinishedNotification = Notification.Name("VeloBackgroundDownloadFinished")
+    static let fileFetchFinishedNotification = Notification.Name("VeloFileFetchFinished")
     
     
     // MARK: - Published Properties
@@ -95,7 +96,7 @@ final class TerminalViewModel: ObservableObject, Identifiable {
         }
     }
     
-    private var isFetchingFile = false
+    @Published var isFetchingFile = false
     private var fileFetchBuffer = ""
     private var downloadProcess: PTYProcess?
     private var downloadPasswordInjected = false
@@ -1099,13 +1100,25 @@ final class TerminalViewModel: ObservableObject, Identifiable {
                     
                     // Clear tracking AFTER setting content so views can validate the path
                     self.fetchingFilePath = nil 
+                    
+                    // Notify observers
+                    NotificationCenter.default.post(name: TerminalViewModel.fileFetchFinishedNotification, object: nil)
                 }
             }
         } catch {
             isFetchingFile = false
             fetchedFileContent = "// Error: \(error.localizedDescription)"
             print("❌ [TerminalVM] Failed to start file fetch: \(error)")
+            NotificationCenter.default.post(name: TerminalViewModel.fileFetchFinishedNotification, object: nil)
         }
+    }
+    
+    func cancelFileFetch() {
+        print("🛑 [TerminalVM] Cancelling file fetch for: \(fetchingFilePath ?? "unknown")")
+        fileFetchProcess?.terminate()
+        fileFetchProcess = nil
+        isFetchingFile = false
+        fetchingFilePath = nil
     }
     
     // MARK: - Background File Saving (SSH)
@@ -1183,8 +1196,10 @@ final class TerminalViewModel: ObservableObject, Identifiable {
                     
                     if exitCode == 0 {
                         print("✅ [TerminalVM] Save successful")
+                        self.showSuccessToast("Saved successfully")
                     } else {
                         print("❌ [TerminalVM] Save failed with code: \(exitCode)")
+                        self.showErrorToast("Save failed (exit code: \(exitCode))")
                         self.addOutputLine("❌ Save failed with exit code: \(exitCode). Check permissions or connection.", isError: true)
                     }
                 }

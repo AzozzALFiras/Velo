@@ -1167,96 +1167,90 @@ private struct FileItemRow: View {
         item.isDirectory ? .folder : FileType.detect(from: item.name)
     }
     
+    private var rowContent: some View {
+        HStack(spacing: 6) {
+            // Indent
+            if depth > 0 {
+                Rectangle()
+                    .fill(VeloDesign.Colors.glassBorder.opacity(0.3))
+                    .frame(width: 1)
+                    .padding(.leading, CGFloat(depth * 12) - 6)
+                    .padding(.trailing, 5)
+            }
+            
+            // Chevron for folders (handled separately for expansion)
+            if item.isDirectory {
+                ZStack {
+                    if isExpandingRemote {
+                        ProgressView()
+                            .scaleEffect(0.4)
+                    } else {
+                        Image(systemName: item.isExpanded ? "chevron.down" : "chevron.right")
+                            .font(.system(size: 8, weight: .bold))
+                            .foregroundStyle(VeloDesign.Colors.textMuted)
+                    }
+                }
+                .frame(width: 12)
+            } else {
+                Spacer().frame(width: 12)
+            }
+            
+            // Icon
+            Image(systemName: fileType.icon)
+                .font(.system(size: 11))
+                .foregroundStyle(isHovered ? VeloDesign.Colors.textPrimary : fileType.color.opacity(0.8))
+                .frame(width: 14)
+            
+            // Name
+            if showingRename {
+                TextField("Rename", text: $newName)
+                    .textFieldStyle(.plain)
+                    .font(VeloDesign.Typography.monoSmall)
+                    .foregroundStyle(VeloDesign.Colors.textPrimary)
+                    .onSubmit {
+                        manager.rename(item: item, to: newName)
+                        showingRename = false
+                    }
+            } else {
+                Text(item.name)
+                    .font(VeloDesign.Typography.monoSmall)
+                    .foregroundStyle(isHovered ? VeloDesign.Colors.neonCyan : VeloDesign.Colors.textSecondary)
+                    .lineLimit(1)
+            }
+            
+            Spacer()
+            
+            // Quick actions
+            if isHovered && !showingRename {
+                HStack(spacing: 8) {
+                    if !item.isDirectory {
+                        Image(systemName: "pencil")
+                            .help("Edit File")
+                    }
+                    if isSSH {
+                        Image(systemName: "arrow.down.circle")
+                            .help("Download")
+                    }
+                }
+                .font(.system(size: 10))
+                .foregroundStyle(VeloDesign.Colors.textMuted)
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 4)
+        .background(isHovered ? VeloDesign.Colors.neonCyan.opacity(0.05) : Color.clear)
+        .contentShape(Rectangle())
+    }
+    
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 6) {
-                // Indent
-                if depth > 0 {
-                    Rectangle()
-                        .fill(VeloDesign.Colors.glassBorder.opacity(0.3))
-                        .frame(width: 1)
-                        .padding(.leading, CGFloat(depth * 12) - 6)
-                        .padding(.trailing, 5)
-                }
-                
-                // Chevron for folders
-                if item.isDirectory {
-                    ZStack {
-                        if isExpandingRemote {
-                            ProgressView()
-                                .scaleEffect(0.4)
-                        } else {
-                            Image(systemName: item.isExpanded ? "chevron.down" : "chevron.right")
-                                .font(.system(size: 8, weight: .bold))
-                                .foregroundStyle(VeloDesign.Colors.textMuted)
-                        }
-                    }
-                    .frame(width: 12)
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        toggleExpansion()
-                    }
-                } else {
-                    Spacer().frame(width: 12)
-                }
-                
-                // Icon using FileActionView logic
-                Image(systemName: fileType.icon)
-                    .font(.system(size: 11))
-                    .foregroundStyle(isHovered ? VeloDesign.Colors.textPrimary : fileType.color.opacity(0.8))
-                    .frame(width: 14)
-                
-                // Name or Rename Field
-                if showingRename {
-                    TextField("Rename", text: $newName)
-                        .textFieldStyle(.plain)
-                        .font(VeloDesign.Typography.monoSmall)
-                        .foregroundStyle(VeloDesign.Colors.textPrimary)
-                        .onSubmit {
-                            manager.rename(item: item, to: newName)
-                            showingRename = false
-                        }
-                        .onExitCommand {
-                            showingRename = false
-                        }
-                } else {
-                    Text(item.name)
-                        .font(VeloDesign.Typography.monoSmall)
-                        .foregroundStyle(isHovered ? VeloDesign.Colors.neonCyan : VeloDesign.Colors.textSecondary)
-                        .lineLimit(1)
-                }
-                
-                Spacer()
-                
-                // Quick actions on hover
-                if isHovered && !showingRename {
-                    HStack(spacing: 8) {
-                        if isSSH && !item.isDirectory {
-                            Button {
-                                onRunCommand("__edit__:\(item.path)")
-                            } label: {
-                                Image(systemName: "pencil")
-                            }
-                        }
-                        
-                        if isSSH {
-                            Button {
-                                let flag = item.isDirectory ? "-r " : ""
-                                onRunCommand("__download_scp__:scp \(flag)\(sshConnectionString ?? "user@host"):'\(item.path)' ~/Downloads/")
-                            } label: {
-                                Image(systemName: "arrow.down.circle")
-                            }
-                        }
-                    }
-                    .font(.system(size: 10))
-                    .foregroundStyle(VeloDesign.Colors.textMuted)
-                    .transition(.opacity)
-                }
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 4)
-            .background(isHovered ? VeloDesign.Colors.neonCyan.opacity(0.05) : Color.clear)
-            .contentShape(Rectangle())
+            rowView
+            childrenView
+        }
+    }
+    
+    private var rowView: some View {
+        rowContent
             .onHover { hovering in
                 withAnimation(.easeOut(duration: 0.1)) {
                     isHovered = hovering
@@ -1275,71 +1269,73 @@ private struct FileItemRow: View {
             .popover(isPresented: $showingInfo) {
                 FileInfoPopover(item: item)
             }
-            // MARK: - Drag & Drop Support
-            // SSH files use NSItemProvider with file promise, local files use standard .draggable
-            .if(isSSH) { view in
-                view.onDrag {
-                    createSSHDragItem()
-                } preview: {
-                    HStack(spacing: 6) {
-                        Image(systemName: fileType.icon)
-                            .foregroundStyle(fileType.color)
-                        Text(item.name)
-                            .font(.system(size: 11, weight: .medium))
-                        Image(systemName: "icloud.and.arrow.down")
-                            .font(.system(size: 8))
-                            .foregroundStyle(VeloDesign.Colors.neonCyan)
-                    }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(.ultraThinMaterial)
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
+            .modifier(DragAndDropModifier(
+                item: item,
+                isSSH: isSSH,
+                sshConnectionString: sshConnectionString,
+                onRunCommand: onRunCommand,
+                handleFileDrop: handleFileDrop,
+                createSSHDragItem: createSSHDragItem,
+                isDropTarget: $isDropTarget,
+                fileType: fileType
+            ))
+    }
+
+    @ViewBuilder
+    private var childrenView: some View {
+        if item.isExpanded, let children = item.children {
+            if children.isEmpty && isSSH {
+                HStack {
+                    Spacer().frame(width: CGFloat((depth + 1) * 12) + 18)
+                    Text("No items found")
+                        .font(.system(size: 9))
+                        .foregroundStyle(VeloDesign.Colors.textMuted)
+                    Spacer()
+                }
+                .padding(.vertical, 4)
+            } else {
+                ForEach(children) { child in
+                    FileItemRow(
+                        item: child,
+                        manager: manager,
+                        depth: depth + 1,
+                        isSSH: isSSH,
+                        sshConnectionString: sshConnectionString,
+                        onEdit: onEdit,
+                        onChangeDirectory: onChangeDirectory,
+                        onRunCommand: onRunCommand
+                    )
                 }
             }
-            .if(!isSSH) { view in
-                view.draggable(URL(fileURLWithPath: item.path)) {
-                    HStack(spacing: 6) {
-                        Image(systemName: fileType.icon)
-                            .foregroundStyle(fileType.color)
-                        Text(item.name)
-                            .font(.system(size: 11, weight: .medium))
-                    }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(.ultraThinMaterial)
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
-                }
+        }
+    }
+}
+
+// Separate modifier to help compiler with type-checking complexity
+private struct DragAndDropModifier: ViewModifier {
+    let item: FileItem
+    let isSSH: Bool
+    let sshConnectionString: String?
+    let onRunCommand: (String) -> Void
+    let handleFileDrop: ([URL], String) -> Void
+    let createSSHDragItem: () -> NSItemProvider
+    @Binding var isDropTarget: Bool
+    let fileType: FileType
+
+    func body(content: Content) -> some View {
+        content
+            .onDrag {
+                isSSH ? createSSHDragItem() : NSItemProvider(object: URL(fileURLWithPath: item.path) as NSURL)
             }
-            // MARK: - Drop Support (Drag disabled for SSH - was causing window drag)
-            // Drop destination works on both files AND folders
             .dropDestination(for: URL.self) { urls, _ in
-                print("📥 [DragDrop] Drop received on item: \(item.name), isDirectory: \(item.isDirectory)")
-                print("📥 [DragDrop] URLs dropped: \(urls.count)")
-                for url in urls {
-                    print("📥 [DragDrop] - URL: \(url.path)")
-                }
-                
-                // Determine target folder: if file, use parent folder; if folder, use the folder itself
-                let targetFolder: String
                 if item.isDirectory {
-                    targetFolder = item.path
-                    print("📂 [DragDrop] Target is folder: \(targetFolder)")
-                } else {
-                    targetFolder = (item.path as NSString).deletingLastPathComponent
-                    print("📂 [DragDrop] Target is file, using parent: \(targetFolder)")
+                    handleFileDrop(urls, item.path)
+                    return true
                 }
-                
-                handleFileDrop(urls: urls, toFolder: targetFolder)
-                return true
+                return false
             } isTargeted: { targeted in
-                if targeted {
-                    print("🎯 [DragDrop] Hovering over: \(item.name)")
-                }
-                withAnimation(.easeOut(duration: 0.15)) {
-                    isDropTarget = targeted // Highlight ALL items, not just folders
-                }
+                isDropTarget = targeted
             }
-            // Drop zone visual feedback
             .overlay {
                 if isDropTarget {
                     RoundedRectangle(cornerRadius: 4)
@@ -1348,35 +1344,10 @@ private struct FileItemRow: View {
                         .clipShape(RoundedRectangle(cornerRadius: 4))
                 }
             }
-            
-            // Nested children
-            if item.isExpanded, let children = item.children {
-                if children.isEmpty && isSSH {
-                    HStack {
-                        Spacer().frame(width: CGFloat((depth + 1) * 12) + 18)
-                        Text("No items found")
-                            .font(.system(size: 9))
-                            .foregroundStyle(VeloDesign.Colors.textMuted)
-                        Spacer()
-                    }
-                    .padding(.vertical, 4)
-                } else {
-                    ForEach(children) { child in
-                        FileItemRow(
-                            item: child,
-                            manager: manager,
-                            depth: depth + 1,
-                            isSSH: isSSH,
-                            sshConnectionString: sshConnectionString,
-                            onEdit: onEdit,
-                            onChangeDirectory: onChangeDirectory,
-                            onRunCommand: onRunCommand
-                        )
-                    }
-                }
-            }
-        }
     }
+}
+
+extension FileItemRow {
     
     private func toggleExpansion() {
         if isSSH && !item.isExpanded && (item.children == nil || item.children!.isEmpty) {
@@ -1484,6 +1455,7 @@ private struct FileItemRow: View {
     @ViewBuilder
     private var fileContextMenu: some View {
         Group {
+            // Main Action
             Button {
                 if item.isDirectory {
                     toggleExpansion()
@@ -1491,9 +1463,28 @@ private struct FileItemRow: View {
                     onEdit(item.path)
                 }
             } label: {
-                Label(item.isDirectory ? "Open Folder" : "Edit File", systemImage: item.isDirectory ? "folder" : "pencil")
+                Label(item.isDirectory ? (item.isExpanded ? "Collapse" : "Expand") : "Edit File", 
+                      systemImage: item.isDirectory ? (item.isExpanded ? "chevron.down" : "chevron.right") : "pencil")
             }
             
+            Divider()
+
+            if !isSSH {
+                Button {
+                    let url = URL(fileURLWithPath: item.path)
+                    NSWorkspace.shared.open(url)
+                } label: {
+                    Label("Open with Default App", systemImage: "arrow.up.forward.square")
+                }
+
+                Button {
+                    let url = URL(fileURLWithPath: item.path)
+                    NSWorkspace.shared.activateFileViewerSelecting([url])
+                } label: {
+                    Label("Show in Finder", systemImage: "folder")
+                }
+            }
+
             if item.isDirectory {
                 Button {
                     onRunCommand("cd \"\(item.path)\"")
@@ -1510,20 +1501,18 @@ private struct FileItemRow: View {
                 Button {
                     onRunCommand("cat \"\(item.path)\"")
                 } label: {
-                    Label("View Content", systemImage: "eye")
+                    Label("View Content (cat)", systemImage: "eye")
                 }
             }
             
             Divider()
             
-            // Actions from FileActionView logic
+            // SSH Specific Actions
             if isSSH {
                 Button {
-                    let flag = item.isDirectory ? "-r " : ""
-                    let remotePath = item.path.replacingOccurrences(of: "'", with: "'\\''")
-                    onRunCommand("__download_scp__:scp \(flag)\(sshConnectionString ?? "user@host"):'\(remotePath)' ~/Downloads/")
+                    showSSHDownloadDialog(isFolder: item.isDirectory)
                 } label: {
-                    Label("📥 Download", systemImage: "arrow.down.circle")
+                    Label("📥 Download...", systemImage: "arrow.down.circle")
                 }
                 
                 Button {
@@ -1531,54 +1520,271 @@ private struct FileItemRow: View {
                 } label: {
                     Label("Get Size", systemImage: "chart.bar")
                 }
+
+                if !item.isDirectory {
+                    Button {
+                        onRunCommand("ls -la \"\(item.path)\" && file \"\(item.path)\"")
+                    } label: {
+                        Label("Get File Info", systemImage: "info.circle")
+                    }
+                }
+
+                Divider()
             }
-            
-            Divider()
-            
+
+            // MARK: - Common Actions
             Button {
                 newName = item.name
                 showingRename = true
             } label: {
                 Label("Rename", systemImage: "pencil.line")
             }
-            
+
             Button {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(item.name, forType: .string)
+                onRunCommand("__copy_name__:\(item.name)")
             } label: {
                 Label("Copy Name", systemImage: "textformat")
             }
-            
+
             Button {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(item.path, forType: .string)
+                onRunCommand("__copy_path__:\(item.path)")
             } label: {
                 Label("Copy Path", systemImage: "doc.on.clipboard")
             }
-            
+
             Divider()
-            
+
             Button {
                 onChangeDirectory(item.path)
             } label: {
                 Label("Change CWD to here", systemImage: "arrow.right.circle")
             }
             .disabled(!item.isDirectory)
-            
+
             Button {
                 showingInfo = true
             } label: {
                 Label("Get Info", systemImage: "info.circle")
             }
-            
+
             Divider()
-            
+
+            // MARK: - Destructive Actions (with confirmation prompt)
             Button(role: .destructive) {
-                onRunCommand("rm -rf \"\(item.path)\"")
+                onRunCommand("rm -i \"\(item.path)\"")
             } label: {
-                Label("Delete Permanently", systemImage: "trash")
+                Label("Delete", systemImage: "trash")
             }
         }
+    }
+
+    /// Type-specific actions for local files (matching FileActionView behavior)
+    @ViewBuilder
+    private var localFileTypeActions: some View {
+        let ext = (item.name as NSString).pathExtension.lowercased()
+
+        switch fileType {
+        case .script:
+            Button {
+                switch ext {
+                case "sh", "bash":
+                    onRunCommand("bash \"\(item.path)\"")
+                case "zsh":
+                    onRunCommand("zsh \"\(item.path)\"")
+                default:
+                    onRunCommand("sh \"\(item.path)\"")
+                }
+            } label: {
+                Label("Run Script", systemImage: "play.fill")
+            }
+
+            Button {
+                onRunCommand("chmod +x \"\(item.path)\"")
+            } label: {
+                Label("Make Executable", systemImage: "lock.open")
+            }
+
+        case .code:
+            switch ext {
+            case "py":
+                Button {
+                    onRunCommand("python3 \"\(item.path)\"")
+                } label: {
+                    Label("Run Python", systemImage: "play.fill")
+                }
+            case "js":
+                Button {
+                    onRunCommand("node \"\(item.path)\"")
+                } label: {
+                    Label("Run Node", systemImage: "play.fill")
+                }
+            case "swift":
+                Button {
+                    onRunCommand("swift \"\(item.path)\"")
+                } label: {
+                    Label("Run Swift", systemImage: "play.fill")
+                }
+            case "go":
+                Button {
+                    onRunCommand("go run \"\(item.path)\"")
+                } label: {
+                    Label("Run Go", systemImage: "play.fill")
+                }
+            case "rb":
+                Button {
+                    onRunCommand("ruby \"\(item.path)\"")
+                } label: {
+                    Label("Run Ruby", systemImage: "play.fill")
+                }
+            case "php":
+                Button {
+                    onRunCommand("php \"\(item.path)\"")
+                } label: {
+                    Label("Run PHP", systemImage: "play.fill")
+                }
+            default:
+                EmptyView()
+            }
+
+        case .archive:
+            let baseName = (item.name as NSString).deletingPathExtension
+            let parentDir = (item.path as NSString).deletingLastPathComponent
+
+            switch ext {
+            case "zip", "ipa", "apk":
+                Button {
+                    onRunCommand("unzip -o \"\(item.path)\" -d \"\(parentDir)\"")
+                } label: {
+                    Label("Extract Here", systemImage: "arrow.down.doc")
+                }
+                Button {
+                    onRunCommand("unzip -o \"\(item.path)\" -d \"\(parentDir)/\(baseName)\"")
+                } label: {
+                    Label("Extract to Folder", systemImage: "folder.badge.plus")
+                }
+                Button {
+                    onRunCommand("unzip -l \"\(item.path)\"")
+                } label: {
+                    Label("List Contents", systemImage: "list.bullet")
+                }
+            case "tar":
+                Button {
+                    onRunCommand("tar -xf \"\(item.path)\" -C \"\(parentDir)\"")
+                } label: {
+                    Label("Extract Here", systemImage: "arrow.down.doc")
+                }
+                Button {
+                    onRunCommand("tar -tf \"\(item.path)\"")
+                } label: {
+                    Label("List Contents", systemImage: "list.bullet")
+                }
+            case "gz":
+                Button {
+                    if item.name.hasSuffix(".tar.gz") {
+                        onRunCommand("tar -xzf \"\(item.path)\" -C \"\(parentDir)\"")
+                    } else {
+                        onRunCommand("gunzip -k \"\(item.path)\"")
+                    }
+                } label: {
+                    Label(item.name.hasSuffix(".tar.gz") ? "Extract Here" : "Decompress", systemImage: "arrow.down.doc")
+                }
+            case "dmg":
+                Button {
+                    onRunCommand("hdiutil attach \"\(item.path)\"")
+                } label: {
+                    Label("Mount", systemImage: "externaldrive.badge.plus")
+                }
+            default:
+                EmptyView()
+            }
+
+        case .audio:
+            Button {
+                onRunCommand("afplay \"\(item.path)\"")
+            } label: {
+                Label("Play Audio", systemImage: "play.fill")
+            }
+
+        case .application:
+            Button {
+                onRunCommand("open -a \"\(item.path)\"")
+            } label: {
+                Label("Launch", systemImage: "play.fill")
+            }
+            Button {
+                onRunCommand("open \"\(item.path)/Contents\"")
+            } label: {
+                Label("Show Package Contents", systemImage: "folder")
+            }
+
+        default:
+            EmptyView()
+        }
+    }
+
+    // MARK: - SSH Download Dialog Logic (Synced from InteractiveFileView)
+    
+    private func showSSHDownloadDialog(isFolder: Bool) {
+        if isFolder {
+            let openPanel = NSOpenPanel()
+            openPanel.title = "Select Download Destination"
+            openPanel.canChooseFiles = false
+            openPanel.canChooseDirectories = true
+            openPanel.canCreateDirectories = true
+            openPanel.allowsMultipleSelection = false
+            openPanel.directoryURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+            openPanel.prompt = "Download Here"
+            
+            openPanel.begin { response in
+                if response == .OK, let url = openPanel.url {
+                    self.performSCPDownload(destinationURL: url, isFolder: true)
+                }
+            }
+        } else {
+            let savePanel = NSSavePanel()
+            savePanel.title = "Save to Local"
+            savePanel.nameFieldStringValue = item.name
+            savePanel.canCreateDirectories = true
+            savePanel.directoryURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+
+            savePanel.begin { response in
+                if response == .OK, let url = savePanel.url {
+                    self.performSCPDownload(destinationURL: url, isFolder: false)
+                }
+            }
+        }
+    }
+    
+    private func performSCPDownload(destinationURL: URL, isFolder: Bool) {
+        var localPath = destinationURL.path
+        var remotePath = item.path
+
+        // Clean up paths
+        remotePath = stripANSISequences(from: remotePath)
+        localPath = stripANSISequences(from: localPath)
+
+        if remotePath.hasSuffix("/") {
+            remotePath = String(remotePath.dropLast())
+        }
+
+        let scpFlag = isFolder ? "-r " : ""
+        if isFolder {
+            let folderName = (remotePath as NSString).lastPathComponent
+            localPath = (localPath as NSString).appendingPathComponent(folderName)
+        }
+
+        let userHost = sshConnectionString ?? "user@host"
+        let downloadCommand = "scp \(scpFlag)\(userHost):\"\(remotePath)\" \"\(localPath)\""
+        onRunCommand("__download_scp__:\(downloadCommand)")
+    }
+
+    private func stripANSISequences(from text: String) -> String {
+        var cleaned = text
+        let controlChars = CharacterSet(charactersIn: "\u{0001}"..."\u{001F}").subtracting(CharacterSet(charactersIn: "\n\t"))
+        cleaned = cleaned.components(separatedBy: controlChars).joined()
+        cleaned = cleaned.replacingOccurrences(of: "]\\d+;[^\n]*", with: "", options: .regularExpression)
+        cleaned = cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
+        return cleaned
     }
 }
 

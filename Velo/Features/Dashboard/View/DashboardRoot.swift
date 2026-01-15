@@ -36,6 +36,7 @@ struct DashboardRoot: View {
     @State private var editingFile: String? = nil
     @State private var editingFileContent: String = ""
     @State private var showEditor = false
+    @State private var isFetchingFile = false
     
     // Column visibility
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
@@ -155,20 +156,6 @@ struct DashboardRoot: View {
                     }
                 }
                 .background(ColorTokens.layer0)
-                .sheet(isPresented: $showEditor) {
-                    if let path = editingFile {
-                        RemoteFileEditorView(
-                            filename: (path as NSString).lastPathComponent,
-                            remotePath: path,
-                            sshConnectionString: currentSSHServerName ?? "local",
-                            initialContent: editingFileContent,
-                            onSave: { newContent in
-                                saveFile(at: path, content: newContent)
-                            },
-                            onCancel: { showEditor = false }
-                        )
-                    }
-                }
                 .toolbar {
                     ToolbarItemGroup(placement: .primaryAction) {
                         toolbarItems
@@ -176,11 +163,6 @@ struct DashboardRoot: View {
                 }
             }
             .navigationSplitViewStyle(.balanced)
-            .alert(alertTitle, isPresented: $showAlert) {
-                Button("OK", role: .cancel) { }
-            } message: {
-                Text(alertMessage)
-            }
             .sheet(isPresented: $showSettings) {
                 SettingsView(onClose: { showSettings = false })
             }
@@ -202,12 +184,14 @@ struct DashboardRoot: View {
             .onChange(of: tabManager.activeSessionId) { _, _ in
                 syncWithActiveSession()
             }
-            .onChange(of: tabManager.activeSession?.fetchedFileContent) { _, newContent in
-                if let content = newContent {
+            .onReceive(NotificationCenter.default.publisher(for: TerminalViewModel.fileFetchFinishedNotification)) { _ in
+                if let content = tabManager.activeSession?.fetchedFileContent, !content.isEmpty {
                     editingFileContent = content
-                    // Ensure editor is showing if we were waiting for it
-                    if let _ = editingFile {
-                        showEditor = true
+                    if isFetchingFile {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                            isFetchingFile = false
+                            showEditor = true
+                        }
                     }
                 }
             }
@@ -240,6 +224,116 @@ struct DashboardRoot: View {
                 .transition(.opacity.combined(with: .scale(scale: 0.95)))
                 .zIndex(100)
             }
+            
+            // Integrated Editor Overlay
+            if showEditor, let path = editingFile {
+                ZStack {
+                    Rectangle()
+                        .fill(Color.black.opacity(0.4))
+                        .background(.ultraThinMaterial)
+                        .ignoresSafeArea()
+                        .onTapGesture {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                                showEditor = false 
+                            }
+                        }
+                    
+                    VStack(spacing: 0) {
+                        RemoteFileEditorView(
+                            filename: (path as NSString).lastPathComponent,
+                            remotePath: path,
+                            sshConnectionString: currentSSHServerName ?? "local",
+                            initialContent: editingFileContent,
+                            onSave: { newContent in
+                                saveFile(at: path, content: newContent)
+                            },
+                            onCancel: { 
+                                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                                    showEditor = false 
+                                }
+                            }
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12)
+                                .stroke(VeloDesign.Colors.glassBorder, lineWidth: 1)
+                        )
+                        .frame(maxWidth: 1000, maxHeight: 800)
+                        .shadow(color: .black.opacity(0.5), radius: 30, x: 0, y: 15)
+                    }
+                    .padding(40)
+                }
+                .transition(.asymmetric(
+                    insertion: .opacity.combined(with: .scale(scale: 0.95)),
+                    removal: .opacity.combined(with: .scale(scale: 1.05))
+                ))
+                .zIndex(200)
+            }
+
+            // Fetching Overlay
+            if isFetchingFile {
+                ZStack {
+                    // Transparent backdrop - allow seeing program elements
+                    Color.black.opacity(0.08)
+                        .ignoresSafeArea()
+                        .onTapGesture {
+                            // Prevent accidental dismissal
+                        }
+                    
+                    VStack(spacing: 20) {
+                        ProgressView()
+                            .scaleEffect(1.2)
+                            .tint(VeloDesign.Colors.neonCyan)
+                        
+                        VStack(spacing: 8) {
+                            Text("Fetching Remote File")
+                                .font(VeloDesign.Typography.headline)
+                                .foregroundColor(VeloDesign.Colors.textPrimary)
+                            
+                            Text(editingFile ?? "")
+                                .font(VeloDesign.Typography.monoSmall)
+                                .foregroundColor(VeloDesign.Colors.textMuted)
+                                .lineLimit(1)
+                        }
+
+                        Button(action: {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                                isFetchingFile = false
+                                tabManager.activeSession?.cancelFileFetch()
+                            }
+                        }) {
+                            Text("Cancel")
+                                .font(VeloDesign.Typography.subheadline.weight(.medium))
+                                .foregroundColor(VeloDesign.Colors.textMuted)
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 8)
+                                .background(VeloDesign.Colors.glassWhite.opacity(0.1))
+                                .clipShape(Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.top, 4)
+                    }
+                    .padding(32)
+                    .frame(width: 320)
+                    .background(
+                        RoundedRectangle(cornerRadius: 24)
+                            .fill(VeloDesign.Colors.cardBackground.opacity(0.7))
+                            .background(.ultraThinMaterial)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 24)
+                            .stroke(VeloDesign.Colors.glassBorder, lineWidth: 1)
+                    )
+                    .shadow(color: .black.opacity(0.2), radius: 20, y: 10)
+                }
+                .transition(.opacity.combined(with: .scale(scale: 1.1)))
+                .zIndex(300)
+            }
+        }
+        .alert(alertTitle, isPresented: $showAlert) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(alertMessage)
         }
         .background(
             // Hidden button for keyboard shortcut
@@ -506,7 +600,7 @@ struct DashboardRoot: View {
             editFile(at: path)
             return
         }
-        
+
         if command.hasPrefix("__download_scp__:") {
             let scpCmd = String(command.dropFirst(17))
             if let session = tabManager.activeSession {
@@ -514,7 +608,7 @@ struct DashboardRoot: View {
             }
             return
         }
-        
+
         // Handle SCP upload (drag-drop to SSH)
         if command.hasPrefix("__upload_scp__:") {
             let scpCmd = String(command.dropFirst(15))
@@ -523,11 +617,35 @@ struct DashboardRoot: View {
             }
             return
         }
-        
+
         if command.hasPrefix("__copy_path__:") {
             let path = String(command.dropFirst(14))
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(path, forType: .string)
+            return
+        }
+
+        // Copy filename to clipboard
+        if command.hasPrefix("__copy_name__:") {
+            let name = String(command.dropFirst(14))
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(name, forType: .string)
+            return
+        }
+
+        // Open file with default application
+        if command.hasPrefix("__open__:") {
+            let path = String(command.dropFirst(9))
+            let url = URL(fileURLWithPath: path)
+            NSWorkspace.shared.open(url)
+            return
+        }
+
+        // Reveal file in Finder
+        if command.hasPrefix("__show_in_finder__:") {
+            let path = String(command.dropFirst(19))
+            let url = URL(fileURLWithPath: path)
+            NSWorkspace.shared.activateFileViewerSelecting([url])
             return
         }
 
@@ -551,17 +669,19 @@ struct DashboardRoot: View {
     }
     
     private func editFile(at path: String) {
+        // Prevent multiple simultaneous fetches for the same file
+        if editingFile == path && (showEditor || isFetchingFile) { return }
+        
         // Handle Remote SSH Editing
         if let session = tabManager.activeSession, session.isSSHActive {
             if let userHost = session.activeSSHConnectionString {
-                session.startBackgroundFileFetch(path: path, userHost: userHost)
-                // We'll show the editor once the content is fetched
-                // Monitoring is done via onChange(of: session.fetchedFileContent)
-                
-                // Show a temporary "Loading" state in the editor if possible or just wait
+                // Start background fetch and show loading state
                 editingFile = path
-                editingFileContent = "// Loading remote file: \(path)..."
-                showEditor = true
+                editingFileContent = ""
+                isFetchingFile = true
+                
+                // Trigger the fetch - TerminalViewModel handles duplicate prevention
+                session.startBackgroundFileFetch(path: path, userHost: userHost)
                 return
             }
         }
@@ -613,9 +733,6 @@ struct DashboardRoot: View {
         if let session = tabManager.activeSession, session.isSSHActive {
             if let userHost = session.activeSSHConnectionString {
                 session.startRemoteFileSave(path: path, content: content, userHost: userHost)
-                alertTitle = "Saving..."
-                alertMessage = "Upload started for \(path)"
-                showAlert = true
                 return
             }
         }
@@ -623,10 +740,9 @@ struct DashboardRoot: View {
         do {
             try content.write(toFile: path, atomically: true, encoding: .utf8)
             editingFileContent = content
+            session.showSuccessToast("Saved successfully")
         } catch {
-            alertTitle = "Save Failed"
-            alertMessage = error.localizedDescription
-            showAlert = true
+            session.showErrorToast("Save failed: \(error.localizedDescription)")
         }
     }
     
