@@ -1,0 +1,21 @@
+{
+  "terminal.execute": "تنفيذ",
+  "terminal.clear": "مسح",
+  "terminal.interrupt": "مقاطعة",
+  "terminal.typeCommand": "اكتب أمراً...",
+  "terminal.running": "قيد التشغيل...",
+  "terminal.completed": "مكتمل",
+  "terminal.failed": "فشل",
+  "terminal.exitCode": "رمز الخروج",
+  "terminal.empty.title": "جاهز لتشغيل الأوامر",
+  "terminal.empty.subtitle": "اكتب أمراً أدناه أو استخدم اختصارات لوحة المفاتيح",
+  "terminal.empty.newTab": "تبويب جديد",
+  "terminal.empty.clear": "مسح",
+  "terminal.empty.history": "السجل",
+  "terminal.menu.copy": "نسخ السطر",
+  "terminal.menu.explain": "شرح الخطأ",
+  "terminal.menu.fix": "إصلاح الخطأ",
+  "terminal.menu.open": "فتح {}",
+  "terminal.output.showMore": "إظهار {} أسطر إضافية",
+  "terminal.output.collapse": "طوي"
+}

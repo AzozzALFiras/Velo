@@ -1,0 +1,18 @@
+{
+  "git.sourceControl": "ソース管理",
+  "git.syncChanges": "変更を同期",
+  "git.clean": "クリーン",
+  "git.sync": "同期",
+  "git.staged": "ステージ済み",
+  "git.modified": "変更あり",
+  "git.untracked": "未追跡",
+  "git.commitMessage": "コミットメッセージ...",
+  "git.suggest": "提案",
+  "git.commitTo": "%@ にコミット",
+  "git.noChanges": "変更なし",
+  "git.pull": "プル",
+  "git.push": "プッシュ",
+  "git.fetch": "フェッチ",
+  "git.branch": "ブランチ",
+  "git.stash": "スタッシュ"
+}

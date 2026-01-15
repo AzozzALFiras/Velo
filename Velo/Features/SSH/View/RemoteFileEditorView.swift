@@ -177,7 +177,7 @@ struct RemoteFileEditorView: View {
                     Circle()
                         .fill(VeloDesign.Colors.warning)
                         .frame(width: 6, height: 6)
-                    Text("Modified")
+                    Text("ssh.editor.modified".localized)
                         .font(.system(size: 11))
                         .foregroundColor(VeloDesign.Colors.warning)
                 }
@@ -204,7 +204,7 @@ struct RemoteFileEditorView: View {
         VStack(spacing: VeloDesign.Spacing.md) {
             ProgressView()
                 .scaleEffect(1.2)
-            Text("Loading file...")
+            Text("ssh.editor.loading".localized)
                 .font(VeloDesign.Typography.subheadline)
                 .foregroundColor(VeloDesign.Colors.textSecondary)
         }
@@ -217,7 +217,7 @@ struct RemoteFileEditorView: View {
             Image(systemName: "exclamationmark.triangle.fill")
                 .font(.system(size: 32))
                 .foregroundColor(VeloDesign.Colors.error)
-            Text("Error loading file")
+            Text("ssh.editor.error".localized)
                 .font(VeloDesign.Typography.headline)
                 .foregroundColor(VeloDesign.Colors.textPrimary)
             Text(message)
@@ -232,7 +232,7 @@ struct RemoteFileEditorView: View {
     private var editorFooter: some View {
         HStack(spacing: VeloDesign.Spacing.md) {
             // Line count
-            Text("\(content.components(separatedBy: "\n").count) lines")
+            Text("\(content.components(separatedBy: "\n").count) " + "files.getSize.lines".localized)
                 .font(VeloDesign.Typography.monoSmall)
                 .foregroundColor(VeloDesign.Colors.textSecondary)
             
@@ -240,7 +240,7 @@ struct RemoteFileEditorView: View {
             
             // Cancel button
             Button(action: onCancel) {
-                Text("Cancel")
+                Text("theme.cancel".localized)
                     .font(.system(size: 13, weight: .medium))
                     .foregroundColor(VeloDesign.Colors.textSecondary)
                     .padding(.horizontal, 16)
@@ -260,7 +260,7 @@ struct RemoteFileEditorView: View {
                 HStack(spacing: 4) {
                     Image(systemName: "square.and.arrow.down")
                         .font(.system(size: 11))
-                    Text("Save")
+                    Text("theme.save".localized)
                 }
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundColor(.white)
@@ -280,7 +280,7 @@ struct RemoteFileEditorView: View {
             // Close/Done button (if saved)
             if !hasChanges {
                 Button(action: onCancel) {
-                    Text("Done")
+                    Text("workspace.done".localized)
                         .font(.system(size: 13, weight: .medium))
                         .foregroundColor(.white)
                         .padding(.horizontal, 16)
@@ -308,7 +308,7 @@ struct RemoteFileEditorView: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             isLoading = false
             hasChanges = false
-            showToast("Saved successfully", type: .success)
+            showToast("ssh.editor.saved".localized, type: .success)
             // Don't auto-close, let user see the success message
         }
     }

@@ -16,31 +16,28 @@ struct GeneralTab: View {
     @AppStorage("isInteractiveOutputEnabled") private var isInteractiveOutputEnabled = true
     @AppStorage("isDeepFileParsingEnabled") private var isDeepFileParsingEnabled = true
     @AppStorage("autoLSafterCD") private var autoLSafterCD = false
-    
-    // Experimental
-    @AppStorage("useDashboardUI") private var useDashboardUI = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: VeloDesign.Spacing.xl) {
             // Header
             VStack(alignment: .leading, spacing: VeloDesign.Spacing.xs) {
-                Text("General")
+                Text("general.title".localized)
                     .font(TypographyTokens.displayMd)
                     .foregroundColor(ColorTokens.textPrimary)
 
-                Text("Configure general preferences and behavior")
+                Text("general.subtitle".localized)
                     .font(TypographyTokens.bodySm)
                     .foregroundColor(ColorTokens.textSecondary)
             }
 
             // UI Preferences Section
             VStack(alignment: .leading, spacing: VeloDesign.Spacing.md) {
-                SectionHeader(title: "Interface")
+                SectionHeader(title: "general.interface".localized)
 
                 VStack(spacing: 0) {
                     ToggleRow(
-                        title: "Auto-Open History Panel",
-                        subtitle: "Automatically open the command history sidebar when launching Velo.",
+                        title: "general.autoOpenHistory".localized,
+                        subtitle: "general.autoOpenHistoryDesc".localized,
                         isOn: $autoOpenHistory
                     )
 
@@ -49,8 +46,8 @@ struct GeneralTab: View {
                         .padding(.horizontal, VeloDesign.Spacing.md)
 
                     ToggleRow(
-                        title: "Auto-Open AI Panel",
-                        subtitle: "Automatically open the AI insights panel when launching Velo.",
+                        title: "general.autoOpenAI".localized,
+                        subtitle: "general.autoOpenAIDesc".localized,
                         isOn: $autoOpenAIPanel
                     )
                 }
@@ -60,12 +57,12 @@ struct GeneralTab: View {
 
             // Terminal Features Section
             VStack(alignment: .leading, spacing: VeloDesign.Spacing.md) {
-                SectionHeader(title: "Terminal Features")
+                SectionHeader(title: "general.terminalFeatures".localized)
 
                 VStack(spacing: 0) {
                     ToggleRow(
-                        title: "Interactive Output",
-                        subtitle: "Enable clickable file paths and hover effects in terminal output.",
+                        title: "general.interactiveOutput".localized,
+                        subtitle: "general.interactiveOutputDesc".localized,
                         isOn: $isInteractiveOutputEnabled
                     )
 
@@ -74,8 +71,8 @@ struct GeneralTab: View {
                         .padding(.horizontal, VeloDesign.Spacing.md)
 
                     ToggleRow(
-                        title: "Deep File Parsing",
-                        subtitle: "Scan output for file paths. Disable for better performance on older Macs.",
+                        title: "general.deepFileParsing".localized,
+                        subtitle: "general.deepFileParsingDesc".localized,
                         isOn: $isDeepFileParsingEnabled
                     )
 
@@ -84,24 +81,9 @@ struct GeneralTab: View {
                         .padding(.horizontal, VeloDesign.Spacing.md)
 
                     ToggleRow(
-                        title: "Auto-List After CD",
-                        subtitle: "Automatically run 'ls' after navigating with 'cd' to refresh suggestions.",
+                        title: "general.autoLSafterCD".localized,
+                        subtitle: "general.autoLSafterCDDesc".localized,
                         isOn: $autoLSafterCD
-                    )
-                }
-                .padding(VeloDesign.Spacing.md)
-                .elevated(.low)
-            }
-            
-            // Experimental Section
-            VStack(alignment: .leading, spacing: VeloDesign.Spacing.md) {
-                SectionHeader(title: "Experimental")
-
-                VStack(spacing: 0) {
-                    ToggleRow(
-                        title: "New Dashboard UI",
-                        subtitle: "Enable the new 3-panel dashboard layout with command blocks, Git HUD, and integrated AI panel. Requires restart.",
-                        isOn: $useDashboardUI
                     )
                 }
                 .padding(VeloDesign.Spacing.md)
@@ -118,3 +100,4 @@ struct GeneralTab: View {
         .frame(width: 600, height: 600)
         .background(ColorTokens.layer0)
 }
+

@@ -1,0 +1,18 @@
+{
+  "git.sourceControl": "التحكم في المصدر",
+  "git.syncChanges": "مزامنة التغييرات",
+  "git.clean": "نظيف",
+  "git.sync": "مزامنة",
+  "git.staged": "جاهز للالتزام",
+  "git.modified": "معدّل",
+  "git.untracked": "غير متتبع",
+  "git.commitMessage": "رسالة الالتزام...",
+  "git.suggest": "اقتراح",
+  "git.commitTo": "التزام إلى %@",
+  "git.noChanges": "لا توجد تغييرات",
+  "git.pull": "سحب",
+  "git.push": "دفع",
+  "git.fetch": "جلب",
+  "git.branch": "فرع",
+  "git.stash": "تخزين مؤقت"
+}

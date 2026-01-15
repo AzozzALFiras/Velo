@@ -27,22 +27,22 @@ struct AITab: View {
         VStack(alignment: .leading, spacing: VeloDesign.Spacing.xl) {
             // Header
             VStack(alignment: .leading, spacing: VeloDesign.Spacing.xs) {
-                Text("Cloud AI")
+                Text("ai.title".localized)
                     .font(TypographyTokens.displayMd)
                     .foregroundColor(ColorTokens.textPrimary)
 
-                Text("Configure AI provider and API credentials")
+                Text("ai.subtitle".localized)
                     .font(TypographyTokens.bodySm)
                     .foregroundColor(ColorTokens.textSecondary)
             }
 
             // Provider Selection
             VStack(alignment: .leading, spacing: VeloDesign.Spacing.md) {
-                SectionHeader(title: "AI Provider")
+                SectionHeader(title: "ai.provider".localized)
 
                 VStack(spacing: VeloDesign.Spacing.md) {
                     HStack {
-                        Text("Provider")
+                        Text("ai.provider".localized)
                             .font(TypographyTokens.body)
                             .foregroundColor(ColorTokens.textPrimary)
 
@@ -64,13 +64,13 @@ struct AITab: View {
 
             // API Key Configuration
             VStack(alignment: .leading, spacing: VeloDesign.Spacing.md) {
-                SectionHeader(title: "API Credentials")
+                SectionHeader(title: "ai.credentials".localized)
 
                 VStack(spacing: VeloDesign.Spacing.md) {
                     // OpenAI
                     if selectedAIProvider == "openai" {
                         VStack(alignment: .leading, spacing: VeloDesign.Spacing.sm) {
-                            Text("OpenAI API Key")
+                            Text("OpenAI " + "ai.credentials".localized)
                                 .font(TypographyTokens.bodySm)
                                 .foregroundColor(ColorTokens.textSecondary)
 
@@ -94,7 +94,7 @@ struct AITab: View {
                     // Anthropic
                     if selectedAIProvider == "anthropic" {
                         VStack(alignment: .leading, spacing: VeloDesign.Spacing.sm) {
-                            Text("Anthropic API Key")
+                            Text("Anthropic " + "ai.credentials".localized)
                                 .font(TypographyTokens.bodySm)
                                 .foregroundColor(ColorTokens.textSecondary)
 
@@ -118,7 +118,7 @@ struct AITab: View {
                     // DeepSeek
                     if selectedAIProvider == "deepseek" {
                         VStack(alignment: .leading, spacing: VeloDesign.Spacing.sm) {
-                            Text("DeepSeek API Key")
+                            Text("DeepSeek " + "ai.credentials".localized)
                                 .font(TypographyTokens.bodySm)
                                 .foregroundColor(ColorTokens.textSecondary)
 
@@ -145,7 +145,7 @@ struct AITab: View {
                             .font(.system(size: 12))
                             .foregroundColor(ColorTokens.success)
 
-                        Text("API keys are securely stored in macOS Keychain")
+                        Text("ai.secureHint".localized)
                             .font(TypographyTokens.caption)
                             .foregroundColor(ColorTokens.textTertiary)
                     }

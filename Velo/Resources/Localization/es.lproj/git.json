@@ -1,0 +1,18 @@
+{
+  "git.sourceControl": "Control de Versiones",
+  "git.syncChanges": "Sincronizar cambios",
+  "git.clean": "Limpiar",
+  "git.sync": "Sinc",
+  "git.staged": "Preparado",
+  "git.modified": "Modificado",
+  "git.untracked": "Sin seguimiento",
+  "git.commitMessage": "Mensaje de commit...",
+  "git.suggest": "Sugerir",
+  "git.commitTo": "Commit en %@",
+  "git.noChanges": "Sin cambios",
+  "git.pull": "Pull",
+  "git.push": "Push",
+  "git.fetch": "Fetch",
+  "git.branch": "Rama",
+  "git.stash": "Stash"
+}

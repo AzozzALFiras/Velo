@@ -1,0 +1,17 @@
+{
+  "editor.title": "Editor",
+  "editor.save": "Save",
+  "editor.saveAs": "Save As",
+  "editor.undo": "Undo",
+  "editor.redo": "Redo",
+  "editor.find": "Find",
+  "editor.replace": "Replace",
+  "editor.lineNumbers": "Line Numbers",
+  "editor.wordWrap": "Word Wrap",
+  "editor.unsavedChanges": "Unsaved Changes",
+  "editor.discardChanges": "Discard Changes",
+  "editor.fetchingFile": "Fetching Remote File",
+  "editor.saving": "Saving...",
+  "editor.saved": "Saved successfully",
+  "editor.saveFailed": "Save failed"
+}

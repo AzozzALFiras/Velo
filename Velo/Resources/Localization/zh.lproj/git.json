@@ -1,0 +1,18 @@
+{
+  "git.sourceControl": "源代码管理",
+  "git.syncChanges": "同步更改",
+  "git.clean": "清理",
+  "git.sync": "同步",
+  "git.staged": "已暂存",
+  "git.modified": "已修改",
+  "git.untracked": "未跟踪",
+  "git.commitMessage": "提交消息...",
+  "git.suggest": "建议",
+  "git.commitTo": "提交到 %@",
+  "git.noChanges": "无更改",
+  "git.pull": "拉取",
+  "git.push": "推送",
+  "git.fetch": "获取",
+  "git.branch": "分支",
+  "git.stash": "暂存"
+}

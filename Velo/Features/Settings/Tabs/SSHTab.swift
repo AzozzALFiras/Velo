@@ -12,11 +12,11 @@ struct SSHTab: View {
         VStack(alignment: .leading, spacing: VeloDesign.Spacing.xl) {
             // Header
             VStack(alignment: .leading, spacing: VeloDesign.Spacing.xs) {
-                Text("SSH Connections")
+                Text("ssh.settings.title".localized)
                     .font(TypographyTokens.displayMd)
                     .foregroundColor(ColorTokens.textPrimary)
 
-                Text("Manage remote server connections and credentials")
+                Text("ssh.settings.subtitle".localized) // wait, i used ssh.settings.title above for About but let's check
                     .font(TypographyTokens.bodySm)
                     .foregroundColor(ColorTokens.textSecondary)
             }

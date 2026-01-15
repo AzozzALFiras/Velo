@@ -1,0 +1,17 @@
+{
+  "editor.title": "编辑器",
+  "editor.save": "保存",
+  "editor.saveAs": "另存为",
+  "editor.undo": "撤销",
+  "editor.redo": "重做",
+  "editor.find": "查找",
+  "editor.replace": "替换",
+  "editor.lineNumbers": "行号",
+  "editor.wordWrap": "自动换行",
+  "editor.unsavedChanges": "未保存的更改",
+  "editor.discardChanges": "放弃更改",
+  "editor.fetchingFile": "正在获取远程文件",
+  "editor.saving": "正在保存...",
+  "editor.saved": "保存成功",
+  "editor.saveFailed": "保存失败"
+}

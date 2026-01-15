@@ -1,0 +1,17 @@
+{
+  "editor.title": "Éditeur",
+  "editor.save": "Enregistrer",
+  "editor.saveAs": "Enregistrer sous",
+  "editor.undo": "Annuler",
+  "editor.redo": "Rétablir",
+  "editor.find": "Rechercher",
+  "editor.replace": "Remplacer",
+  "editor.lineNumbers": "Numéros de ligne",
+  "editor.wordWrap": "Retour à la ligne",
+  "editor.unsavedChanges": "Modifications non enregistrées",
+  "editor.discardChanges": "Ignorer les modifications",
+  "editor.fetchingFile": "Récupération du fichier distant",
+  "editor.saving": "Enregistrement...",
+  "editor.saved": "Enregistré avec succès",
+  "editor.saveFailed": "Échec de l'enregistrement"
+}

@@ -1,0 +1,18 @@
+{
+  "git.sourceControl": "Контроль версий",
+  "git.syncChanges": "Синхронизировать",
+  "git.clean": "Очистить",
+  "git.sync": "Синхрон.",
+  "git.staged": "Индексировано",
+  "git.modified": "Изменено",
+  "git.untracked": "Не отслеживается",
+  "git.commitMessage": "Сообщение коммита...",
+  "git.suggest": "Предложить",
+  "git.commitTo": "Коммит в %@",
+  "git.noChanges": "Нет изменений",
+  "git.pull": "Pull",
+  "git.push": "Push",
+  "git.fetch": "Fetch",
+  "git.branch": "Ветка",
+  "git.stash": "Stash"
+}
