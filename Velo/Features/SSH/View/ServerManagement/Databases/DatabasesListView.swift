@@ -34,6 +34,73 @@ struct DatabasesListView: View {
     }
     
     var body: some View {
+        Group {
+            // Check if any database is installed
+            if viewModel.serverStatus.hasDatabase {
+                databasesContent
+            } else {
+                DatabaseSetupView(viewModel: viewModel)
+            }
+        }
+        .background(ColorTokens.layer0)
+        // Present Details Sheet
+        .sheet(item: $selectedDatabase) { db in
+            if let index = viewModel.databases.firstIndex(where: { $0.id == db.id }) {
+                DatabaseDetailsView(database: $viewModel.databases[index])
+            }
+        }
+        // Present Editor Sheet
+        .sheet(isPresented: $showingEditor) {
+            DatabaseEditorView(database: editingDatabase) { newDb in
+                if let _ = editingDatabase {
+                    viewModel.updateDatabase(newDb)
+                } else {
+                    viewModel.addDatabase(newDb)
+                }
+            }
+        }
+        // Deletion Confirmation Alert
+        .alert("Delete Database", isPresented: $showingDeleteAlert) {
+            Button("Cancel", role: .cancel) { databaseToDelete = nil }
+            Button("Delete", role: .destructive) {
+                if let db = databaseToDelete {
+                    viewModel.securelyPerformAction(reason: "Confirm database deletion") {
+                        viewModel.deleteDatabase(db)
+                    }
+                }
+                databaseToDelete = nil
+            }
+        } message: {
+            if let db = databaseToDelete {
+                Text("Are you sure you want to delete \(db.name)? All data will be permanently removed.")
+            }
+        }
+        // Authentication Error Alert
+        .alert("Authentication Error", isPresented: $showingErrorAlert) {
+            Button("OK", role: .cancel) { viewModel.errorMessage = nil }
+        } message: {
+            if let error = viewModel.errorMessage {
+                Text(error)
+            }
+        }
+        .onChange(of: viewModel.errorMessage) { newValue in
+            if newValue != nil {
+                showingErrorAlert = true
+            }
+        }
+        // Installation Progress Overlay
+        .overlay(alignment: .bottomTrailing) {
+            if viewModel.showInstallOverlay {
+                InstallationStatusOverlay(viewModel: viewModel)
+                    .padding()
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+    }
+    
+    // MARK: - Databases Content
+    @ViewBuilder
+    private var databasesContent: some View {
         VStack(spacing: 0) {
             // Header with Add Button
             HStack {
@@ -125,52 +192,134 @@ struct DatabasesListView: View {
                 }
             }
         }
-        .background(ColorTokens.layer0)
-        // Present Details Sheet
-        .sheet(item: $selectedDatabase) { db in
-            if let index = viewModel.databases.firstIndex(where: { $0.id == db.id }) {
-                DatabaseDetailsView(database: $viewModel.databases[index])
+    }
+}
+
+// MARK: - Database Setup View
+
+struct DatabaseSetupView: View {
+    @ObservedObject var viewModel: ServerManagementViewModel
+    
+    var body: some View {
+        VStack(spacing: 32) {
+            Spacer()
+            
+            // Icon
+            Image(systemName: "cylinder.split.1x2")
+                .font(.system(size: 64))
+                .foregroundStyle(ColorTokens.textTertiary)
+            
+            // Title
+            VStack(spacing: 8) {
+                Text("No Database Installed")
+                    .font(.system(size: 24, weight: .bold))
+                    .foregroundStyle(ColorTokens.textPrimary)
+                
+                Text("Install a database to store your application data")
+                    .font(.system(size: 14))
+                    .foregroundStyle(ColorTokens.textSecondary)
             }
-        }
-        // Present Editor Sheet
-        .sheet(isPresented: $showingEditor) {
-            DatabaseEditorView(database: editingDatabase) { newDb in
-                if let _ = editingDatabase {
-                    viewModel.updateDatabase(newDb)
-                } else {
-                    viewModel.addDatabase(newDb)
+            
+            // Database Options
+            HStack(spacing: 20) {
+                DatabaseOptionCard(
+                    name: "MySQL",
+                    description: "Popular relational database",
+                    color: .blue
+                ) {
+                    viewModel.installCapabilityBySlug("mysql")
+                }
+                
+                DatabaseOptionCard(
+                    name: "MariaDB",
+                    description: "MySQL-compatible fork",
+                    color: .orange
+                ) {
+                    viewModel.installCapabilityBySlug("mariadb")
+                }
+                
+                DatabaseOptionCard(
+                    name: "PostgreSQL",
+                    description: "Advanced open source DB",
+                    color: .indigo
+                ) {
+                    viewModel.installCapabilityBySlug("postgresql")
+                }
+                
+                DatabaseOptionCard(
+                    name: "Redis",
+                    description: "In-memory data store",
+                    color: .red
+                ) {
+                    viewModel.installCapabilityBySlug("redis")
                 }
             }
+            
+            Spacer()
         }
-        // Deletion Confirmation Alert
-        .alert("Delete Database", isPresented: $showingDeleteAlert) {
-            Button("Cancel", role: .cancel) { databaseToDelete = nil }
-            Button("Delete", role: .destructive) {
-                if let db = databaseToDelete {
-                    viewModel.securelyPerformAction(reason: "Confirm database deletion") {
-                        viewModel.deleteDatabase(db)
-                    }
+        .padding(32)
+    }
+}
+
+// MARK: - Database Option Card
+
+private struct DatabaseOptionCard: View {
+    let name: String
+    let description: String
+    let color: Color
+    let onInstall: () -> Void
+    
+    @State private var isHovered = false
+    
+    var body: some View {
+        Button(action: onInstall) {
+            VStack(spacing: 16) {
+                // Icon
+                ZStack {
+                    Circle()
+                        .fill(color.opacity(0.15))
+                        .frame(width: 70, height: 70)
+                    
+                    Image(systemName: "cylinder.split.1x2")
+                        .font(.system(size: 28))
+                        .foregroundStyle(color)
                 }
-                databaseToDelete = nil
+                
+                // Name & Description
+                VStack(spacing: 4) {
+                    Text(name)
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(ColorTokens.textPrimary)
+                    
+                    Text(description)
+                        .font(.system(size: 11))
+                        .foregroundStyle(ColorTokens.textSecondary)
+                        .multilineTextAlignment(.center)
+                        .lineLimit(2)
+                }
+                
+                // Install Button
+                Text("Install")
+                    .font(.system(size: 13, weight: .medium))
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 8)
+                    .background(color)
+                    .foregroundStyle(.white)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
             }
-        } message: {
-            if let db = databaseToDelete {
-                Text("Are you sure you want to delete \(db.name)? All data will be permanently removed.")
-            }
+            .padding(20)
+            .frame(width: 180)
+            .background(ColorTokens.layer1)
+            .clipShape(RoundedRectangle(cornerRadius: 16))
+            .overlay(
+                RoundedRectangle(cornerRadius: 16)
+                    .strokeBorder(isHovered ? color.opacity(0.5) : ColorTokens.borderSubtle, lineWidth: 1)
+            )
+            .scaleEffect(isHovered ? 1.02 : 1.0)
+            .animation(.spring(response: 0.3), value: isHovered)
         }
-        // Authentication Error Alert
-        .alert("Authentication Error", isPresented: $showingErrorAlert) {
-            Button("OK", role: .cancel) { viewModel.errorMessage = nil }
-        } message: {
-            if let error = viewModel.errorMessage {
-                Text(error)
-            }
-        }
-        .onChange(of: viewModel.errorMessage) { newValue in
-            if newValue != nil {
-                showingErrorAlert = true
-            }
-        }
+        .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
     }
 }
 

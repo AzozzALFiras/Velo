@@ -25,10 +25,12 @@ class ApiService {
         decoder.keyDecodingStrategy = .convertFromSnakeCase
         
         do {
-            let apiResponse = try decoder.decode(VeloApiResponse<[AIModelConfig]>.self, from: data)
-            return apiResponse.data
+            // API returns {"models": [...]} not {"data": [...]}
+            let apiResponse = try decoder.decode(AIModelsResponse.self, from: data)
+            print("[ApiService] ✅ Loaded \(apiResponse.models.count) AI models")
+            return apiResponse.models
         } catch {
-            print("[ApiService] Decoding Error: \(error)")
+            print("[ApiService] AI Models Decoding Error: \(error)")
             if let jsonString = String(data: data, encoding: .utf8) {
                 print("[ApiService] Received Data: \(jsonString.prefix(500))...")
             }
@@ -50,6 +52,82 @@ class ApiService {
         }
     }
     
+    func fetchCapabilities() async throws -> [Capability] {
+        let (data, _) = try await performRequest(endpoint: "/capabilities")
+        
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        
+        do {
+            let response = try decoder.decode(CapabilityListResponse.self, from: data)
+            return response.data
+        } catch {
+            print("[ApiService] Capabilities Decoding Error: \(error)")
+            if let jsonString = String(data: data, encoding: .utf8) {
+                print("[ApiService] Received Data: \(jsonString.prefix(500))...")
+            }
+            throw ApiError.decodingError
+        }
+    }
+    
+    func fetchCapabilityDetails(slug: String) async throws -> Capability {
+        let (data, _) = try await performRequest(endpoint: "/capabilities/\(slug)")
+        
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        
+        do {
+            // Try wrapped response first ({"data": {...}})
+            let response = try decoder.decode(CapabilityDetailResponse.self, from: data)
+            print("[ApiService] ✅ Loaded capability details for \(slug)")
+            return response.data
+        } catch {
+            // Fallback to direct decode
+            do {
+                let capability = try decoder.decode(Capability.self, from: data)
+                print("[ApiService] ✅ Loaded capability details for \(slug) (direct)")
+                return capability
+            } catch {
+                print("[ApiService] Capability Details Decoding Error: \(error)")
+                if let jsonString = String(data: data, encoding: .utf8) {
+                    print("[ApiService] Received Data: \(jsonString.prefix(500))...")
+                }
+                throw ApiError.decodingError
+            }
+        }
+    }
+    
+    func fetchCapabilityVersion(slug: String, version: String) async throws -> CapabilityVersion {
+        let (data, _) = try await performRequest(endpoint: "/capabilities/\(slug)/\(version)")
+        
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        
+        // Try wrapped response first ({"data": {...}})
+        struct VersionResponse: Codable {
+            let data: CapabilityVersion
+        }
+        
+        do {
+            let response = try decoder.decode(VersionResponse.self, from: data)
+            print("[ApiService] ✅ Loaded version details for \(slug)/\(version)")
+            return response.data
+        } catch {
+            // Fallback to direct decode
+            do {
+                let versionDetail = try decoder.decode(CapabilityVersion.self, from: data)
+                print("[ApiService] ✅ Loaded version details for \(slug)/\(version) (direct)")
+                return versionDetail
+            } catch {
+                print("[ApiService] Capability Version Decoding Error: \(error)")
+                if let jsonString = String(data: data, encoding: .utf8) {
+                    print("[ApiService] Received Data: \(jsonString.prefix(500))...")
+                }
+                throw ApiError.decodingError
+            }
+        }
+    }
+
     // MARK: - Core Request Logic
     
     private func performRequest(endpoint: String) async throws -> (Data, HTTPURLResponse) {
@@ -97,6 +175,23 @@ class ApiService {
 }
 
 // MARK: - Models
+
+struct CapabilityListResponse: Codable {
+    let data: [Capability]
+    let meta: CapabilityMeta?
+}
+
+struct CapabilityMeta: Codable {
+    let totalCapabilities: Int
+}
+
+struct CapabilityDetailResponse: Codable {
+    let data: Capability
+}
+
+struct AIModelsResponse: Codable {
+    let models: [AIModelConfig]
+}
 
 struct VeloApiResponse<T: Codable>: Codable {
     let data: T

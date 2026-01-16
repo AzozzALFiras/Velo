@@ -11,11 +11,15 @@ import SwiftUI
 struct ServerManagementView: View {
 
     @ObservedObject var session: TerminalViewModel
-    @StateObject private var viewModel = ServerManagementViewModel()
-    // activeTab removed, now using session.activeServerManagementTab
+    @StateObject private var viewModel: ServerManagementViewModel
     
     // Environment dismiss to close the sheet/window
     @Environment(\.dismiss) var dismiss
+    
+    init(session: TerminalViewModel) {
+        self.session = session
+        self._viewModel = StateObject(wrappedValue: ServerManagementViewModel(session: session))
+    }
     
     var body: some View {
         HStack(spacing: 0) {
@@ -24,6 +28,12 @@ struct ServerManagementView: View {
         }
         .frame(minWidth: 800, maxWidth: .infinity, minHeight: 600, maxHeight: .infinity)
         .background(ColorTokens.layer0)
+        .onAppear {
+            // Load real data when view appears
+            Task {
+                await viewModel.loadAllData()
+            }
+        }
     }
     
     // MARK: - Subviews
@@ -149,7 +159,11 @@ struct ServerManagementView: View {
                 Group {
                     switch session.activeServerManagementTab {
                     case .home:
-                        ServerHomeView(viewModel: viewModel)
+                        ServerHomeView(viewModel: viewModel, onNavigateToApps: {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                                session.activeServerManagementTab = .applications
+                            }
+                        })
                             .transition(.opacity.combined(with: .move(edge: .bottom)))
                     case .websites:
                         WebsitesListView(viewModel: viewModel)
@@ -159,6 +173,9 @@ struct ServerManagementView: View {
                             .transition(.opacity.combined(with: .move(edge: .bottom)))
                     case .files:
                         FilesListView(viewModel: viewModel)
+                            .transition(.opacity.combined(with: .move(edge: .bottom)))
+                    case .applications:
+                        ApplicationsManagementView(viewModel: viewModel)
                             .transition(.opacity.combined(with: .move(edge: .bottom)))
                     case .settings:
                         ServerSettingsView(viewModel: viewModel)

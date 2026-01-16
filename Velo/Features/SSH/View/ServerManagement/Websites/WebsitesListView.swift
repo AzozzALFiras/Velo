@@ -34,6 +34,67 @@ struct WebsitesListView: View {
     }
     
     var body: some View {
+        Group {
+            // Check if any web server is installed
+            if viewModel.serverStatus.hasWebServer {
+                websitesContent
+            } else {
+                WebServerSetupView(viewModel: viewModel)
+            }
+        }
+        .background(ColorTokens.layer0)
+        // Present Details Sheet
+        .sheet(item: $selectedWebsite) { website in
+            // Create a binding to the website in the viewModel array
+            if let index = viewModel.websites.firstIndex(where: { $0.id == website.id }) {
+                WebsiteDetailsView(website: $viewModel.websites[index])
+            }
+        }
+        .sheet(isPresented: $showingEditor) {
+            WebsiteEditorView(viewModel: viewModel, website: editingWebsite) { _ in
+                showingEditor = false
+            }
+        }
+        .alert("Delete Website", isPresented: $showingDeleteAlert) {
+            Button("Cancel", role: .cancel) { websiteToDelete = nil }
+            Button("Delete", role: .destructive) {
+                if let website = websiteToDelete {
+                    viewModel.securelyPerformAction(reason: "Confirm website deletion") {
+                        viewModel.deleteWebsite(website)
+                    }
+                }
+                websiteToDelete = nil
+            }
+        } message: {
+            if let website = websiteToDelete {
+                Text("Are you sure you want to delete \(website.domain)? This action cannot be undone.")
+            }
+        }
+        .alert("Authentication Error", isPresented: $showingErrorAlert) {
+            Button("OK", role: .cancel) { viewModel.errorMessage = nil }
+        } message: {
+            if let error = viewModel.errorMessage {
+                Text(error)
+            }
+        }
+        .onChange(of: viewModel.errorMessage) { newValue in
+            if newValue != nil {
+                showingErrorAlert = true
+            }
+        }
+        // Installation Progress Overlay
+        .overlay(alignment: .bottomTrailing) {
+            if viewModel.showInstallOverlay {
+                InstallationStatusOverlay(viewModel: viewModel)
+                    .padding()
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+    }
+    
+    // MARK: - Websites Content
+    @ViewBuilder
+    private var websitesContent: some View {
         VStack(spacing: 0) {
             // Header with Add Button
             HStack {
@@ -126,50 +187,283 @@ struct WebsitesListView: View {
                 }
             }
         }
-        .background(ColorTokens.layer0)
-        // Present Details Sheet
-        .sheet(item: $selectedWebsite) { website in
-            // Create a binding to the website in the viewModel array
-            if let index = viewModel.websites.firstIndex(where: { $0.id == website.id }) {
-                WebsiteDetailsView(website: $viewModel.websites[index])
-            }
-        }
-        .sheet(isPresented: $showingEditor) {
-            WebsiteEditorView(website: editingWebsite) { newWebsite in
-                if let _ = editingWebsite {
-                    viewModel.updateWebsite(newWebsite)
-                } else {
-                    viewModel.addWebsite(newWebsite)
+    }
+}
+
+// MARK: - Web Server Setup View
+
+struct WebServerSetupView: View {
+    @ObservedObject var viewModel: ServerManagementViewModel
+    
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 32) {
+                // Icon
+                Image(systemName: "globe.badge.chevron.backward")
+                    .font(.system(size: 64))
+                    .foregroundStyle(ColorTokens.textTertiary)
+                    .padding(.top, 40)
+                
+                // Title
+                VStack(spacing: 8) {
+                    Text("No Web Server Installed")
+                        .font(.system(size: 24, weight: .bold))
+                        .foregroundStyle(ColorTokens.textPrimary)
+                    
+                    Text("Install a web server to host websites on this server")
+                        .font(.system(size: 14))
+                        .foregroundStyle(ColorTokens.textSecondary)
                 }
-            }
-        }
-        .alert("Delete Website", isPresented: $showingDeleteAlert) {
-            Button("Cancel", role: .cancel) { websiteToDelete = nil }
-            Button("Delete", role: .destructive) {
-                if let website = websiteToDelete {
-                    viewModel.securelyPerformAction(reason: "Confirm website deletion") {
-                        viewModel.deleteWebsite(website)
+                
+                // Web Server Options
+                VStack(alignment: .leading, spacing: 16) {
+                    Text("Web Servers")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(ColorTokens.textSecondary)
+                    
+                    HStack(spacing: 20) {
+                        WebServerOptionCard(
+                            name: "Nginx",
+                            description: "High-performance\nweb server",
+                            icon: "nginx",
+                            color: .green
+                        ) {
+                            viewModel.installCapabilityBySlug("nginx")
+                        }
+                        
+                        WebServerOptionCard(
+                            name: "Apache",
+                            description: "Reliable & flexible\nweb server",
+                            icon: "apache",
+                            color: .red
+                        ) {
+                            viewModel.installCapabilityBySlug("apache")
+                        }
+                        
+                        WebServerOptionCard(
+                            name: "LiteSpeed",
+                            description: "Ultra-fast\nweb server",
+                            icon: "litespeed",
+                            color: .blue
+                        ) {
+                            viewModel.installCapabilityBySlug("litespeed")
+                        }
                     }
                 }
-                websiteToDelete = nil
+                
+                // Quick Stack Section
+                VStack(alignment: .leading, spacing: 16) {
+                    Text("Quick Stacks")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(ColorTokens.textSecondary)
+                    
+                    HStack(spacing: 16) {
+                        QuickStackCard(
+                            name: "LEMP Stack",
+                            components: "Nginx + PHP + MySQL",
+                            color: .purple
+                        ) {
+                            viewModel.installStack(["nginx", "php", "mysql"])
+                        }
+                        
+                        QuickStackCard(
+                            name: "LAMP Stack", 
+                            components: "Apache + PHP + MySQL",
+                            color: .orange
+                        ) {
+                            viewModel.installStack(["apache", "php", "mysql"])
+                        }
+                    }
+                }
+                
+                // Additional Components
+                VStack(alignment: .leading, spacing: 16) {
+                    Text("Additional Components")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(ColorTokens.textSecondary)
+                    
+                    HStack(spacing: 12) {
+                        ComponentInstallButton(name: "PHP", icon: "scroll", color: .indigo) {
+                            viewModel.installCapabilityBySlug("php")
+                        }
+                        ComponentInstallButton(name: "MySQL", icon: "cylinder.split.1x2", color: .orange) {
+                            viewModel.installCapabilityBySlug("mysql")
+                        }
+                        ComponentInstallButton(name: "PostgreSQL", icon: "cylinder.split.1x2", color: .blue) {
+                            viewModel.installCapabilityBySlug("postgresql")
+                        }
+                        ComponentInstallButton(name: "Node.js", icon: "cube.box", color: .green) {
+                            viewModel.installCapabilityBySlug("nodejs")
+                        }
+                    }
+                }
+                
+                Spacer(minLength: 40)
             }
-        } message: {
-            if let website = websiteToDelete {
-                Text("Are you sure you want to delete \(website.domain)? This action cannot be undone.")
-            }
+            .padding(.horizontal, 32)
         }
-        .alert("Authentication Error", isPresented: $showingErrorAlert) {
-            Button("OK", role: .cancel) { viewModel.errorMessage = nil }
-        } message: {
-            if let error = viewModel.errorMessage {
-                Text(error)
+    }
+}
+
+// MARK: - Quick Stack Card
+
+private struct QuickStackCard: View {
+    let name: String
+    let components: String
+    let color: Color
+    let onInstall: () -> Void
+    
+    @State private var isHovered = false
+    
+    var body: some View {
+        Button(action: onInstall) {
+            HStack(spacing: 16) {
+                // Icon
+                ZStack {
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(color.opacity(0.15))
+                        .frame(width: 50, height: 50)
+                    
+                    Image(systemName: "square.stack.3d.up.fill")
+                        .font(.system(size: 20))
+                        .foregroundStyle(color)
+                }
+                
+                // Info
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(name)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(ColorTokens.textPrimary)
+                    
+                    Text(components)
+                        .font(.system(size: 11))
+                        .foregroundStyle(ColorTokens.textSecondary)
+                }
+                
+                Spacer()
+                
+                // Install Button
+                Text("Install")
+                    .font(.system(size: 12, weight: .medium))
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 6)
+                    .background(color)
+                    .foregroundStyle(.white)
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
             }
+            .padding(16)
+            .background(ColorTokens.layer1)
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .strokeBorder(isHovered ? color.opacity(0.5) : ColorTokens.borderSubtle, lineWidth: 1)
+            )
         }
-        .onChange(of: viewModel.errorMessage) { newValue in
-            if newValue != nil {
-                showingErrorAlert = true
+        .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
+    }
+}
+
+// MARK: - Component Install Button
+
+private struct ComponentInstallButton: View {
+    let name: String
+    let icon: String
+    let color: Color
+    let onInstall: () -> Void
+    
+    @State private var isHovered = false
+    
+    var body: some View {
+        Button(action: onInstall) {
+            VStack(spacing: 8) {
+                ZStack {
+                    Circle()
+                        .fill(color.opacity(0.15))
+                        .frame(width: 44, height: 44)
+                    
+                    Image(systemName: icon)
+                        .font(.system(size: 18))
+                        .foregroundStyle(color)
+                }
+                
+                Text(name)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(ColorTokens.textSecondary)
             }
+            .padding(12)
+            .background(isHovered ? ColorTokens.layer2 : ColorTokens.layer1)
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .strokeBorder(isHovered ? color.opacity(0.4) : ColorTokens.borderSubtle, lineWidth: 1)
+            )
         }
+        .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
+    }
+}
+
+
+// MARK: - Web Server Option Card
+
+private struct WebServerOptionCard: View {
+    let name: String
+    let description: String
+    let icon: String
+    let color: Color
+    let onInstall: () -> Void
+    
+    @State private var isHovered = false
+    
+    var body: some View {
+        Button(action: onInstall) {
+            VStack(spacing: 16) {
+                // Icon
+                ZStack {
+                    Circle()
+                        .fill(color.opacity(0.15))
+                        .frame(width: 80, height: 80)
+                    
+                    Image(systemName: "server.rack")
+                        .font(.system(size: 32))
+                        .foregroundStyle(color)
+                }
+                
+                // Name & Description
+                VStack(spacing: 4) {
+                    Text(name)
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(ColorTokens.textPrimary)
+                    
+                    Text(description)
+                        .font(.system(size: 12))
+                        .foregroundStyle(ColorTokens.textSecondary)
+                        .multilineTextAlignment(.center)
+                }
+                
+                // Install Button
+                Text("Install")
+                    .font(.system(size: 13, weight: .medium))
+                    .padding(.horizontal, 24)
+                    .padding(.vertical, 8)
+                    .background(color)
+                    .foregroundStyle(.white)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+            }
+            .padding(24)
+            .frame(width: 200)
+            .background(ColorTokens.layer1)
+            .clipShape(RoundedRectangle(cornerRadius: 16))
+            .overlay(
+                RoundedRectangle(cornerRadius: 16)
+                    .strokeBorder(isHovered ? color.opacity(0.5) : ColorTokens.borderSubtle, lineWidth: 1)
+            )
+            .scaleEffect(isHovered ? 1.02 : 1.0)
+            .animation(.spring(response: 0.3), value: isHovered)
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
     }
 }
 
@@ -311,35 +605,149 @@ private struct WebsiteCard: View {
 
 struct WebsiteEditorView: View {
     @Environment(\.dismiss) var dismiss
+    @ObservedObject var viewModel: ServerManagementViewModel
+    
     let website: Website?
-    let onSave: (Website) -> Void
+    let onSave: (Website) -> Void // Just for callback if needed
     
     @State private var domain: String = ""
-    @State private var path: String = "/var/www/html"
-    @State private var framework: String = "PHP"
+    @State private var path: String = "/var/www"
+    @State private var framework: String = "Static HTML"
     @State private var port: String = "80"
     
-    init(website: Website?, onSave: @escaping (Website) -> Void) {
+    @State private var isAutoPath: Bool = true
+    @State private var showFilePicker = false
+    @State private var isSaving = false
+    @State private var errorMessage: String?
+    
+    // Computed frameworks based on installed software
+    var availableFrameworks: [String] {
+        var list = ["Static HTML"]
+        if viewModel.serverStatus.php.isInstalled { list.append("PHP") }
+        if viewModel.serverStatus.nodejs.isInstalled { list.append("Node.js") }
+        if viewModel.serverStatus.python.isInstalled { list.append("Python") }
+        return list
+    }
+    
+    init(viewModel: ServerManagementViewModel, website: Website?, onSave: @escaping (Website) -> Void) {
+        self.viewModel = viewModel
         self.website = website
         self.onSave = onSave
+        
+        // Initialize states
         _domain = State(initialValue: website?.domain ?? "")
-        _path = State(initialValue: website?.path ?? "/var/www/html")
-        _framework = State(initialValue: website?.framework ?? "PHP")
+        _path = State(initialValue: website?.path ?? "/var/www")
+        _framework = State(initialValue: website?.framework ?? (viewModel.serverStatus.php.isInstalled ? "PHP" : "Static HTML"))
         _port = State(initialValue: String(website?.port ?? 80))
+        
+        // If editing existing, disable auto-path by default
+        _isAutoPath = State(initialValue: website == nil)
     }
     
     var body: some View {
         VStack(alignment: .leading, spacing: 24) {
-            Text(website == nil ? "Add Website" : "Edit Website")
-                .font(.system(size: 20, weight: .bold))
-                .foregroundStyle(ColorTokens.textPrimary)
+            // Header
+            HStack {
+                Text(website == nil ? "Add Website" : "Edit Website")
+                    .font(.system(size: 20, weight: .bold))
+                    .foregroundStyle(ColorTokens.textPrimary)
+                
+                Spacer()
+                
+                if isSaving {
+                    ProgressView()
+                        .scaleEffect(0.8)
+                }
+            }
+            
+            if let error = errorMessage {
+                Text(error)
+                    .foregroundStyle(.red)
+                    .font(.caption)
+            }
             
             VStack(spacing: 16) {
-                VeloEditorField(label: "Domain Name", placeholder: "example.com", text: $domain)
-                VeloEditorField(label: "Root Path", placeholder: "/var/www/html", text: $path)
+                // Domain Field
+                VStack(alignment: .leading, spacing: 8) {
+                    VeloEditorField(label: "Domain Name", placeholder: "example.com", text: $domain)
+                        .onChange(of: domain) { newValue in
+                            if isAutoPath && website == nil {
+                                // Auto-update path
+                                let cleanDomain = newValue.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+                                if cleanDomain.isEmpty {
+                                    path = "/var/www"
+                                } else {
+                                    path = "/var/www/\(cleanDomain)"
+                                }
+                            }
+                        }
+                    
+                    if website == nil {
+                        Toggle("Auto-generate root path", isOn: $isAutoPath)
+                            .toggleStyle(CheckboxToggleStyle()) // Assuming this exists or standard toggle
+                            .font(.system(size: 12))
+                            .foregroundStyle(ColorTokens.textSecondary)
+                    }
+                }
+                
+                // Root Path Field with Browse
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Root Path")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(ColorTokens.textSecondary)
+                    
+                    HStack(spacing: 8) {
+                        TextField("/var/www/html", text: $path)
+                            .textFieldStyle(PlainTextFieldStyle())
+                            .padding(10)
+                            .background(ColorTokens.layer2)
+                            .clipShape(RoundedRectangle(cornerRadius: 6))
+                            .overlay(RoundedRectangle(cornerRadius: 6).stroke(ColorTokens.borderSubtle, lineWidth: 1))
+                            .onChange(of: path) { _ in
+                                isAutoPath = false // Disable auto if user manually edits
+                            }
+                        
+                        Button(action: { showFilePicker = true }) {
+                            Image(systemName: "folder")
+                                .font(.system(size: 14))
+                                .frame(width: 36, height: 36)
+                                .background(ColorTokens.layer2)
+                                .foregroundStyle(ColorTokens.textPrimary)
+                                .clipShape(RoundedRectangle(cornerRadius: 6))
+                                .overlay(RoundedRectangle(cornerRadius: 6).stroke(ColorTokens.borderSubtle, lineWidth: 1))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
                 
                 HStack(spacing: 16) {
-                    VeloEditorField(label: "Framework", placeholder: "PHP", text: $framework)
+                    // Framework Picker
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Framework")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(ColorTokens.textSecondary)
+                        
+                        Menu {
+                            ForEach(availableFrameworks, id: \.self) { fw in
+                                Button(fw) { framework = fw }
+                            }
+                        } label: {
+                            HStack {
+                                Text(framework)
+                                    .foregroundStyle(ColorTokens.textPrimary)
+                                Spacer()
+                                Image(systemName: "chevron.up.chevron.down")
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(ColorTokens.textTertiary)
+                            }
+                            .padding(10)
+                            .background(ColorTokens.layer2)
+                            .clipShape(RoundedRectangle(cornerRadius: 6))
+                            .overlay(RoundedRectangle(cornerRadius: 6).stroke(ColorTokens.borderSubtle, lineWidth: 1))
+                        }
+                        .menuStyle(.borderlessButton)
+                    }
+                    
                     VeloEditorField(label: "Port", placeholder: "80", text: $port)
                         .frame(width: 80)
                 }
@@ -352,26 +760,197 @@ struct WebsiteEditorView: View {
                 Button("Cancel") { dismiss() }
                     .buttonStyle(.plain)
                     .foregroundStyle(ColorTokens.textSecondary)
+                    .disabled(isSaving)
                 
-                Button("Save") {
-                    let newWebsite = Website(
-                        id: website?.id ?? UUID(),
-                        domain: domain,
-                        path: path,
-                        status: website?.status ?? .stopped,
-                        port: Int(port) ?? 80,
-                        framework: framework
-                    )
-                    onSave(newWebsite)
-                    dismiss()
+                Button(website == nil ? "Create Website" : "Save Changes") {
+                    saveWebsite()
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(ColorTokens.accentPrimary)
+                .disabled(isSaving || domain.isEmpty)
             }
         }
         .padding(32)
-        .frame(width: 500, height: 400)
+        .frame(width: 500, height: 500) // Increased height for toggle
         .background(ColorTokens.layer1)
+        .sheet(isPresented: $showFilePicker) {
+            FilePickerSheet(viewModel: viewModel, currentPath: $path)
+        }
+        .task {
+            // Ensure status is up to date (e.g. if we just installed PHP)
+            await viewModel.refreshServerStatus()
+            
+            // Re-evaluate default framework if it was static HTML and PHP is now found
+            if framework == "Static HTML" && viewModel.serverStatus.php.isInstalled {
+                framework = "PHP"
+            }
+        }
+    }
+    
+    private func saveWebsite() {
+        isSaving = true
+        errorMessage = nil
+        
+        Task {
+            do {
+                if let _ = website {
+                    // Edit mode - just update local for now (or implement updateRealWebsite)
+                    // Currently user only asked for CREATE logic changes
+                    let updated = Website(
+                        id: website!.id,
+                        domain: domain,
+                        path: path,
+                        status: website!.status,
+                        port: Int(port) ?? 80,
+                        framework: framework
+                    )
+                    // Pass back to parent to handle (which calls viewModel.updateWebsite)
+                    // But wait, the closure in WebsitesListView is now dummy?
+                    // Ah, I should call viewModel.updateWebsite here if I want consistency
+                    // But let's stick to ViewModel calls
+                    await MainActor.run {
+                        viewModel.updateWebsite(updated)
+                        isSaving = false
+                        dismiss()
+                    }
+                } else {
+                    // Create mode - REAL creation
+                    try await viewModel.createRealWebsite(
+                        domain: domain,
+                        path: path,
+                        framework: framework,
+                        port: Int(port) ?? 80
+                    )
+                    
+                    await MainActor.run {
+                        isSaving = false
+                        dismiss()
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    errorMessage = error.localizedDescription
+                    isSaving = false
+                }
+            }
+        }
+    }
+}
+
+// MARK: - File Picker Sheet
+struct FilePickerSheet: View {
+    @Environment(\.dismiss) var dismiss
+    @ObservedObject var viewModel: ServerManagementViewModel
+    @Binding var currentPath: String
+    
+    @State private var navigationPath: String = "/var/www"
+    @State private var files: [ServerFileItem] = []
+    @State private var isLoading = false
+    
+    var body: some View {
+        VStack(spacing: 0) {
+            // Header
+            HStack {
+                Text("Select Root Path")
+                    .font(.headline)
+                Spacer()
+                Button("Done") { dismiss() }
+            }
+            .padding()
+            .background(ColorTokens.layer2)
+            
+            // Path Bar
+            HStack {
+                Text(navigationPath)
+                    .font(.caption)
+                    .foregroundStyle(ColorTokens.textSecondary)
+                    .lineLimit(1)
+                Spacer()
+                if navigationPath != "/" {
+                    Button(action: goUp) {
+                        Image(systemName: "arrow.up.circle")
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(8)
+            .background(ColorTokens.layer1)
+            
+            // List
+            if isLoading {
+                Spacer()
+                ProgressView()
+                Spacer()
+            } else {
+                List(files, id: \.name) { file in
+                    HStack {
+                        Image(systemName: file.isDirectory ? "folder.fill" : "doc")
+                            .foregroundStyle(file.isDirectory ? Color.blue : Color.gray)
+                        Text(file.name)
+                            .foregroundStyle(ColorTokens.textPrimary)
+                        Spacer()
+                    }
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        if file.isDirectory {
+                            enterDirectory(file.name)
+                        }
+                    }
+                }
+                .listStyle(.plain)
+            }
+            
+            // Footer Selection
+            HStack {
+                Text("Selected: \(navigationPath)")
+                    .font(.caption)
+                    .foregroundStyle(ColorTokens.textSecondary)
+                Spacer()
+                Button("Use Current Folder") {
+                    currentPath = navigationPath
+                    dismiss()
+                }
+                .buttonStyle(.borderedProminent)
+            }
+            .padding()
+            .background(ColorTokens.layer2)
+        }
+        .frame(width: 400, height: 500)
+        .onAppear {
+            if !currentPath.isEmpty && currentPath.hasPrefix("/") {
+                // Try to start at current path's parent
+                navigationPath = (currentPath as NSString).deletingLastPathComponent
+                if navigationPath.isEmpty { navigationPath = "/" }
+            }
+            loadFiles()
+        }
+    }
+    
+    private func loadFiles() {
+        isLoading = true
+        Task {
+            let items = await viewModel.fetchFilesForPicker(path: navigationPath)
+            // Filter only directories ideally, but showing all is fine
+            await MainActor.run {
+                self.files = items.filter { $0.isDirectory }.sorted { $0.name < $1.name }
+                self.isLoading = false
+            }
+        }
+    }
+    
+    private func enterDirectory(_ name: String) {
+        if navigationPath == "/" {
+            navigationPath = "/\(name)"
+        } else {
+            navigationPath = "\(navigationPath)/\(name)"
+        }
+        loadFiles()
+    }
+    
+    private func goUp() {
+        navigationPath = (navigationPath as NSString).deletingLastPathComponent
+        if navigationPath.isEmpty { navigationPath = "/" }
+        loadFiles()
     }
 }
 

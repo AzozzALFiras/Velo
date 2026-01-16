@@ -11,20 +11,24 @@ import SwiftUI
 struct SoftwareGridView: View {
     
     let softwareList: [InstalledSoftware]
+    var onAddTap: () -> Void
     
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            HStack {
-                Label("Applications", systemImage: "apps.ipad.landscape")
-                    .font(.system(size: 16, weight: .bold))
-                    .foregroundStyle(.white)
-                
-                Spacer()
-                
-                Image(systemName: "plus.circle.fill")
-                    .font(.system(size: 20))
-                    .foregroundStyle(.white.opacity(0.3))
+            Button(action: onAddTap) {
+                HStack {
+                    Label("Applications", systemImage: "apps.ipad.landscape")
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundStyle(.white)
+                    
+                    Spacer()
+                    
+                    Image(systemName: "plus.circle.fill")
+                        .font(.system(size: 20))
+                        .foregroundStyle(.white.opacity(0.3))
+                }
             }
+            .buttonStyle(.plain)
             
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 140), spacing: 12)], spacing: 12) {
                 ForEach(softwareList) { sw in

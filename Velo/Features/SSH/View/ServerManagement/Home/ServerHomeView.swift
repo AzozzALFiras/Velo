@@ -12,34 +12,83 @@ import Charts
 struct ServerHomeView: View {
     
     @ObservedObject var viewModel: ServerManagementViewModel
+    var onNavigateToApps: () -> Void
     
     var body: some View {
-        ScrollView {
-            VStack(spacing: 24) {
-                
-                // Top Row: Stats
-                HStack(alignment: .top, spacing: 24) {
-                    SysStatusView(stats: viewModel.stats)
-                        .frame(maxWidth: .infinity)
+        ZStack {
+            ScrollView {
+                VStack(spacing: 24) {
                     
-                    DiskView(stats: viewModel.stats)
-                        .frame(width: 320)
-                }
-                .fixedSize(horizontal: false, vertical: true)
-                
-                // Overview
-                OverviewRowView(counts: viewModel.overviewCounts)
-                
-                // Bottom
-                HStack(alignment: .top, spacing: 24) {
-                    SoftwareGridView(softwareList: viewModel.installedSoftware)
-                        .frame(width: 340)
+                    // Header with Refresh Button
+                    HStack {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(viewModel.serverHostname)
+                                .font(.title2)
+                                .fontWeight(.bold)
+                                .foregroundStyle(.white)
+                            Text(viewModel.serverIP)
+                                .font(.caption)
+                                .foregroundStyle(.gray)
+                        }
+                        
+                        Spacer()
+                        
+                        Button {
+                            viewModel.refreshData()
+                        } label: {
+                            Label("Refresh", systemImage: "arrow.clockwise")
+                                .font(.caption)
+                                .foregroundStyle(.white.opacity(0.8))
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 6)
+                                .background(Color.white.opacity(0.1))
+                                .clipShape(Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(viewModel.isLoading)
+                    }
+                    .padding(.horizontal, 8)
                     
-                    TrafficChartView(history: viewModel.trafficHistory)
-                        .frame(maxWidth: .infinity)
+                    // Top Row: Stats
+                    HStack(alignment: .top, spacing: 24) {
+                        SysStatusView(stats: viewModel.stats)
+                            .frame(maxWidth: .infinity)
+                        
+                        DiskView(stats: viewModel.stats)
+                            .frame(width: 320)
+                    }
+                    .fixedSize(horizontal: false, vertical: true)
+                    
+                    // Overview
+                    OverviewRowView(counts: viewModel.overviewCounts)
+                    
+                    // Bottom
+                    HStack(alignment: .top, spacing: 24) {
+                        SoftwareGridView(softwareList: viewModel.installedSoftware, onAddTap: onNavigateToApps)
+                            .frame(width: 340)
+                        
+                        TrafficChartView(history: viewModel.trafficHistory)
+                            .frame(maxWidth: .infinity)
+                    }
                 }
+                .padding(32)
             }
-            .padding(32)
+            
+            // Loading Overlay
+            if viewModel.isLoading {
+                Color.black.opacity(0.5)
+                    .ignoresSafeArea()
+                    .overlay(
+                        VStack(spacing: 16) {
+                            ProgressView()
+                                .scaleEffect(1.5)
+                                .tint(.white)
+                            Text("Loading server data...")
+                                .font(.headline)
+                                .foregroundStyle(.white)
+                        }
+                    )
+            }
         }
         // Deep modern background
         .background(

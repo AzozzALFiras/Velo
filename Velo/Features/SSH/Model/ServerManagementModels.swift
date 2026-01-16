@@ -125,7 +125,123 @@ struct Database: Identifiable {
     }
 }
 
-// MARK: - Mock Data Generator
+// MARK: - Software Status
+
+/// Status of a software package on the server
+enum SoftwareStatus: Equatable {
+    case notInstalled
+    case installed(version: String)
+    case running(version: String)
+    case stopped(version: String)
+    case error(message: String)
+    
+    var isInstalled: Bool {
+        switch self {
+        case .notInstalled: return false
+        default: return true
+        }
+    }
+    
+    var isRunning: Bool {
+        if case .running = self { return true }
+        return false
+    }
+    
+    var version: String? {
+        switch self {
+        case .installed(let v), .running(let v), .stopped(let v): return v
+        default: return nil
+        }
+    }
+    
+    var displayText: String {
+        switch self {
+        case .notInstalled: return "Not Installed"
+        case .installed(let v): return "v\(v)"
+        case .running(let v): return "v\(v) • Running"
+        case .stopped(let v): return "v\(v) • Stopped"
+        case .error(let msg): return "Error: \(msg)"
+        }
+    }
+    
+    var statusColor: Color {
+        switch self {
+        case .notInstalled: return .gray
+        case .installed: return .blue
+        case .running: return .green
+        case .stopped: return .orange
+        case .error: return .red
+        }
+    }
+}
+
+// MARK: - Server Status
+
+/// Complete status of all detectable software on the server
+struct ServerStatus {
+    // Web Servers
+    var nginx: SoftwareStatus = .notInstalled
+    var apache: SoftwareStatus = .notInstalled
+    var litespeed: SoftwareStatus = .notInstalled
+    
+    // Databases
+    var mysql: SoftwareStatus = .notInstalled
+    var mariadb: SoftwareStatus = .notInstalled
+    var postgresql: SoftwareStatus = .notInstalled
+    var redis: SoftwareStatus = .notInstalled
+    var mongodb: SoftwareStatus = .notInstalled
+    
+    // Runtimes
+    var php: SoftwareStatus = .notInstalled
+    var python: SoftwareStatus = .notInstalled
+    var nodejs: SoftwareStatus = .notInstalled
+    
+    // Tools
+    var composer: SoftwareStatus = .notInstalled
+    var npm: SoftwareStatus = .notInstalled
+    var git: SoftwareStatus = .notInstalled
+    
+    // Computed properties
+    var hasWebServer: Bool {
+        nginx.isInstalled || apache.isInstalled || litespeed.isInstalled
+    }
+    
+    var hasDatabase: Bool {
+        mysql.isInstalled || mariadb.isInstalled || postgresql.isInstalled
+    }
+    
+    var hasRuntime: Bool {
+        php.isInstalled || python.isInstalled || nodejs.isInstalled
+    }
+    
+    var activeWebServer: String? {
+        if nginx.isRunning { return "Nginx" }
+        if apache.isRunning { return "Apache" }
+        if litespeed.isRunning { return "LiteSpeed" }
+        if nginx.isInstalled { return "Nginx" }
+        if apache.isInstalled { return "Apache" }
+        if litespeed.isInstalled { return "LiteSpeed" }
+        return nil
+    }
+    
+    var installedDatabases: [String] {
+        var dbs: [String] = []
+        if mysql.isInstalled { dbs.append("MySQL") }
+        if mariadb.isInstalled { dbs.append("MariaDB") }
+        if postgresql.isInstalled { dbs.append("PostgreSQL") }
+        if redis.isInstalled { dbs.append("Redis") }
+        if mongodb.isInstalled { dbs.append("MongoDB") }
+        return dbs
+    }
+    
+    var installedRuntimes: [String] {
+        var runtimes: [String] = []
+        if php.isInstalled { runtimes.append("PHP") }
+        if python.isInstalled { runtimes.append("Python") }
+        if nodejs.isInstalled { runtimes.append("Node.js") }
+        return runtimes
+    }
+}
 
 // MARK: - New Dashboard Models
 
@@ -149,6 +265,59 @@ struct OverviewCounts {
     var ftp: Int
     var databases: Int
     var security: Int
+}
+
+// MARK: - Capability Models
+
+struct Capability: Identifiable, Codable {
+    let id: Int
+    let name: String
+    let slug: String
+    let icon: String // URL string
+    let color: String // Hex string
+    let category: String
+    let isEnabled: Bool
+    let description: String
+    let defaultVersion: CapabilityVersion?
+    let versions: [CapabilityVersion]?
+}
+
+struct CapabilityVersion: Identifiable, Codable {
+    let versionId: Int?  // API may not always provide id
+    let version: String
+    let stability: String
+    let releaseDate: String?
+    let eolDate: String?
+    let recommendedUsage: String?
+    let isDefault: Bool
+    let installCommands: [String: [String: String]]? // OS -> Type -> Command
+    let features: [CapabilityFeature]?
+    
+    // Computed id for Identifiable conformance
+    var id: String { version }
+    
+    // Custom decoding to handle missing id
+    enum CodingKeys: String, CodingKey {
+        case versionId = "id"
+        case version, stability, releaseDate, eolDate, recommendedUsage, isDefault, installCommands, features
+    }
+}
+
+struct CapabilityFeature: Identifiable, Codable {
+    let featureId: Int?  // API may not always provide id
+    let name: String
+    let slug: String
+    let icon: String?
+    let description: String?
+    let isOptional: Bool?
+    let status: String?
+    
+    var id: String { slug }
+    
+    enum CodingKeys: String, CodingKey {
+        case featureId = "id"
+        case name, slug, icon, description, isOptional, status
+    }
 }
 
 // MARK: - File Model
@@ -304,6 +473,7 @@ public enum ServerManagementTab: String, CaseIterable, Identifiable {
     case websites
     case databases
     case files
+    case applications
     case settings
     
     public var id: String { rawValue }
@@ -314,6 +484,7 @@ public enum ServerManagementTab: String, CaseIterable, Identifiable {
         case .websites: return "Websites"
         case .databases: return "Databases"
         case .files: return "Files"
+        case .applications: return "Applications"
         case .settings: return "Settings"
         }
     }
@@ -324,6 +495,7 @@ public enum ServerManagementTab: String, CaseIterable, Identifiable {
         case .websites: return "globe"
         case .databases: return "cylinder.split.1x2"
         case .files: return "folder"
+        case .applications: return "square.grid.2x2"
         case .settings: return "gearshape"
         }
     }
