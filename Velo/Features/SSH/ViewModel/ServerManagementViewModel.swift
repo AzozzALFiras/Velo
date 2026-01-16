@@ -65,6 +65,12 @@ final class ServerManagementViewModel: ObservableObject {
     @Published var cpuUsage = 0
     @Published var ramUsage = 0
     @Published var diskUsage = 0
+    @Published var isLiveUpdating = false
+    
+    // Task management
+    private var refreshTask: Task<Void, Never>?
+    private var lastManualRefresh: Date?
+    private let refreshCooldown: TimeInterval = 3.0
     
     // Legacy Chart History
     @Published var cpuHistory: [ServerManagementViewModel.HistoryPoint] = []
@@ -168,12 +174,47 @@ final class ServerManagementViewModel: ObservableObject {
     // MARK: - Refresh Actions
     
     func refreshServerStatus() async {
-        guard let session = session else { return }
-        log("🔄 Refreshing server status...")
+        guard let session = session else { 
+            log("❌ No session available for server status refresh")
+            return 
+        }
+        
+        // Skip if installation is in progress
+        guard !isInstalling else {
+            log("⏸️ Skipping refresh - installation in progress")
+            return
+        }
+        
+        log("🔄 Refreshing server status (optimized)...")
         isLoadingServerStatus = true
-        serverStatus = await sshService.fetchServerStatus(via: session)
+        serverStatus = await sshService.fetchServerStatusOptimized(via: session)
         isLoadingServerStatus = false
         updateInstalledSoftwareFromStatus()
+        
+        // Debug: Print full server status
+        printServerStatus()
+    }
+    
+    /// Debug helper: Print current server status to console
+    func printServerStatus() {
+        print("📊 ========== SERVER STATUS ==========")
+        print("📊 Web Servers:")
+        print("📊   Nginx: \(serverStatus.nginx) - isInstalled: \(serverStatus.nginx.isInstalled)")
+        print("📊   Apache: \(serverStatus.apache) - isInstalled: \(serverStatus.apache.isInstalled)")
+        print("📊   LiteSpeed: \(serverStatus.litespeed) - isInstalled: \(serverStatus.litespeed.isInstalled)")
+        print("📊 Databases:")
+        print("📊   MySQL: \(serverStatus.mysql) - isInstalled: \(serverStatus.mysql.isInstalled)")
+        print("📊   MariaDB: \(serverStatus.mariadb) - isInstalled: \(serverStatus.mariadb.isInstalled)")
+        print("📊   PostgreSQL: \(serverStatus.postgresql) - isInstalled: \(serverStatus.postgresql.isInstalled)")
+        print("📊 Runtimes:")
+        print("📊   PHP: \(serverStatus.php) - isInstalled: \(serverStatus.php.isInstalled)")
+        print("📊   Node.js: \(serverStatus.nodejs) - isInstalled: \(serverStatus.nodejs.isInstalled)")
+        print("📊   Python: \(serverStatus.python) - isInstalled: \(serverStatus.python.isInstalled)")
+        print("📊 Computed:")
+        print("📊   hasWebServer: \(serverStatus.hasWebServer)")
+        print("📊   hasDatabase: \(serverStatus.hasDatabase)")
+        print("📊   hasRuntime: \(serverStatus.hasRuntime)")
+        print("📊 ======================================")
     }
     
     /// Update installedSoftware array from serverStatus
@@ -268,7 +309,7 @@ final class ServerManagementViewModel: ObservableObject {
         log("Fetching real installed packages...")
         isLoadingPackages = true
         
-        let packages = await sshService.fetchInstalledPackages(via: session)
+        let packages = await sshService.fetchInstalledSoftware(via: session)
         self.installedSoftware = packages
         
         // Update overview count
@@ -502,19 +543,34 @@ final class ServerManagementViewModel: ObservableObject {
         self.isInstalling = false
         if success {
             log("✅ Stack installation completed successfully")
+            print("📦 [StackInstall] Stack installation completed, refreshing status...")
 
             // Refresh server status to detect all newly installed software
             Task {
                 try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
 
+                print("📦 [StackInstall] Waiting 1s before refreshing status...")
                 log("🔄 Refreshing server status after stack installation...")
+                
                 if let session = self.session {
+                    print("📦 [StackInstall] Fetching server status...")
                     let newStatus = await self.sshService.fetchServerStatusOptimized(via: session)
+                    
+                    print("📦 [StackInstall] New status received:")
+                    print("📦 [StackInstall]   nginx: \(newStatus.nginx)")
+                    print("📦 [StackInstall]   mysql: \(newStatus.mysql)")
+                    print("📦 [StackInstall]   php: \(newStatus.php)")
+                    print("📦 [StackInstall]   hasWebServer: \(newStatus.hasWebServer)")
+                    
                     await MainActor.run {
                         self.serverStatus = newStatus
                         self.updateInstalledSoftwareFromStatus()
                         log("📌 Updated server status after stack install")
+                        print("📦 [StackInstall] ✅ Server status updated!")
+                        self.printServerStatus()
                     }
+                } else {
+                    print("📦 [StackInstall] ❌ No session available!")
                 }
 
                 await MainActor.run {
@@ -1003,6 +1059,9 @@ final class ServerManagementViewModel: ObservableObject {
             throw NSError(domain: "ServerMgmt", code: 1, userInfo: [NSLocalizedDescriptionKey: "No SSH session"])
         }
 
+        print("🌐 [CreateWebsite] Starting website creation...")
+        print("🌐 [CreateWebsite] Input: domain=\(domain), path=\(path), framework=\(framework), port=\(port)")
+        
         // Validate and sanitize inputs
         let safeDomain = domain.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
         var safePath = path.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1017,45 +1076,78 @@ final class ServerManagementViewModel: ObservableObject {
             safePath = "/\(safePath)"
         }
 
+        print("🌐 [CreateWebsite] Sanitized: domain=\(safeDomain), path=\(safePath)")
         log("Creating website: domain=\(safeDomain), path=\(safePath), framework=\(framework)")
 
-        // 1. Create Directory with proper permissions
-        _ = await sshService.executeCommand("sudo mkdir -p '\(safePath)'", via: session)
-        _ = await sshService.executeCommand("sudo chown -R www-data:www-data '\(safePath)' 2>/dev/null || sudo chown -R nginx:nginx '\(safePath)' 2>/dev/null || true", via: session)
-        _ = await sshService.executeCommand("sudo chmod -R 755 '\(safePath)'", via: session)
+        // Detect if we are root
+        let whoami = await SSHBaseService.shared.execute("whoami", via: session)
+        let isRoot = whoami.output.trimmingCharacters(in: .whitespacesAndNewlines) == "root"
+        let sudoPrefix = isRoot ? "" : "sudo "
+        print("🌐 [CreateWebsite] Acting as root: \(isRoot)")
+        
+        // Use the new high-speed website service
+        isLoading = true
+        let success = await SSHWebsiteService.shared.createWebsite(
+            domain: safeDomain, 
+            path: safePath, 
+            framework: framework, 
+            port: port, 
+            phpVersion: nil, 
+            via: session
+        )
 
-        // 2. Create default index file based on framework
-        log("Creating default index file for \(framework)...")
-        await createDefaultIndexFile(at: safePath, domain: safeDomain, framework: framework)
-
+        // The new website service already handled directory creation, chown, chmod and index file
+        // We can jump straight to web server configuration
+        if !success {
+            log("⚠️ Specialized website creation script failed, attempting fallback configuration...")
+        }
+        
         // 3. Create web server configuration
         var webServerUsed = "Static"
 
         // Determine PHP version if needed
         var phpVersion: String? = nil
         if framework.lowercased().contains("php") {
+            print("🌐 [CreateWebsite] Step 3a: Detecting PHP-FPM versions...")
             // Get installed PHP versions and use the first one
             let phpVersions = await sshService.fetchInstalledPHPVersions(via: session)
+            print("🌐 [CreateWebsite] Found PHP versions: \(phpVersions)")
             phpVersion = phpVersions.first ?? serverStatus.php.version
+            print("🌐 [CreateWebsite] Using PHP version: \(phpVersion ?? "none")")
         }
 
         // Create Nginx or Apache config based on what's installed
+        print("🌐 [CreateWebsite] Step 3b: Creating web server config...")
+        print("🌐 [CreateWebsite] nginx.isInstalled=\(serverStatus.nginx.isInstalled), apache.isInstalled=\(serverStatus.apache.isInstalled)")
+        
         if serverStatus.nginx.isInstalled {
+            print("🌐 [CreateWebsite] Creating Nginx site config...")
             let success = await sshService.createNginxSite(domain: safeDomain, path: safePath, port: port, phpVersion: phpVersion, via: session)
             if success {
                 webServerUsed = "Nginx"
+                print("🌐 [CreateWebsite] ✅ Nginx site created successfully")
                 log("✅ Nginx site created")
+                
+                // Verify Nginx config
+                let verifyConfig = await sshService.executeCommand("ls -la /etc/nginx/sites-available/\(safeDomain) /etc/nginx/sites-enabled/\(safeDomain) 2>&1", via: session)
+                print("🌐 [CreateWebsite] Nginx config files: \(verifyConfig.output)")
             } else {
+                print("🌐 [CreateWebsite] ❌ Nginx config failed!")
                 log("⚠️ Nginx config failed, site may not work properly")
             }
         } else if serverStatus.apache.isInstalled {
+            print("🌐 [CreateWebsite] Creating Apache site config...")
             let success = await sshService.createApacheSite(domain: safeDomain, path: safePath, port: port, via: session)
             if success {
                 webServerUsed = "Apache"
+                print("🌐 [CreateWebsite] ✅ Apache site created successfully")
                 log("✅ Apache site created")
             } else {
+                print("🌐 [CreateWebsite] ❌ Apache config failed!")
                 log("⚠️ Apache config failed, site may not work properly")
             }
+        } else {
+            print("🌐 [CreateWebsite] ⚠️ No web server installed!")
         }
 
         // 4. Update local state
@@ -1073,8 +1165,10 @@ final class ServerManagementViewModel: ObservableObject {
         }
 
         // 5. Refresh websites list to verify
+        print("🌐 [CreateWebsite] Step 4: Refreshing websites list...")
         await fetchRealWebsites()
 
+        print("🌐 [CreateWebsite] ✅ Website \(safeDomain) creation completed!")
         log("✅ Website \(safeDomain) created successfully")
     }
 
@@ -1377,43 +1471,57 @@ final class ServerManagementViewModel: ObservableObject {
     
     /// Start periodic stats refresh (real SSH - optimized)
     func startLiveUpdates() {
-        log("Starting periodic stats refresh (optimized)...")
-        Timer.scheduledTimer(withTimeInterval: 15.0, repeats: true) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                guard let self = self, let session = self.session else { return }
+        guard !isLiveUpdating else { return }
+        isLiveUpdating = true
+        
+        log("Starting periodic stats refresh loop (optimized)...")
+        
+        Task { @MainActor in
+            while !Task.isCancelled && isLiveUpdating {
+                guard let session = self.session else { break }
+                
+                // Skip while installing
+                if !isInstalling {
+                    // Use optimized batch command for stats
+                    let parsedStats = await self.sshService.fetchAllStatsOptimized(via: session)
+                    
+                    guard !Task.isCancelled else { break }
+                    
+                    // Update published properties
+                    self.stats = ServerStats(
+                        cpuUsage: parsedStats.cpuUsage,
+                        ramUsage: parsedStats.ramUsage,
+                        diskUsage: parsedStats.diskUsage,
+                        uptime: 0,
+                        isOnline: true,
+                        osName: parsedStats.osName,
+                        ipAddress: parsedStats.ipAddress
+                    )
 
-                // Use optimized batch command for stats (single SSH call)
-                let parsedStats = await self.sshService.fetchAllStatsOptimized(via: session)
+                    self.serverHostname = parsedStats.hostname
+                    self.serverIP = parsedStats.ipAddress
+                    self.serverOS = parsedStats.osName
+                    self.serverUptime = parsedStats.uptime
+                    self.cpuUsage = Int(parsedStats.cpuUsage * 100)
+                    self.ramUsage = Int(parsedStats.ramUsage * 100)
+                    self.diskUsage = Int(parsedStats.diskUsage * 100)
 
-                // Update published properties
-                self.stats = ServerStats(
-                    cpuUsage: parsedStats.cpuUsage,
-                    ramUsage: parsedStats.ramUsage,
-                    diskUsage: parsedStats.diskUsage,
-                    uptime: 0,
-                    isOnline: true,
-                    osName: parsedStats.osName,
-                    ipAddress: parsedStats.ipAddress
-                )
-
-                self.serverHostname = parsedStats.hostname
-                self.serverIP = parsedStats.ipAddress
-                self.serverOS = parsedStats.osName
-                self.serverUptime = parsedStats.uptime
-                self.cpuUsage = Int(parsedStats.cpuUsage * 100)
-                self.ramUsage = Int(parsedStats.ramUsage * 100)
-                self.diskUsage = Int(parsedStats.diskUsage * 100)
-
-                // Update history
-                let now = Date()
-                self.cpuHistory.append(HistoryPoint(date: now, value: parsedStats.cpuUsage))
-                self.ramHistory.append(HistoryPoint(date: now, value: parsedStats.ramUsage))
-                if self.cpuHistory.count > 20 { self.cpuHistory.removeFirst() }
-                if self.ramHistory.count > 20 { self.ramHistory.removeFirst() }
-
-                // Update traffic history periodically
-                await self.fetchTrafficStats()
+                    // Update history
+                    let now = Date()
+                    self.cpuHistory.append(HistoryPoint(date: now, value: parsedStats.cpuUsage))
+                    self.ramHistory.append(HistoryPoint(date: now, value: parsedStats.ramUsage))
+                    if self.cpuHistory.count > 20 { self.cpuHistory.removeFirst() }
+                    if self.ramHistory.count > 20 { self.ramHistory.removeFirst() }
+                    
+                    // Update traffic history
+                    await self.fetchTrafficStats()
+                }
+                
+                // Wait 15 seconds before next refresh
+                try? await Task.sleep(nanoseconds: 15_000_000_000)
             }
+            isLiveUpdating = false
+            log("Periodic stats refresh loop stopped.")
         }
     }
 
@@ -1490,68 +1598,132 @@ final class ServerManagementViewModel: ObservableObject {
             return
         }
 
-        guard !dataLoadedOnce else {
-            log("Data already loaded, skipping...")
+        // Cancel any ongoing refresh
+        refreshTask?.cancel()
+        
+        // Cooldown check for manual refreshes
+        if let last = lastManualRefresh, Date().timeIntervalSince(last) < refreshCooldown && dataLoadedOnce {
+            log("Refreshed too recently, skipping...")
             return
         }
+        lastManualRefresh = Date()
 
-        log("🚀 Loading all server data (optimized)...")
-        isLoading = true
-
-        // STEP 1: Load server status using optimized batch command
-        log("📌 Step 1: Checking server software status (optimized)...")
-        isLoadingServerStatus = true
-        serverStatus = await sshService.fetchServerStatusOptimized(via: session)
-        isLoadingServerStatus = false
-
-        // STEP 2: Load stats using optimized batch command
-        log("📌 Step 2: Loading server stats (optimized)...")
-        let parsedStats = await sshService.fetchAllStatsOptimized(via: session)
-
-        self.stats = ServerStats(
-            cpuUsage: parsedStats.cpuUsage,
-            ramUsage: parsedStats.ramUsage,
-            diskUsage: parsedStats.diskUsage,
-            uptime: 0,
-            isOnline: true,
-            osName: parsedStats.osName,
-            ipAddress: parsedStats.ipAddress
-        )
-
-        self.serverHostname = parsedStats.hostname
-        self.serverIP = parsedStats.ipAddress
-        self.serverOS = parsedStats.osName
-        self.serverUptime = parsedStats.uptime
-        self.cpuUsage = Int(parsedStats.cpuUsage * 100)
-        self.ramUsage = Int(parsedStats.ramUsage * 100)
-        self.diskUsage = Int(parsedStats.diskUsage * 100)
-
-        // STEP 3: Load dependent data
-        log("📌 Step 3: Loading websites and databases...")
-
-        if serverStatus.hasWebServer {
-            await fetchRealWebsites()
-        } else {
-            websites = []
+        log("🚀 Starting new optimized load task...")
+        
+        refreshTask = Task {
+            guard !Task.isCancelled else { return }
+            
+            isLoading = true
+            
+            log("📌 Step 1: Checking server software status...")
+            isLoadingServerStatus = true
+            let newStatus = await SSHStatsService.shared.fetchServerStatus(via: session)
+            
+            await MainActor.run {
+                if newStatus.hasWebServer || newStatus.hasDatabase || newStatus.hasRuntime {
+                    self.serverStatus = newStatus
+                } else if self.serverStatus.hasWebServer {
+                    log("⚠️ Status refresh failed, preserving old status")
+                }
+            }
+            
+            // STEP 2: Load stats using optimized batch command
+            log("📌 Step 2: Loading server stats...")
+            let s = await SSHStatsService.shared.fetchSystemStats(via: session)
+            
+            guard !Task.isCancelled else { return }
+            
+            await MainActor.run {
+                self.stats = ServerStats(
+                    cpuUsage: s.cpu,
+                    ramUsage: s.ram,
+                    diskUsage: s.disk,
+                    uptime: 0,
+                    isOnline: true,
+                    osName: s.os,
+                    ipAddress: s.ip
+                )
+                
+                self.serverHostname = s.hostname
+                self.serverIP = s.ip
+                self.serverOS = s.os
+                self.serverUptime = s.uptime
+                self.cpuUsage = Int(s.cpu * 100)
+                self.ramUsage = Int(s.ram * 100)
+                self.diskUsage = Int(s.disk * 100)
+            }
+            
+            // Update installed software from status
+            let packages = await sshService.fetchInstalledSoftware(via: session)
+            
+            await MainActor.run {
+                self.installedSoftware = packages
+                
+                // CRITICAL: Synchronize back to serverStatus if software was found via dpkg 
+                // but missed by binary detection.
+                var updatedStatus = self.serverStatus
+                print("🔧 [ServerMgmt] Syncing \(packages.count) packages to server status...")
+                
+                for pkg in packages {
+                    let name = pkg.name.lowercased()
+                    let version = pkg.version
+                    let status: SoftwareStatus = pkg.isRunning ? .running(version: version) : .stopped(version: version)
+                    
+                    if name.contains("nginx") { 
+                        updatedStatus.nginx = status 
+                        print("🔧 [ServerMgmt] ✅ Synced Nginx: \(status.displayText)")
+                    } else if name.contains("apache") { 
+                        updatedStatus.apache = status 
+                    } else if name.contains("mysql") || name.contains("mariadb") { 
+                        updatedStatus.mysql = status 
+                    } else if name.contains("php") { 
+                        updatedStatus.php = status 
+                    } else if name.contains("postgresql") || name.contains("psql") { 
+                        updatedStatus.postgresql = status 
+                    } else if name.contains("git") { 
+                        updatedStatus.git = status 
+                    } else if name.contains("node") { 
+                        updatedStatus.nodejs = status 
+                    }
+                }
+                
+                if updatedStatus.hasWebServer || updatedStatus.hasDatabase || updatedStatus.hasRuntime {
+                     print("🔧 [ServerMgmt] 🌐 hasWebServer: \(updatedStatus.hasWebServer), hasDatabase: \(updatedStatus.hasDatabase)")
+                     self.serverStatus = updatedStatus
+                } else {
+                     print("🔧 [ServerMgmt] ⚠️ No web server or database detected in sync.")
+                }
+            }
+            
+            // 3. Loading websites and databases
+            print("[ServerMgmt] 📌 Step 3: Loading websites and databases...")
+            
+            // Sites
+            print("[ServerMgmt] Fetching real websites...")
+            let sites = await SSHWebsiteService.shared.fetchWebsites(via: session)
+            print("[ServerMgmt] Found \(sites.count) websites")
+            
+            // Databases
+            print("[ServerMgmt] Fetching real databases...")
+            let mysqlDBs = await SSHDatabaseService.shared.fetchDatabases(type: .mysql, via: session)
+            let pgsqlDBs = await SSHDatabaseService.shared.fetchDatabases(type: .postgres, via: session)
+            let allDBs = mysqlDBs + pgsqlDBs
+            print("[ServerMgmt] Found \(allDBs.count) databases")
+            
+            // STEP 4: Files
+            guard !Task.isCancelled else { return }
+            await fetchRealFiles(at: currentPath)
+            
+            // Update UI
+            await MainActor.run {
+                self.websites = sites.map { Website(domain: $0, path: "/var/www/\($0)", status: .running, port: 80, framework: "PHP") }
+                self.databases = allDBs
+                self.dataLoadedOnce = true
+                self.isLoading = false
+                print("[ServerMgmt] ✅ Optimized load task completed successfully")
+            }
+            // Start periodic updates if not already running
+            startLiveUpdates()
         }
-
-        if serverStatus.hasDatabase {
-            await fetchRealDatabases()
-        } else {
-            databases = []
-        }
-
-        // STEP 4: Files
-        await fetchRealFiles(at: currentPath)
-
-        // Update installed software from status
-        updateInstalledSoftwareFromStatus()
-
-        dataLoadedOnce = true
-        isLoading = false
-        log("✅ All data loaded successfully (optimized)")
-
-        // Start optimized periodic refresh
-        startLiveUpdates()
     }
 }

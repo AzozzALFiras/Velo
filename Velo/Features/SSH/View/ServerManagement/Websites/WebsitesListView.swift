@@ -43,6 +43,11 @@ struct WebsitesListView: View {
             }
         }
         .background(ColorTokens.layer0)
+        .onAppear {
+            print("🌐 [WebsitesListView] Appeared - hasWebServer: \(viewModel.serverStatus.hasWebServer)")
+            // Initial data is already loaded by ServerManagementViewModel.loadAllDataOptimized()
+            // and maintained by startLiveUpdates() loop.
+        }
         // Present Details Sheet
         .sheet(item: $selectedWebsite) { website in
             // Create a binding to the website in the viewModel array
@@ -650,6 +655,13 @@ struct WebsiteEditorView: View {
         return list
     }
     
+    // Path/Domain sanitization
+    private func sanitizeForPath(_ input: String) -> String {
+        // Only allow a-z, A-Z, 0-9, ., _, -, /
+        let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-/")
+        return String(input.unicodeScalars.filter { allowed.contains($0) })
+    }
+    
     init(viewModel: ServerManagementViewModel, website: Website?, onSave: @escaping (Website) -> Void) {
         self.viewModel = viewModel
         self.website = website
@@ -692,9 +704,14 @@ struct WebsiteEditorView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     VeloEditorField(label: "Domain Name", placeholder: "example.com", text: $domain)
                         .onChange(of: domain) { newValue in
+                            let sanitized = sanitizeForPath(newValue.lowercased())
+                            if sanitized != newValue {
+                                domain = sanitized
+                            }
+                            
                             if isAutoPath && website == nil {
                                 // Auto-update path
-                                let cleanDomain = newValue.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+                                let cleanDomain = sanitized.trimmingCharacters(in: .whitespacesAndNewlines)
                                 if cleanDomain.isEmpty {
                                     path = "/var/www"
                                 } else {
@@ -724,8 +741,14 @@ struct WebsiteEditorView: View {
                             .background(ColorTokens.layer2)
                             .clipShape(RoundedRectangle(cornerRadius: 6))
                             .overlay(RoundedRectangle(cornerRadius: 6).stroke(ColorTokens.borderSubtle, lineWidth: 1))
-                            .onChange(of: path) { _ in
-                                isAutoPath = false // Disable auto if user manually edits
+                            .onChange(of: path) { newValue in
+                                let sanitized = sanitizeForPath(newValue)
+                                if sanitized != newValue {
+                                    path = sanitized
+                                }
+                                if !domain.isEmpty && !path.contains(domain) {
+                                    isAutoPath = false // Disable auto if user manually edits away from domain
+                                }
                             }
                         
                         Button(action: { showFilePicker = true }) {

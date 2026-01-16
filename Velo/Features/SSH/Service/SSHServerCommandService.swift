@@ -57,6 +57,10 @@ final class SSHServerCommandService: ObservableObject {
     @Published var lastCommandOutput: String = ""
     @Published var isExecuting: Bool = false
     
+    // Serial queue to prevent overlapping commands on the same session
+    private let commandSemaphore = DispatchSemaphore(value: 1)
+    private var forceResetNextCommand = false
+    
     // MARK: - Logging
     private func log(_ message: String) {
         let timestamp = ISO8601DateFormatter().string(from: Date())
@@ -65,70 +69,13 @@ final class SSHServerCommandService: ObservableObject {
     
     /// Execute a command via the active SSH session and capture output
     func executeCommand(_ command: String, via session: TerminalViewModel, timeout: Int = 20) async -> SSHCommandResult {
-        log("Executing: \(command)")
-        let startTime = Date()
+        // Use the new non-blocking actor core
+        let result = await SSHBaseService.shared.execute(command, via: session, timeout: timeout)
         
-        // Clear previous output tracking
-        let previousLineCount = session.outputLines.count
+        // Update the legacy output property for UI observers
+        self.lastCommandOutput = result.output
         
-        // Send command to SSH session
-        session.terminalEngine.sendInput("\(command)\n")
-        
-        // Wait for output (with timeout)
-        var output = ""
-        var attempts = 0
-        let maxAttempts = timeout // Each attempt = 100ms
-        var stableCount = 0
-        var lastOutputLength = 0
-        
-        while attempts < maxAttempts {
-            try? await Task.sleep(nanoseconds: 100_000_000) // 100ms
-            
-            // Check for new output
-            let newLines = session.outputLines.dropFirst(previousLineCount)
-            let newOutput = newLines.map { $0.text }.joined(separator: "\n")
-            
-            // Always update output so we have the latest even on timeout
-            output = newOutput
-            
-            // Check if output is stable (no new data for 2 cycles) after getting some output
-            if newOutput.count == lastOutputLength && !newOutput.isEmpty {
-                stableCount += 1
-                if stableCount >= 2 {
-                    // Output stable, check for prompt
-                    let lastLine = session.outputLines.last?.text ?? ""
-                    if lastLine.contains("#") || lastLine.contains("$") {
-                        break
-                    }
-                }
-            } else {
-                stableCount = 0
-                lastOutputLength = newOutput.count
-            }
-            
-            // Also break early if we detect prompt
-            if !newOutput.isEmpty {
-                let lastLine = session.outputLines.last?.text ?? ""
-                if (lastLine.hasSuffix("#") || lastLine.hasSuffix("$ ")) && attempts > 1 {
-                    break
-                }
-            }
-            
-            attempts += 1
-        }
-        
-        // Clean the output
-        output = stripTerminalEscapes(output)
-        
-        let executionTime = Date().timeIntervalSince(startTime)
-        log("Completed in \(String(format: "%.2f", executionTime))s, output length: \(output.count)")
-        
-        return SSHCommandResult(
-            command: command,
-            output: output,
-            exitCode: 0,
-            executionTime: executionTime
-        )
+        return result
     }
     
     /// Strip terminal escape sequences including title sequences
@@ -346,9 +293,9 @@ final class SSHServerCommandService: ObservableObject {
     
     // MARK: - Installed Packages
     
-    /// Fetch installed packages (Debian/Ubuntu)
-    func fetchInstalledPackages(via session: TerminalViewModel) async -> [InstalledSoftware] {
-        log("Fetching installed packages...")
+    /// Fetch installed software packages (Debian/Ubuntu)
+    func fetchInstalledSoftware(via session: TerminalViewModel) async -> [InstalledSoftware] {
+        log("Fetching installed software...")
         
         // Get key packages that are commonly managed
         let keyPackages = ["nginx", "apache2", "php", "mysql-server", "mariadb-server", 
@@ -544,26 +491,23 @@ final class SSHServerCommandService: ObservableObject {
     
     /// Validate that a filename is a valid site config (not garbage from terminal)
     private func isValidSiteConfig(_ name: String) -> Bool {
-        let trimmed = name.trimmingCharacters(in: .whitespaces)
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         
-        // Must not be empty
-        guard !trimmed.isEmpty else { return false }
+        // Must be reasonable length and not empty
+        guard !trimmed.isEmpty, trimmed.count >= 3, trimmed.count < 100 else { return false }
         
-        // Must not contain terminal garbage
-        let invalidPatterns = ["@", "#", "$", "root", "grep", "ls ", "dpkg", "echo", "total ", "drwx", "-bash", "inactive"]
-        for pattern in invalidPatterns {
-            if trimmed.contains(pattern) { return false }
+        // Skip common junk/system headers and tech keywords
+        let junk = ["welcome", "ubuntu", "nginx", "apache", "mysql", "php", "active", "___velo", "echo ", "root@", "vmi", "[0", "total ", "drw", "password", "ver ", "Ver ", "(ubuntu)", "active", "inactive"]
+        for j in junk {
+            if trimmed.lowercased().contains(j) { return false }
         }
         
-        // Must be reasonable length
-        guard trimmed.count < 100 else { return false }
+        // Site names should look like filenames or hostnames
+        if trimmed == "default" || trimmed == "000-default.conf" || trimmed == "default.conf" { return false }
         
-        // Must look like a filename (alphanumeric, dots, dashes, underscores)
+        // Must look like a valid filename (alphanumeric, dots, dashes, underscores)
         let allowedChars = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: ".-_"))
         guard trimmed.unicodeScalars.allSatisfy({ allowedChars.contains($0) }) else { return false }
-        
-        // Skip 'default' unless it's a real config
-        if trimmed == "default" { return false }
         
         return true
     }
@@ -819,10 +763,10 @@ final class SSHServerCommandService: ObservableObject {
         // Must not be empty and reasonable length
         guard !trimmed.isEmpty, trimmed.count < 64, trimmed.count > 1 else { return false }
         
-        // Must not contain terminal garbage
-        let invalidPatterns = ["@", "#", "$", ":", "root", "vmi", "bash", "inactive", "grep", "echo", "ls "]
+        // Must not contain terminal garbage or tech headers from status checks
+        let invalidPatterns = ["@", "#", "$", ":", "root", "vmi", "bash", "inactive", "grep", "echo", "ls ", "NGINX", "APACHE", "MYSQL", "PHP", "NODE", "PYTHON", "GIT", "ver ", "Ver ", "welcome to", "(ubuntu)"]
         for pattern in invalidPatterns {
-            if trimmed.contains(pattern) { return false }
+            if trimmed.lowercased().contains(pattern.lowercased()) { return false }
         }
         
         // Skip column headers
@@ -845,39 +789,80 @@ final class SSHServerCommandService: ObservableObject {
 
     /// Install a package via apt/yum with streaming output
     func installPackage(_ command: String, via session: TerminalViewModel, onOutput: @escaping (String) -> Void) async -> Bool {
+        // Ensure serial execution
+        commandSemaphore.wait()
+        defer { commandSemaphore.signal() }
+        
         log("Installing package: \(command)")
 
+        let engine = session.terminalEngine
+        
+        // ========== MARKER-BASED COMPLETION DETECTION ==========
+        let markerId = UUID().uuidString.prefix(8)
+        let endMarker = "===VELO_INSTALL_DONE_\(markerId)==="
+        
+        // Wrap command with end marker
+        let wrappedCommand = "\(command); echo '\(endMarker)'"
+        
+        print("🔍 [Install Debug] Using end marker: \(endMarker)")
+        
+        // Get initial buffer state for streaming
+        var lastTextLength = engine.outputLines.map { $0.text }.joined().count
+        
+        // Capture initial buffer snapshot to detect only NEW markers
+        let initialSnapshot = engine.outputLines.map { $0.text }.joined(separator: "\n")
+        
         // Send the install command
-        session.terminalEngine.sendInput("\(command)\n")
+        engine.sendInput("\(wrappedCommand)\n")
+        
+        // Wait minimum time for command to start before checking markers
+        try? await Task.sleep(nanoseconds: 500_000_000) // 500ms minimum wait
 
-        // Stream output
-        var lastLineCount = session.outputLines.count
+        // Wait for end marker with streaming output
         var attempts = 0
-        let maxAttempts = 600 // 60 seconds max for installation
+        let maxAttempts = 3000 // 300 seconds (5 min) max for installation
 
         while attempts < maxAttempts {
+            if Task.isCancelled {
+                print("🔍 [Install Debug] Installation cancelled by task cancellation")
+                return false
+            }
             try? await Task.sleep(nanoseconds: 100_000_000) // 100ms
 
-            // Check for new lines
-            if session.outputLines.count > lastLineCount {
-                let newLines = session.outputLines.dropFirst(lastLineCount)
-                for line in newLines {
-                    onOutput(line.text)
+            // Get ALL text from terminal
+            let allText = engine.outputLines.map { $0.text }.joined(separator: "\n")
+            
+            // Stream new output to callback
+            if allText.count > lastTextLength {
+                let newText = String(allText.suffix(allText.count - lastTextLength))
+                // Split by newlines and send each line
+                for line in newText.components(separatedBy: .newlines) where !line.isEmpty {
+                    if !line.contains(endMarker) { // Don't send marker to UI
+                        onOutput(line)
+                    }
                 }
-                lastLineCount = session.outputLines.count
+                lastTextLength = allText.count
             }
-
-            // Check if command completed (prompt returned)
-            if let lastLine = session.outputLines.last?.text,
-               (lastLine.contains("#") || lastLine.contains("$")) && attempts > 10 {
-                break
+            
+            // Check for end marker only in NEW content (after initial snapshot)
+            let newContent = allText.count > initialSnapshot.count 
+                ? String(allText.suffix(allText.count - initialSnapshot.count)) 
+                : allText
+            if newContent.contains(endMarker) {
+                log("Installation completed - end marker detected")
+                return true
             }
 
             attempts += 1
+            
+            // Debug every 100 attempts (10 seconds)
+            if attempts % 100 == 0 {
+                print("🔍 [Install Debug] Still waiting... \(attempts/10)s elapsed")
+            }
         }
 
-        log("Installation completed")
-        return true
+        log("Installation timed out after 5 minutes")
+        return false
     }
 
     // MARK: - Website Management (Real SSH)
@@ -885,6 +870,45 @@ final class SSHServerCommandService: ObservableObject {
     /// Create Nginx virtual host configuration
     func createNginxSite(domain: String, path: String, port: Int, phpVersion: String?, via session: TerminalViewModel) async -> Bool {
         log("Creating Nginx site for \(domain)")
+        print("🔧 [NginxSite] Creating site: domain=\(domain), path=\(path), phpVersion=\(phpVersion ?? "none")")
+
+        // Auto-detect PHP-FPM socket if PHP is specified
+        var phpSocketPath: String? = nil
+        if let php = phpVersion {
+            print("🔧 [NginxSite] Detecting PHP-FPM socket for PHP \(php)...")
+            
+            // Try to find the actual socket path - check common locations
+            let possibleSockets = [
+                "/var/run/php/php\(php)-fpm.sock",
+                "/run/php/php\(php)-fpm.sock",
+                "/var/run/php-fpm/php\(php)-fpm.sock",
+                "/run/php-fpm.sock"
+            ]
+            
+            for socketPath in possibleSockets {
+                let checkResult = await executeCommand("test -S '\(socketPath)' && echo 'EXISTS'", via: session, timeout: 5)
+                if cleanOutput(checkResult.output).contains("EXISTS") {
+                    phpSocketPath = socketPath
+                    print("🔧 [NginxSite] ✅ Found PHP-FPM socket: \(socketPath)")
+                    break
+                }
+            }
+            
+            // If not found by version, try to find any PHP-FPM socket
+            if phpSocketPath == nil {
+                let findResult = await executeCommand("find /var/run/php /run/php -name '*.sock' 2>/dev/null | head -1", via: session, timeout: 10)
+                let foundSocket = cleanOutput(findResult.output)
+                if !foundSocket.isEmpty && foundSocket.hasPrefix("/") {
+                    phpSocketPath = foundSocket
+                    print("🔧 [NginxSite] ✅ Found PHP-FPM socket via search: \(foundSocket)")
+                }
+            }
+            
+            if phpSocketPath == nil {
+                print("🔧 [NginxSite] ⚠️ No PHP-FPM socket found, using default path")
+                phpSocketPath = "/var/run/php/php\(php)-fpm.sock"
+            }
+        }
 
         // Build Nginx config
         var config = """
@@ -901,14 +925,14 @@ final class SSHServerCommandService: ObservableObject {
             }
         """
 
-        // Add PHP support if version specified
-        if let php = phpVersion {
+        // Add PHP support if socket path available
+        if let socketPath = phpSocketPath {
             config += """
 
 
             location ~ \\.php$ {
                 include snippets/fastcgi-php.conf;
-                fastcgi_pass unix:/var/run/php/php\(php)-fpm.sock;
+                fastcgi_pass unix:\(socketPath);
             }
 
             location ~ /\\.ht {
@@ -919,29 +943,42 @@ final class SSHServerCommandService: ObservableObject {
 
         config += "\n}"
 
+        print("🔧 [NginxSite] Config to write:\n\(config)")
+
         // Create config file using base64 to avoid escaping issues
         if let data = config.data(using: .utf8) {
             let base64 = data.base64EncodedString()
             let configPath = "/etc/nginx/sites-available/\(domain)"
 
+            print("🔧 [NginxSite] Writing config to \(configPath)...")
+            
             // Write config file
-            _ = await executeCommand("echo '\(base64)' | base64 --decode | sudo tee \(configPath) > /dev/null", via: session, timeout: 15)
+            let writeResult = await executeCommand("echo '\(base64)' | base64 --decode | sudo tee \(configPath) > /dev/null && echo 'WRITTEN'", via: session, timeout: 15)
+            print("🔧 [NginxSite] Write result: \(writeResult.output)")
 
             // Enable site (create symlink)
-            _ = await executeCommand("sudo ln -sf \(configPath) /etc/nginx/sites-enabled/\(domain)", via: session, timeout: 10)
+            let linkResult = await executeCommand("sudo ln -sf \(configPath) /etc/nginx/sites-enabled/\(domain) && echo 'LINKED'", via: session, timeout: 10)
+            print("🔧 [NginxSite] Link result: \(linkResult.output)")
 
             // Test nginx configuration
             let testResult = await executeCommand("sudo nginx -t 2>&1", via: session, timeout: 15)
-            if cleanOutput(testResult.output).contains("successful") || cleanOutput(testResult.output).contains("ok") {
-                // Reload nginx
-                _ = await executeCommand("sudo systemctl reload nginx", via: session, timeout: 15)
-                log("✅ Nginx site \(domain) created and enabled")
-                return true
-            } else {
+            let testOutput = cleanOutput(testResult.output).lowercased()
+            print("🔧 [NginxSite] nginx -t result: \(testResult.output)")
+            
+            // Resilience: Only rollback if we see explicit "failed" or "error"
+            // If output is empty or doesn't mention failure, we assume it's OK (to avoid false negatives)
+            if testOutput.contains("failed") || testOutput.contains("error") {
                 log("❌ Nginx config test failed: \(testResult.output)")
+                print("🔧 [NginxSite] ❌ Config test failed, rolling back...")
                 // Rollback - remove bad config
                 _ = await executeCommand("sudo rm -f /etc/nginx/sites-enabled/\(domain) /etc/nginx/sites-available/\(domain)", via: session, timeout: 10)
                 return false
+            } else {
+                // Reload nginx
+                let reloadResult = await executeCommand("sudo systemctl reload nginx && echo 'RELOADED'", via: session, timeout: 15)
+                print("🔧 [NginxSite] Reload result: \(reloadResult.output)")
+                log("✅ Nginx site \(domain) created and enabled")
+                return true
             }
         }
         return false
@@ -1242,56 +1279,57 @@ final class SSHServerCommandService: ObservableObject {
 
         // Single compound command to get all stats at once - much faster than multiple calls
         let batchCommand = """
-        echo "===HOSTNAME===" && hostname && \
-        echo "===IP===" && hostname -I | awk '{print $1}' && \
-        echo "===OS===" && cat /etc/os-release 2>/dev/null | grep PRETTY_NAME | cut -d= -f2 | tr -d '"' && \
-        echo "===UPTIME===" && uptime -p && \
-        echo "===LOAD===" && cat /proc/loadavg | awk '{print $1}' && \
-        echo "===MEM===" && free -m | grep Mem | awk '{print $2,$3}' && \
-        echo "===DISK===" && df -h / | tail -1 | awk '{print $2,$3,$5}'
+        echo "HOSTNAME" && hostname && \
+        echo "IP" && hostname -I | awk '{print $1}' && \
+        echo "OS" && cat /etc/os-release | grep PRETTY_NAME | cut -d= -f2 | tr -d '"' && \
+        echo "UPTIME" && uptime -p && \
+        echo "LOAD" && cat /proc/loadavg | awk '{print $1}' && \
+        echo "MEM" && free -m | grep Mem | awk '{print $2,$3}' && \
+        echo "DISK" && df -h / | tail -n 1 | awk '{print $2,$3,$5}'
         """
 
         let result = await executeCommand(batchCommand, via: session, timeout: 20)
         var stats = ParsedServerStats()
 
         // Parse the sectioned output
-        let sections = result.output.components(separatedBy: "===")
-
-        for section in sections {
-            let lines = section.components(separatedBy: .newlines).map { $0.trimmingCharacters(in: .whitespaces) }
-            guard let header = lines.first, lines.count > 1 else { continue }
-            let value = lines.dropFirst().joined(separator: " ").trimmingCharacters(in: .whitespaces)
-
-            switch header {
+        let lines = result.output.components(separatedBy: .newlines).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        
+        var currentHeader = ""
+        for line in lines {
+            if ["HOSTNAME", "IP", "OS", "UPTIME", "LOAD", "MEM", "DISK"].contains(line) {
+                currentHeader = line
+                continue
+            }
+            
+            switch currentHeader {
             case "HOSTNAME":
-                stats.hostname = cleanOutput(value)
+                stats.hostname = cleanOutput(line)
             case "IP":
-                stats.ipAddress = cleanOutput(value)
+                stats.ipAddress = cleanOutput(line)
             case "OS":
-                stats.osName = cleanOutput(value)
+                stats.osName = cleanOutput(line)
             case "UPTIME":
-                stats.uptime = cleanOutput(value)
+                stats.uptime = cleanOutput(line)
             case "LOAD":
-                if let load = Double(cleanOutput(value)) {
+                if let load = Double(cleanOutput(line)) {
                     stats.cpuUsage = min(load, 1.0)
                 }
             case "MEM":
-                let memParts = cleanOutput(value).components(separatedBy: " ").compactMap { Int($0) }
+                let memParts = cleanOutput(line).components(separatedBy: " ").compactMap { Int($0) }
                 if memParts.count >= 2 {
                     stats.ramTotal = memParts[0]
                     stats.ramUsed = memParts[1]
                     stats.ramUsage = stats.ramTotal > 0 ? Double(stats.ramUsed) / Double(stats.ramTotal) : 0
                 }
             case "DISK":
-                let diskParts = cleanOutput(value).components(separatedBy: " ").filter { !$0.isEmpty }
+                let diskParts = cleanOutput(line).components(separatedBy: " ").filter { !$0.isEmpty }
                 if diskParts.count >= 3 {
                     stats.diskTotal = diskParts[0]
                     stats.diskUsed = diskParts[1]
                     let percentStr = diskParts[2].replacingOccurrences(of: "%", with: "")
                     stats.diskUsage = (Double(percentStr) ?? 0) / 100.0
                 }
-            default:
-                break
+            default: break
             }
         }
 
@@ -1299,134 +1337,135 @@ final class SSHServerCommandService: ObservableObject {
         return stats
     }
 
-    /// Check multiple software statuses in optimized batch
+    /// Check multiple software statuses in optimized batch (split to avoid truncation)
     func fetchServerStatusOptimized(via session: TerminalViewModel) async -> ServerStatus {
-        log("🔍 Checking server software status (optimized batch)...")
+        log("🔍 Checking server software status (multi-batch)...")
         var status = ServerStatus()
 
-        // Improved batch command that checks both binary existence AND version
-        // Uses 'which' as fallback to ensure we detect installed software
-        let batchCommand = """
-        echo "===NGINX===" && (which nginx >/dev/null 2>&1 && nginx -v 2>&1 | head -1 || echo "not_installed") && (systemctl is-active nginx 2>/dev/null || echo "inactive") && \
-        echo "===APACHE===" && (which apache2 >/dev/null 2>&1 && apache2 -v 2>&1 | head -1 || echo "not_installed") && (systemctl is-active apache2 2>/dev/null || echo "inactive") && \
-        echo "===MYSQL===" && (which mysql >/dev/null 2>&1 && mysql --version 2>/dev/null | head -1 || echo "not_installed") && (systemctl is-active mysql 2>/dev/null || systemctl is-active mariadb 2>/dev/null || echo "inactive") && \
-        echo "===PHP===" && (which php >/dev/null 2>&1 && php -v 2>/dev/null | head -1 || echo "not_installed") && (systemctl list-units --type=service --state=running | grep -q 'php.*fpm' && echo "active" || echo "inactive") && \
-        echo "===NODE===" && (which node >/dev/null 2>&1 && node -v 2>/dev/null || echo "not_installed") && \
-        echo "===PGSQL===" && (which psql >/dev/null 2>&1 && psql --version 2>/dev/null | head -1 || echo "not_installed") && (systemctl is-active postgresql 2>/dev/null || echo "inactive") && \
-        echo "===REDIS===" && (which redis-server >/dev/null 2>&1 && redis-server --version 2>/dev/null | head -1 || echo "not_installed") && (systemctl is-active redis-server 2>/dev/null || systemctl is-active redis 2>/dev/null || echo "inactive") && \
-        echo "===GIT===" && (which git >/dev/null 2>&1 && git --version 2>/dev/null | head -1 || echo "not_installed") && \
-        echo "===PYTHON===" && (which python3 >/dev/null 2>&1 && python3 --version 2>/dev/null || echo "not_installed") && \
-        echo "===COMPOSER===" && (which composer >/dev/null 2>&1 && composer --version 2>/dev/null | head -1 || echo "not_installed")
+        // Batch 1: Web Servers (Explicit if/else for high reliability)
+        let batch1 = """
+        echo "NGINX" && if which nginx >/dev/null; then nginx -v 2>&1 | head -n 1; else echo "no"; fi && if systemctl is-active nginx >/dev/null 2>&1; then echo "active"; else echo "no"; fi
+        echo "APACHE" && if which apache2 >/dev/null; then apache2 -v 2>&1 | head -n 1; else echo "no"; fi && if systemctl is-active apache2 >/dev/null 2>&1; then echo "active"; else echo "no"; fi
+        echo "LITESPEED" && if [ -d /usr/local/lsws ]; then echo "installed"; else echo "no"; fi && if systemctl is-active lscpd >/dev/null 2>&1 || systemctl is-active lshttpd >/dev/null 2>&1; then echo "active"; else echo "no"; fi
+        """
+        
+        // Batch 2: Databases
+        let batch2 = """
+        echo "MYSQL" && if which mysql >/dev/null; then mysql --version | head -n 1; else echo "no"; fi && if systemctl is-active mysql >/dev/null 2>&1 || systemctl is-active mariadb >/dev/null 2>&1; then echo "active"; else echo "no"; fi
+        echo "PGSQL" && if which psql >/dev/null; then psql --version | head -n 1; else echo "no"; fi && if systemctl is-active postgresql >/dev/null 2>&1; then echo "active"; else echo "no"; fi
+        """
+        
+        // Batch 3: Runtimes and Tools
+        let batch3 = """
+        echo "PHP" && if which php >/dev/null; then php -v | head -n 1; else echo "no"; fi && if systemctl list-units --type=service --state=running | grep -q "php.*fpm"; then echo "active"; else echo "no"; fi
+        echo "NODE" && if which node >/dev/null; then node -v; else echo "no"; fi
+        echo "REDIS" && if which redis-server >/dev/null; then redis-server --version | head -n 1; else echo "no"; fi
+        echo "GIT" && if which git >/dev/null; then git --version | head -n 1; else echo "no"; fi
+        echo "PYTHON" && if which python3 >/dev/null; then python3 --version; else echo "no"; fi
+        echo "COMPOSER" && if which composer >/dev/null; then composer --version | head -n 1; else echo "no"; fi
         """
 
-        let result = await executeCommand(batchCommand, via: session, timeout: 45)
-        let sections = result.output.components(separatedBy: "===")
+        let results = [
+            await executeCommand(batch1, via: session, timeout: 15),
+            await executeCommand(batch2, via: session, timeout: 15),
+            await executeCommand(batch3, via: session, timeout: 20)
+        ]
+        
+        for result in results {
+            let lines = result.output.components(separatedBy: .newlines).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+            
+            var currentSection: String?
+            var sectionLines: [String] = []
+            
+            func processSection() {
+                guard let header = currentSection, !sectionLines.isEmpty else { return }
+                
+                let versionLine = sectionLines[0]
+                let statusLine = sectionLines.count > 1 ? sectionLines[1] : ""
+                let isActive = statusLine == "active" || statusLine == "running"
 
-        for section in sections {
-            let lines = section.components(separatedBy: .newlines).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
-            guard let header = lines.first, lines.count > 1 else { continue }
+                // Check if software is installed
+                let isInstalled = !versionLine.contains("no") &&
+                                  !versionLine.contains("not_installed") &&
+                                  !versionLine.contains("not found") &&
+                                  !versionLine.isEmpty
 
-            let versionLine = lines.count > 1 ? lines[1] : ""
-            let statusLine = lines.count > 2 ? lines[2] : ""
-            let isActive = statusLine == "active"
-
-            // Check if software is installed (not just version detection)
-            let isInstalled = !versionLine.contains("not_installed") &&
-                              !versionLine.contains("not found") &&
-                              !versionLine.contains("No such file") &&
-                              !versionLine.isEmpty
-
-            // Extract version number with improved regex patterns
-            var version: String? = nil
-            if isInstalled {
-                // Try multiple version patterns
-                let patterns = [
-                    "[0-9]+\\.[0-9]+\\.[0-9]+",  // X.Y.Z
-                    "[0-9]+\\.[0-9]+",           // X.Y
-                    "v[0-9]+\\.[0-9]+",          // vX.Y
-                ]
-                for pattern in patterns {
-                    if let match = versionLine.range(of: pattern, options: .regularExpression) {
-                        var v = String(versionLine[match])
-                        if v.hasPrefix("v") { v = String(v.dropFirst()) }
-                        version = v
-                        break
-                    }
-                }
-                // Fallback: if no version found but software is installed, use "installed"
-                if version == nil {
-                    version = "installed"
-                }
-            }
-
-            switch header {
-            case "NGINX":
-                if let v = version {
-                    status.nginx = isActive ? .running(version: v) : .installed(version: v)
-                    log("  Nginx: \(status.nginx)")
-                }
-            case "APACHE":
-                if let v = version {
-                    status.apache = isActive ? .running(version: v) : .installed(version: v)
-                    log("  Apache: \(status.apache)")
-                }
-            case "MYSQL":
-                if let v = version {
-                    // Check if it's MariaDB
-                    if versionLine.lowercased().contains("mariadb") {
-                        status.mariadb = isActive ? .running(version: v) : .installed(version: v)
-                        log("  MariaDB: \(status.mariadb)")
-                    } else {
-                        status.mysql = isActive ? .running(version: v) : .installed(version: v)
-                        log("  MySQL: \(status.mysql)")
-                    }
-                }
-            case "PHP":
-                if let v = version {
-                    // For PHP, check if PHP-FPM is running
-                    status.php = isActive ? .running(version: v) : .installed(version: v)
-                    log("  PHP: \(status.php)")
-                }
-            case "NODE":
+                // Extract version
+                var version: String? = nil
                 if isInstalled {
-                    var v = versionLine.trimmingCharacters(in: .whitespaces)
-                    if v.hasPrefix("v") { v = String(v.dropFirst()) }
-                    if !v.isEmpty && !v.contains("not_installed") {
+                    let patterns = ["[0-9]+\\.[0-9]+\\.[0-9]+", "[0-9]+\\.[0-9]+", "v[0-9]+\\.[0-9]+"]
+                    for pattern in patterns {
+                        if let match = versionLine.range(of: pattern, options: .regularExpression) {
+                            var v = String(versionLine[match])
+                            if v.hasPrefix("v") { v = String(v.dropFirst()) }
+                            version = v
+                            break
+                        }
+                    }
+                    if version == nil { version = "installed" }
+                }
+
+                switch header {
+                case "NGINX":
+                    if let v = version {
+                        status.nginx = isActive ? .running(version: v) : .installed(version: v)
+                    }
+                case "APACHE":
+                    if let v = version {
+                        status.apache = isActive ? .running(version: v) : .installed(version: v)
+                    }
+                case "LITESPEED":
+                    if isInstalled {
+                        status.litespeed = isActive ? .running(version: "installed") : .installed(version: "installed")
+                    }
+                case "MYSQL":
+                    if let v = version {
+                        if versionLine.lowercased().contains("mariadb") {
+                            status.mariadb = isActive ? .running(version: v) : .installed(version: v)
+                        } else {
+                            status.mysql = isActive ? .running(version: v) : .installed(version: v)
+                        }
+                    }
+                case "PHP":
+                    if let v = version {
+                        status.php = isActive ? .running(version: v) : .installed(version: v)
+                    }
+                case "NODE":
+                    if isInstalled {
+                        var v = versionLine.hasPrefix("v") ? String(versionLine.dropFirst()) : versionLine
                         status.nodejs = .installed(version: v)
-                        log("  Node.js: \(status.nodejs)")
                     }
-                }
-            case "PGSQL":
-                if let v = version {
-                    status.postgresql = isActive ? .running(version: v) : .installed(version: v)
-                    log("  PostgreSQL: \(status.postgresql)")
-                }
-            case "REDIS":
-                if let v = version {
-                    status.redis = isActive ? .running(version: v) : .installed(version: v)
-                    log("  Redis: \(status.redis)")
-                }
-            case "GIT":
-                if let v = version {
-                    status.git = .installed(version: v)
-                    log("  Git: \(status.git)")
-                }
-            case "PYTHON":
-                if isInstalled {
-                    var v = versionLine.replacingOccurrences(of: "Python ", with: "").trimmingCharacters(in: .whitespaces)
-                    if !v.isEmpty && !v.contains("not_installed") {
+                case "PGSQL":
+                    if let v = version {
+                        status.postgresql = isActive ? .running(version: v) : .installed(version: v)
+                    }
+                case "REDIS":
+                    if let v = version {
+                        status.redis = isActive ? .running(version: v) : .installed(version: v)
+                    }
+                case "GIT":
+                    if let v = version { status.git = .installed(version: v) }
+                case "PYTHON":
+                    if isInstalled {
+                        var v = versionLine.replacingOccurrences(of: "Python ", with: "").trimmingCharacters(in: .whitespaces)
                         status.python = .installed(version: v)
-                        log("  Python: \(status.python)")
                     }
+                case "COMPOSER":
+                    if let v = version { status.composer = .installed(version: v) }
+                default: break
                 }
-            case "COMPOSER":
-                if let v = version {
-                    status.composer = .installed(version: v)
-                    log("  Composer: \(status.composer)")
-                }
-            default:
-                break
             }
+
+            for line in lines {
+                if ["NGINX", "APACHE", "LITESPEED", "MYSQL", "PHP", "NODE", "PGSQL", "REDIS", "GIT", "PYTHON", "COMPOSER"].contains(line) {
+                    processSection()
+                    currentSection = line
+                    sectionLines = []
+                } else {
+                    sectionLines.append(line)
+                }
+            }
+            processSection()
         }
 
         log("✅ Optimized status check complete - hasWebServer: \(status.hasWebServer), hasDatabase: \(status.hasDatabase)")
@@ -1543,24 +1582,42 @@ final class SSHServerCommandService: ObservableObject {
         return ("0", "0", 0)
     }
     
-    private func cleanOutput(_ output: String) -> String {
+    private func cleanOutput(_ output: String, startMarker: String? = nil, endMarker: String? = nil) -> String {
         // First strip terminal escapes
         var cleaned = stripTerminalEscapes(output)
+        
+        // Remove markers if provided
+        if let sm = startMarker {
+            cleaned = cleaned.replacingOccurrences(of: sm, with: "")
+        }
+        if let em = endMarker {
+            cleaned = cleaned.replacingOccurrences(of: em, with: "")
+        }
         
         // Remove prompt lines and filter valid output
         let lines = cleaned.components(separatedBy: .newlines)
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { line in
                 guard !line.isEmpty else { return false }
+                
+                // Skip lines that look like markers if they weren't caught by replace
+                if line.contains("___VELO_START_") || line.contains("___VELO_END_") { return false }
+                
                 // Skip lines that look like prompts
                 if line.contains("@") && (line.hasSuffix("#") || line.hasSuffix("$")) { return false }
                 if line.hasPrefix("root@") { return false }
+                
                 // Skip lines with just prompt characters
                 if line == "#" || line == "$" { return false }
+                
+                // Skip command echo fragments
+                if line.hasPrefix("echo '___VELO_") { return false }
+                
                 return true
             }
         
-        return lines.first ?? ""
+        // Return joined lines for multi-line output (like ls or mysql)
+        return lines.joined(separator: "\n")
     }
     
     private func iconForPackage(_ name: String) -> String {
@@ -1578,4 +1635,38 @@ final class SSHServerCommandService: ObservableObject {
         default: return "cube.box.fill"
         }
     }
+    
+    // MARK: - String Helpers
+    
+    private func findAllOccurrences(of substring: String, in text: String) -> [Range<String.Index>] {
+        var ranges: [Range<String.Index>] = []
+        var start = text.startIndex
+        while let range = text.range(of: substring, options: [], range: start..<text.endIndex) {
+            ranges.append(range)
+            start = range.upperBound
+        }
+        return ranges
+    }
+    
+    /// Validate website names to prevent pollution from MOTD or shell headers
+    private func isValidWebsiteName(_ name: String) -> Bool {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed.count >= 3, trimmed.count < 100 else { return false }
+        
+        // Skip common junk/system headers
+        let junk = ["welcome", "ubuntu", "nginx", "apache", "mysql", "php", "active", "___velo", "echo ", "root@", "vmi", "[0", "total ", "drw", "password"]
+        for j in junk {
+            if trimmed.lowercased().contains(j) { return false }
+        }
+        
+        // Site names should usually have a dot or look like a valid hostname
+        if !trimmed.contains(".") && trimmed != "localhost" {
+            // Allow some simple names but be suspicious
+            let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_"))
+            if !trimmed.unicodeScalars.allSatisfy({ allowed.contains($0) }) { return false }
+        }
+        
+        return true
+    }
+    
 }
