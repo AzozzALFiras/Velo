@@ -37,7 +37,15 @@ struct SessionTabsBar: View {
             }
             
             Spacer()
-            
+
+            // SSH Server Management Button
+            // We use a dedicated view to ensure it observes the active session's state changes
+            if let activeId = activeSessionId,
+               let activeSession = sessions.first(where: { $0.id == activeId }) {
+                SSHAdminButton(session: activeSession)
+            }
+
+
             // New session button
             Button(action: onNewSession) {
                 Image(systemName: "plus")

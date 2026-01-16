@@ -98,6 +98,14 @@ final class TerminalViewModel: ObservableObject, Identifiable {
     @Published var showToast = false
     @Published var toastMessage = ""
     @Published var toastIsSuccess = true
+
+    // MARK: - Server Management (SSH High-Level UI)
+    @Published var showServerManagement = false
+    @Published var activeServerManagementTab: ServerManagementTab = .home
+
+    func toggleServerManagement() {
+        showServerManagement.toggle()
+    }
     
     func showSuccessToast(_ message: String) {
         toastMessage = message
