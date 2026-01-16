@@ -334,21 +334,41 @@ final class ServerManagementViewModel: ObservableObject {
         log("Found \(allDatabases.count) databases (mysql: \(serverStatus.mysql.isInstalled), pgsql: \(serverStatus.postgresql.isInstalled))")
     }
     
-    // MARK: - Server Management Actions
-    
-    func changeRootPassword(newPass: String) {
-        // Mock SSH command: "echo 'root:newPass' | chpasswd"
-        print("Changing root password to \(newPass)...")
+    // MARK: - Server Management Actions (Real SSH)
+
+    func changeRootPassword(newPass: String) async -> Bool {
+        guard let session = session else { return false }
+        log("Changing root password...")
+        return await sshService.changeRootPassword(newPassword: newPass, via: session)
     }
-    
-    func changeDBPassword(newPass: String) {
-        // Mock SQL command: "ALTER USER 'root'@'localhost' IDENTIFIED BY 'newPass';"
-        print("Changing DB password to \(newPass)...")
+
+    func changeDBPassword(newPass: String) async -> Bool {
+        guard let session = session else { return false }
+        log("Changing MySQL root password...")
+        return await sshService.changeMySQLRootPassword(newPassword: newPass, via: session)
     }
-    
-    func restartService(_ serviceName: String) {
-        // Mock SSH command: "systemctl restart \(serviceName)"
-        print("Restarting \(serviceName)...")
+
+    func restartService(_ serviceName: String) async -> Bool {
+        guard let session = session else { return false }
+        log("Restarting \(serviceName)...")
+        let success = await sshService.restartService(serviceName, via: session)
+        if success {
+            // Refresh server status to update UI
+            await refreshServerStatus()
+        }
+        return success
+    }
+
+    func stopService(_ serviceName: String) async -> Bool {
+        guard let session = session else { return false }
+        log("Stopping \(serviceName)...")
+        return await sshService.stopService(serviceName, via: session)
+    }
+
+    func startService(_ serviceName: String) async -> Bool {
+        guard let session = session else { return false }
+        log("Starting \(serviceName)...")
+        return await sshService.startService(serviceName, via: session)
     }
     
     // MARK: - Capability Management
@@ -410,43 +430,42 @@ final class ServerManagementViewModel: ObservableObject {
                 self.installProgress = 0.0
                 self.installLog = "> Installing stack: \(slugs.joined(separator: " + "))...\n"
             }
-            
+
             let totalSteps = Double(slugs.count)
-            
+
             for (index, slug) in slugs.enumerated() {
                 let progress = Double(index) / totalSteps
                 await MainActor.run {
                     self.installProgress = progress
                     self.currentInstallingCapability = slug.capitalized
                 }
-                
+
                 await appendLog("\n> [\(index + 1)/\(slugs.count)] Installing \(slug.capitalized)...")
-                
+
                 do {
                     // Fetch capability details
                     let capability = try await ApiService.shared.fetchCapabilityDetails(slug: slug)
-                    
+
                     // Get default version or first available version
                     guard let version = capability.defaultVersion?.version ?? capability.versions?.first?.version else {
                         await appendLog("⚠️ No versions available for \(slug), skipping...")
                         continue
                     }
-                    
+
                     // Get version details for installation command
                     let versionDetails = try await ApiService.shared.fetchCapabilityVersion(slug: slug, version: version)
-                    
-                    // Detect OS for installation command
+
                     // Detect OS for installation command
                     let osType = await detectServerOS()
-                    
+
                     guard let installCommand = getInstallCommand(from: versionDetails, os: osType) else {
                         await appendLog("⚠️ No \(osType) installation for \(slug).")
                         continue
                     }
-                    
+
                     await appendLog("> Executing: \(installCommand)")
                     log("Executing real SSH installation: \(installCommand)")
-                    
+
                     // Execute installation
                     if let session = session {
                         _ = await sshService.installPackage(installCommand, via: session) { output in
@@ -455,20 +474,56 @@ final class ServerManagementViewModel: ObservableObject {
                             }
                         }
                         await appendLog("✅ \(capability.name) installed successfully")
+
+                        // Enable and start the service immediately after installation
+                        await appendLog("> Enabling and starting \(slug) service...")
+                        await self.enableAndStartService(slug: slug, via: session)
                     }
-                    
+
                 } catch {
                     await appendLog("❌ Failed to install \(slug): \(error.localizedDescription)")
                 }
             }
-            
-            // Complete the stack installation
+
+            // Complete the stack installation - pass last slug for final refresh
             await MainActor.run {
                 self.installProgress = 1.0
                 self.installLog += "\n> Stack Installation Completed! ✅"
             }
-            
-            await completion(success: true)
+
+            // Final completion triggers status refresh
+            await completionForStack(success: true)
+        }
+    }
+
+    /// Completion handler specifically for stack installation (refreshes status without enabling single service)
+    @MainActor
+    private func completionForStack(success: Bool) {
+        self.isInstalling = false
+        if success {
+            log("✅ Stack installation completed successfully")
+
+            // Refresh server status to detect all newly installed software
+            Task {
+                try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
+
+                log("🔄 Refreshing server status after stack installation...")
+                if let session = self.session {
+                    let newStatus = await self.sshService.fetchServerStatusOptimized(via: session)
+                    await MainActor.run {
+                        self.serverStatus = newStatus
+                        self.updateInstalledSoftwareFromStatus()
+                        log("📌 Updated server status after stack install")
+                    }
+                }
+
+                await MainActor.run {
+                    self.showInstallOverlay = false
+                }
+            }
+        } else {
+            self.installLog += "\n> Stack Installation Failed! ❌"
+            log("❌ Stack installation failed")
         }
     }
     
@@ -480,35 +535,36 @@ final class ServerManagementViewModel: ObservableObject {
             self.installProgress = 0.0
             self.installLog = "> Initializing installation for \(capability.name) v\(version)...\n"
         }
-        
+
         do {
             // 1. Fetch Version Details
             await appendLog("> Fetching installation details from Velo API...")
             let versionDetail = try await ApiService.shared.fetchCapabilityVersion(slug: capability.slug, version: version)
-            
+
             // 2. Detect OS
             await appendLog("> Detecting server OS...")
             let osType = detectServerOS()
             await appendLog("> Detected OS: \(osType)")
-            
+
             // 3. Select Command
             guard let installCmd = getInstallCommand(from: versionDetail, os: osType) else {
                 await appendLog("> Error: No installation instruction found for \(osType).")
                 await completion(success: false)
                 return
             }
-            
+
             await appendLog("> Installation command prepared.")
             await appendLog("> Executing: \(installCmd)")
-            
+
             // 4. Execute Command via real SSH
             try await executeRealInstallation(command: installCmd)
-            
-            await completion(success: true)
-            
-            // 5. Refresh installed packages from server
+
+            // 5. Complete with slug so service can be enabled
+            await completion(success: true, installedSlug: capability.slug)
+
+            // 6. Refresh installed packages from server
             await fetchRealInstalledPackages()
-            
+
         } catch {
             await appendLog("> Error: \(error.localizedDescription)")
             await completion(success: false)
@@ -551,28 +607,37 @@ final class ServerManagementViewModel: ObservableObject {
     }
     
     @MainActor
-    private func completion(success: Bool) {
+    private func completion(success: Bool, installedSlug: String? = nil) {
         self.isInstalling = false
         if success {
             self.installLog += "\n> Installation Completed Successfully! ✅"
             self.installProgress = 1.0
             log("✅ Installation completed successfully")
-            
-            // Refresh server status to detect newly installed software
-            log("🔄 Refreshing server status after installation...")
+
+            // Enable and start services, then refresh status
             Task {
                 // Short delay to ensure installation is fully complete
-                try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
-                
-                // Refresh server status to update UI
+                try? await Task.sleep(nanoseconds: 2_000_000_000) // 2 seconds
+
+                // Enable and start the installed service
+                if let slug = installedSlug, let session = self.session {
+                    await MainActor.run {
+                        self.installLog += "\n> Enabling and starting \(slug) service...\n"
+                    }
+                    await self.enableAndStartService(slug: slug, via: session)
+                }
+
+                // Refresh server status to detect newly installed software
+                log("🔄 Refreshing server status after installation...")
                 if let session = self.session {
-                    let newStatus = await self.sshService.fetchServerStatus(via: session)
+                    let newStatus = await self.sshService.fetchServerStatusOptimized(via: session)
                     await MainActor.run {
                         self.serverStatus = newStatus
-                        log("📌 Updated server status - nginx: \(newStatus.nginx != .notInstalled), apache: \(newStatus.apache != .notInstalled)")
+                        self.updateInstalledSoftwareFromStatus()
+                        log("📌 Updated server status - nginx: \(newStatus.nginx), mysql: \(newStatus.mysql), php: \(newStatus.php)")
                     }
                 }
-                
+
                 // Hide overlay after refresh
                 await MainActor.run {
                     self.showInstallOverlay = false
@@ -581,6 +646,137 @@ final class ServerManagementViewModel: ObservableObject {
         } else {
             self.installLog += "\n> Installation Failed! ❌"
             log("❌ Installation failed")
+        }
+    }
+
+    /// Enable and start a service after installation
+    private func enableAndStartService(slug: String, via session: TerminalViewModel) async {
+        // Special handling for PHP since it has version-specific service names
+        if slug.lowercased() == "php" || slug.lowercased() == "php-fpm" {
+            await enablePHPFPMService(via: session)
+            return
+        }
+
+        let serviceName = getServiceName(for: slug)
+
+        guard !serviceName.isEmpty else {
+            log("⚠️ No service to enable for \(slug) (tools like git, node, python don't need service activation)")
+            await MainActor.run {
+                self.installLog += "> ℹ️ \(slug) doesn't require a system service\n"
+            }
+            return
+        }
+
+        log("🔧 Enabling and starting service: \(serviceName)")
+
+        // Enable the service to start on boot
+        let enableResult = await sshService.executeCommand("sudo systemctl enable \(serviceName) 2>&1", via: session, timeout: 30)
+        let enableOutput = enableResult.output.trimmingCharacters(in: .whitespacesAndNewlines)
+        await MainActor.run {
+            self.installLog += "> systemctl enable \(serviceName): \(enableOutput.isEmpty ? "OK" : enableOutput)\n"
+        }
+
+        // Start the service
+        let startResult = await sshService.executeCommand("sudo systemctl start \(serviceName) 2>&1", via: session, timeout: 30)
+        let startOutput = startResult.output.trimmingCharacters(in: .whitespacesAndNewlines)
+        await MainActor.run {
+            self.installLog += "> systemctl start \(serviceName): \(startOutput.isEmpty ? "OK" : startOutput)\n"
+        }
+
+        // Verify service is running
+        let statusResult = await sshService.executeCommand("systemctl is-active \(serviceName) 2>/dev/null", via: session, timeout: 10)
+        let isActive = statusResult.output.trimmingCharacters(in: .whitespacesAndNewlines) == "active"
+
+        await MainActor.run {
+            if isActive {
+                self.installLog += "> ✅ \(serviceName) is now running\n"
+            } else {
+                self.installLog += "> ⚠️ \(serviceName) may not be running (status: \(statusResult.output.trimmingCharacters(in: .whitespacesAndNewlines)))\n"
+            }
+        }
+
+        log(isActive ? "✅ Service \(serviceName) enabled and started" : "⚠️ Service \(serviceName) may have issues")
+    }
+
+    /// Map capability slug to systemd service name
+    private func getServiceName(for slug: String) -> String {
+        switch slug.lowercased() {
+        case "nginx":
+            return "nginx"
+        case "apache", "apache2":
+            return "apache2"
+        case "mysql":
+            return "mysql"
+        case "mariadb":
+            return "mariadb"
+        case "postgresql", "postgres":
+            return "postgresql"
+        case "redis":
+            return "redis-server"
+        case "php", "php-fpm":
+            // PHP-FPM service name varies by version - will be handled specially
+            return "php-fpm"
+        case "mongodb", "mongo":
+            return "mongod"
+        case "memcached":
+            return "memcached"
+        case "nodejs", "node":
+            // Node.js doesn't have a system service
+            return ""
+        case "python", "python3":
+            // Python doesn't have a system service
+            return ""
+        case "git":
+            // Git doesn't have a system service
+            return ""
+        case "composer":
+            // Composer doesn't have a system service
+            return ""
+        case "npm":
+            // NPM doesn't have a system service
+            return ""
+        default:
+            // For other services, try the slug as-is
+            return slug
+        }
+    }
+
+    /// Special handling for PHP-FPM service which has version-specific names
+    private func enablePHPFPMService(via session: TerminalViewModel) async {
+        log("🔧 Detecting and enabling PHP-FPM service...")
+
+        // Try to find PHP-FPM service - check common version patterns
+        let detectCmd = "systemctl list-units --type=service --all | grep -E 'php.*fpm' | head -1 | awk '{print $1}'"
+        let result = await sshService.executeCommand(detectCmd, via: session, timeout: 15)
+        let serviceName = result.output.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if !serviceName.isEmpty && serviceName.contains("php") {
+            log("Found PHP-FPM service: \(serviceName)")
+
+            // Enable and start
+            _ = await sshService.executeCommand("sudo systemctl enable \(serviceName) 2>&1", via: session, timeout: 30)
+            _ = await sshService.executeCommand("sudo systemctl start \(serviceName) 2>&1", via: session, timeout: 30)
+
+            let statusResult = await sshService.executeCommand("systemctl is-active \(serviceName) 2>/dev/null", via: session, timeout: 10)
+            let isActive = statusResult.output.trimmingCharacters(in: .whitespacesAndNewlines) == "active"
+
+            await MainActor.run {
+                self.installLog += "> \(isActive ? "✅" : "⚠️") PHP-FPM (\(serviceName)): \(isActive ? "running" : "not running")\n"
+            }
+        } else {
+            // Try common PHP-FPM service names
+            let commonNames = ["php8.3-fpm", "php8.2-fpm", "php8.1-fpm", "php8.0-fpm", "php7.4-fpm", "php-fpm"]
+            for name in commonNames {
+                let checkResult = await sshService.executeCommand("systemctl list-units --type=service --all | grep '\(name)'", via: session, timeout: 10)
+                if !checkResult.output.isEmpty {
+                    _ = await sshService.executeCommand("sudo systemctl enable \(name) && sudo systemctl start \(name)", via: session, timeout: 30)
+                    log("Enabled PHP-FPM service: \(name)")
+                    await MainActor.run {
+                        self.installLog += "> Enabled PHP-FPM: \(name)\n"
+                    }
+                    break
+                }
+            }
         }
     }
     
@@ -651,32 +847,114 @@ final class ServerManagementViewModel: ObservableObject {
         log("Loaded \(fetchedFiles.count) files")
     }
     
-    func deleteFile(_ file: ServerFileItem) {
-        securelyPerformAction(reason: "Confirm deletion of \(file.name)") {
+    /// Delete file with real SSH execution
+    func deleteFile(_ file: ServerFileItem) async -> Bool {
+        guard let session = session else { return false }
+
+        log("Deleting file: \(file.name) at \(currentPath)")
+
+        let success = await sshService.deleteFile(at: currentPath, name: file.name, isDirectory: file.isDirectory, via: session)
+
+        if success {
             withAnimation {
-                self.files.removeAll(where: { $0.id == file.id })
+                files.removeAll(where: { $0.id == file.id })
             }
+            log("File \(file.name) deleted successfully")
+        } else {
+            log("Failed to delete file \(file.name)")
         }
+
+        return success
     }
-    
-    func renameFile(_ file: ServerFileItem, to newName: String) {
-        if let index = files.firstIndex(where: { $0.id == file.id }) {
-            files[index].name = newName
+
+    /// Rename file with real SSH execution
+    func renameFile(_ file: ServerFileItem, to newName: String) async -> Bool {
+        guard let session = session else { return false }
+
+        log("Renaming file: \(file.name) to \(newName)")
+
+        let success = await sshService.renameFile(at: currentPath, from: file.name, to: newName, via: session)
+
+        if success {
+            if let index = files.firstIndex(where: { $0.id == file.id }) {
+                files[index].name = newName
+            }
+            log("File renamed successfully")
+        } else {
+            log("Failed to rename file")
         }
+
+        return success
     }
-    
+
     func downloadFile(_ file: ServerFileItem) {
-        // In a real app, this would trigger an SCP/SFTP pull
-        // For now, we simulate the action which will be confirmed by a Toast UI
+        // TODO: Implement SFTP download when SFTP support is added
+        // For now, we log the action
+        log("Download requested for: \(file.name)")
         print("Downloading \(file.name)...")
     }
-    
-    func updatePermissions(_ file: ServerFileItem, to newPerms: String) {
-        if let index = files.firstIndex(where: { $0.id == file.id }) {
-            withAnimation {
-                files[index].permissions = newPerms
+
+    /// Update file permissions with real SSH execution
+    func updatePermissions(_ file: ServerFileItem, to newPerms: String) async -> Bool {
+        guard let session = session else { return false }
+
+        log("Updating permissions for \(file.name) to \(newPerms)")
+
+        let success = await sshService.changePermissions(at: currentPath, name: file.name, permissions: newPerms, via: session)
+
+        if success {
+            if let index = files.firstIndex(where: { $0.id == file.id }) {
+                withAnimation {
+                    files[index].permissions = newPerms
+                }
             }
+            log("Permissions updated successfully")
+        } else {
+            log("Failed to update permissions")
         }
+
+        return success
+    }
+
+    /// Update file owner with real SSH execution
+    func updateOwner(_ file: ServerFileItem, to newOwner: String) async -> Bool {
+        guard let session = session else { return false }
+
+        log("Updating owner for \(file.name) to \(newOwner)")
+
+        let success = await sshService.changeOwner(at: currentPath, name: file.name, owner: newOwner, via: session)
+
+        if success {
+            if let index = files.firstIndex(where: { $0.id == file.id }) {
+                withAnimation {
+                    files[index].owner = newOwner
+                }
+            }
+            log("Owner updated successfully")
+        } else {
+            log("Failed to update owner")
+        }
+
+        return success
+    }
+
+    /// Create new directory with real SSH execution
+    func createDirectory(named name: String) async -> Bool {
+        guard let session = session else { return false }
+
+        log("Creating directory: \(name) at \(currentPath)")
+
+        let success = await sshService.createDirectory(at: currentPath, name: name, via: session)
+
+        if success {
+            // Refresh file list
+            await fetchRealFiles(at: currentPath)
+            log("Directory created successfully")
+        } else {
+            log("Failed to create directory")
+        }
+
+        return success
     }
     
     func startMockUpload(fileName: String) {
@@ -709,101 +987,267 @@ final class ServerManagementViewModel: ObservableObject {
         }
     }
     
-    // MARK: - Website Management
-    
+    // MARK: - Website Management (Real SSH)
+
     func addWebsite(_ website: Website) {
         if !websites.contains(where: { $0.id == website.id }) {
             websites.insert(website, at: 0)
-            print("Website \(website.domain) added.")
+            overviewCounts.sites = websites.count
+            log("Website \(website.domain) added to UI.")
         }
     }
-    
-    /// Create a real website on the server (Directory + Index)
+
+    /// Create a real website on the server with full web server configuration
     func createRealWebsite(domain: String, path: String, framework: String, port: Int) async throws {
         guard let session = session else {
             throw NSError(domain: "ServerMgmt", code: 1, userInfo: [NSLocalizedDescriptionKey: "No SSH session"])
         }
-        
-        let safePath = path.trimmingCharacters(in: .whitespacesAndNewlines)
-        
-        // 1. Create Directory
-        log("Creating website directory: \(safePath)")
-        _ = await sshService.executeCommand("mkdir -p \(safePath)", via: session)
-        
-        // 2. Set ownership (try www-data)
-        _ = await sshService.executeCommand("chown -R www-data:www-data \(safePath) 2>/dev/null || true", via: session)
-        _ = await sshService.executeCommand("chmod -R 755 \(safePath)", via: session)
-        
-        // 3. Create Default index.html (using base64 to avoid escaping issues)
-        log("Creating default index.html...")
-        let htmlContent = """
-        <!DOCTYPE html>
-        <html lang="en">
-        <head>
-            <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>Welcome to \(domain)</title>
-            <style>
-                body { margin: 0; padding: 0; font-family: system-ui, -apple-system, sans-serif; background: #0f172a; color: #fff; display: flex; align-items: center; justify-content: center; height: 100vh; }
-                .container { text-align: center; padding: 40px; background: #1e293b; border-radius: 16px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); border: 1px solid #334155; max-width: 400px; }
-                h1 { margin: 0 0 10px; font-size: 24px; font-weight: 700; }
-                p { color: #94a3b8; margin-bottom: 24px; }
-                .badge { display: inline-block; padding: 6px 12px; background: linear-gradient(135deg, #6366f1, #8b5cf6); color: white; border-radius: 20px; font-size: 12px; font-weight: 600; text-transform: uppercase; }
-            </style>
-        </head>
-        <body>
-            <div class="container">
-                <div class="badge">Created By Velo</div>
-                <h1 style="margin-top: 20px;">\(domain)</h1>
-                <p>Ready for content</p>
-                <div style="font-size: 12px; color: #64748b;">Coming Soon</div>
-            </div>
-        </body>
-        </html>
-        """
-        
-        if let data = htmlContent.data(using: .utf8) {
-            let base64 = data.base64EncodedString()
-            _ = await sshService.executeCommand("echo '\(base64)' | base64 --decode > \(safePath)/index.html", via: session)
+
+        // Validate and sanitize inputs
+        let safeDomain = domain.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        var safePath = path.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // Auto-generate path if empty or invalid
+        if safePath.isEmpty || safePath == "/var/www" {
+            safePath = "/var/www/\(safeDomain.replacingOccurrences(of: ".", with: "_"))"
         }
-        
+
+        // Ensure path starts with /
+        if !safePath.hasPrefix("/") {
+            safePath = "/\(safePath)"
+        }
+
+        log("Creating website: domain=\(safeDomain), path=\(safePath), framework=\(framework)")
+
+        // 1. Create Directory with proper permissions
+        _ = await sshService.executeCommand("sudo mkdir -p '\(safePath)'", via: session)
+        _ = await sshService.executeCommand("sudo chown -R www-data:www-data '\(safePath)' 2>/dev/null || sudo chown -R nginx:nginx '\(safePath)' 2>/dev/null || true", via: session)
+        _ = await sshService.executeCommand("sudo chmod -R 755 '\(safePath)'", via: session)
+
+        // 2. Create default index file based on framework
+        log("Creating default index file for \(framework)...")
+        await createDefaultIndexFile(at: safePath, domain: safeDomain, framework: framework)
+
+        // 3. Create web server configuration
+        var webServerUsed = "Static"
+
+        // Determine PHP version if needed
+        var phpVersion: String? = nil
+        if framework.lowercased().contains("php") {
+            // Get installed PHP versions and use the first one
+            let phpVersions = await sshService.fetchInstalledPHPVersions(via: session)
+            phpVersion = phpVersions.first ?? serverStatus.php.version
+        }
+
+        // Create Nginx or Apache config based on what's installed
+        if serverStatus.nginx.isInstalled {
+            let success = await sshService.createNginxSite(domain: safeDomain, path: safePath, port: port, phpVersion: phpVersion, via: session)
+            if success {
+                webServerUsed = "Nginx"
+                log("✅ Nginx site created")
+            } else {
+                log("⚠️ Nginx config failed, site may not work properly")
+            }
+        } else if serverStatus.apache.isInstalled {
+            let success = await sshService.createApacheSite(domain: safeDomain, path: safePath, port: port, via: session)
+            if success {
+                webServerUsed = "Apache"
+                log("✅ Apache site created")
+            } else {
+                log("⚠️ Apache config failed, site may not work properly")
+            }
+        }
+
         // 4. Update local state
         let newSite = Website(
             id: UUID(),
-            domain: domain,
+            domain: safeDomain,
             path: safePath,
             status: .running,
             port: port,
-            framework: framework
+            framework: "\(framework) (\(webServerUsed))"
         )
-        
+
         await MainActor.run {
             self.addWebsite(newSite)
         }
+
+        // 5. Refresh websites list to verify
+        await fetchRealWebsites()
+
+        log("✅ Website \(safeDomain) created successfully")
     }
-    
+
+    /// Create default index file based on framework
+    private func createDefaultIndexFile(at path: String, domain: String, framework: String) async {
+        guard let session = session else { return }
+
+        let fileName: String
+        let content: String
+
+        if framework.lowercased().contains("php") {
+            fileName = "index.php"
+            content = """
+            <?php
+            // Created by Velo Server Management
+            ?>
+            <!DOCTYPE html>
+            <html lang="en">
+            <head>
+                <meta charset="UTF-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                <title>Welcome to \(domain)</title>
+                <style>
+                    body { margin: 0; padding: 0; font-family: system-ui, -apple-system, sans-serif; background: #0f172a; color: #fff; display: flex; align-items: center; justify-content: center; height: 100vh; }
+                    .container { text-align: center; padding: 40px; background: #1e293b; border-radius: 16px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); border: 1px solid #334155; max-width: 400px; }
+                    h1 { margin: 0 0 10px; font-size: 24px; font-weight: 700; }
+                    p { color: #94a3b8; margin-bottom: 24px; }
+                    .badge { display: inline-block; padding: 6px 12px; background: linear-gradient(135deg, #6366f1, #8b5cf6); color: white; border-radius: 20px; font-size: 12px; font-weight: 600; text-transform: uppercase; }
+                    .info { background: #334155; padding: 12px; border-radius: 8px; margin-top: 20px; font-size: 12px; }
+                </style>
+            </head>
+            <body>
+                <div class="container">
+                    <div class="badge">Created By Velo</div>
+                    <h1 style="margin-top: 20px;">\(domain)</h1>
+                    <p>PHP <?php echo phpversion(); ?> is running</p>
+                    <div class="info">Server: <?php echo $_SERVER['SERVER_SOFTWARE'] ?? 'N/A'; ?></div>
+                </div>
+            </body>
+            </html>
+            """
+        } else {
+            fileName = "index.html"
+            content = """
+            <!DOCTYPE html>
+            <html lang="en">
+            <head>
+                <meta charset="UTF-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                <title>Welcome to \(domain)</title>
+                <style>
+                    body { margin: 0; padding: 0; font-family: system-ui, -apple-system, sans-serif; background: #0f172a; color: #fff; display: flex; align-items: center; justify-content: center; height: 100vh; }
+                    .container { text-align: center; padding: 40px; background: #1e293b; border-radius: 16px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); border: 1px solid #334155; max-width: 400px; }
+                    h1 { margin: 0 0 10px; font-size: 24px; font-weight: 700; }
+                    p { color: #94a3b8; margin-bottom: 24px; }
+                    .badge { display: inline-block; padding: 6px 12px; background: linear-gradient(135deg, #6366f1, #8b5cf6); color: white; border-radius: 20px; font-size: 12px; font-weight: 600; text-transform: uppercase; }
+                </style>
+            </head>
+            <body>
+                <div class="container">
+                    <div class="badge">Created By Velo</div>
+                    <h1 style="margin-top: 20px;">\(domain)</h1>
+                    <p>Ready for content</p>
+                    <div style="font-size: 12px; color: #64748b;">Coming Soon</div>
+                </div>
+            </body>
+            </html>
+            """
+        }
+
+        if let data = content.data(using: .utf8) {
+            let base64 = data.base64EncodedString()
+            _ = await sshService.executeCommand("echo '\(base64)' | base64 --decode | sudo tee '\(path)/\(fileName)' > /dev/null", via: session)
+        }
+    }
+
     /// Helper for file picker
     func fetchFilesForPicker(path: String) async -> [ServerFileItem] {
         guard let session = session else { return [] }
         return await sshService.fetchFiles(at: path, via: session)
     }
-    
+
     func updateWebsite(_ website: Website) {
         if let index = websites.firstIndex(where: { $0.id == website.id }) {
             websites[index] = website
-            print("Website \(website.domain) updated.")
+            log("Website \(website.domain) updated.")
         }
     }
-    
-    func toggleWebsiteStatus(_ website: Website) {
+
+    /// Toggle website status (start/stop the associated web server service for this site)
+    func toggleWebsiteStatus(_ website: Website) async {
+        guard let session = session else { return }
+
+        let newStatus: Website.WebsiteStatus = website.status == .running ? .stopped : .running
+
+        // Determine web server from framework
+        let webServer = website.framework.lowercased().contains("nginx") ? "nginx" :
+                        website.framework.lowercased().contains("apache") ? "apache2" : nil
+
+        if let service = webServer {
+            if newStatus == .stopped {
+                // For individual site control, we disable the site config instead of stopping the whole server
+                if service == "nginx" {
+                    _ = await sshService.executeCommand("sudo rm -f /etc/nginx/sites-enabled/\(website.domain) && sudo systemctl reload nginx", via: session)
+                } else {
+                    _ = await sshService.executeCommand("sudo a2dissite \(website.domain).conf && sudo systemctl reload apache2", via: session)
+                }
+            } else {
+                // Re-enable the site
+                if service == "nginx" {
+                    _ = await sshService.executeCommand("sudo ln -sf /etc/nginx/sites-available/\(website.domain) /etc/nginx/sites-enabled/ && sudo systemctl reload nginx", via: session)
+                } else {
+                    _ = await sshService.executeCommand("sudo a2ensite \(website.domain).conf && sudo systemctl reload apache2", via: session)
+                }
+            }
+        }
+
+        // Update local state
         if let index = websites.firstIndex(where: { $0.id == website.id }) {
-            websites[index].status = websites[index].status == .running ? .stopped : .running
+            websites[index].status = newStatus
+            log("Website \(website.domain) status changed to \(newStatus)")
         }
     }
-    
-    func deleteWebsite(_ website: Website) {
-        websites.removeAll { $0.id == website.id }
-        print("Website \(website.domain) deleted.")
+
+    /// Restart website (reload web server config)
+    func restartWebsite(_ website: Website) async {
+        guard let session = session else { return }
+
+        let webServer = website.framework.lowercased().contains("nginx") ? "nginx" :
+                        website.framework.lowercased().contains("apache") ? "apache2" : nil
+
+        if let service = webServer {
+            _ = await sshService.restartService(service, via: session)
+            log("Website \(website.domain) restarted via \(service)")
+        }
+    }
+
+    /// Delete website with real SSH execution
+    func deleteWebsite(_ website: Website, deleteFiles: Bool = false) async {
+        guard let session = session else { return }
+
+        let webServer = website.framework.lowercased().contains("nginx") ? "nginx" :
+                        website.framework.lowercased().contains("apache") ? "apache" : "nginx" // Default to nginx
+
+        // Delete via SSH
+        let success = await sshService.deleteWebsite(
+            domain: website.domain,
+            path: website.path,
+            deleteFiles: deleteFiles,
+            webServer: webServer,
+            via: session
+        )
+
+        if success {
+            // Update local state
+            websites.removeAll { $0.id == website.id }
+            overviewCounts.sites = websites.count
+            log("Website \(website.domain) deleted successfully")
+        } else {
+            log("Failed to delete website \(website.domain)")
+        }
+    }
+
+    /// Get list of installed PHP versions for website configuration
+    func fetchInstalledPHPVersions() async -> [String] {
+        guard let session = session else { return [] }
+        return await sshService.fetchInstalledPHPVersions(via: session)
+    }
+
+    /// Switch PHP version for a website
+    func switchPHPVersion(forWebsite website: Website, toVersion version: String) async -> Bool {
+        guard let session = session else { return false }
+        return await sshService.switchPHPVersion(forDomain: website.domain, toVersion: version, via: session)
     }
     
     // MARK: - Secure Actions
@@ -814,23 +1258,87 @@ final class ServerManagementViewModel: ObservableObject {
         }
     }
     
-    // MARK: - Database Management
-    
+    // MARK: - Database Management (Real SSH)
+
     func addDatabase(_ database: Database) {
         databases.insert(database, at: 0)
-        print("Database \(database.name) added.")
+        overviewCounts.databases = databases.count
+        log("Database \(database.name) added to UI.")
     }
-    
+
+    /// Create a real database on the server
+    func createRealDatabase(name: String, type: Database.DatabaseType, username: String?, password: String?) async -> Bool {
+        guard let session = session else { return false }
+
+        log("Creating \(type.rawValue) database: \(name)")
+
+        var success = false
+
+        switch type {
+        case .mysql:
+            success = await sshService.createMySQLDatabase(name: name, username: username, password: password, via: session)
+        case .postgres:
+            success = await sshService.createPostgreSQLDatabase(name: name, username: username, password: password, via: session)
+        case .redis, .mongo:
+            // Redis and MongoDB don't have traditional "create database" semantics
+            log("⚠️ \(type.rawValue) databases are created on first use")
+            success = true
+        }
+
+        if success {
+            let newDb = Database(
+                name: name,
+                type: type,
+                username: username,
+                password: password,
+                sizeBytes: 0,
+                status: .active
+            )
+            await MainActor.run {
+                self.addDatabase(newDb)
+            }
+
+            // Refresh database list
+            await fetchRealDatabases()
+        }
+
+        return success
+    }
+
     func updateDatabase(_ database: Database) {
         if let index = databases.firstIndex(where: { $0.id == database.id }) {
             databases[index] = database
-            print("Database \(database.name) updated.")
+            log("Database \(database.name) updated.")
         }
     }
-    
-    func deleteDatabase(_ database: Database) {
-        databases.removeAll { $0.id == database.id }
-        print("Database \(database.name) deleted.")
+
+    /// Delete a database with real SSH execution
+    func deleteDatabase(_ database: Database) async {
+        guard let session = session else { return }
+
+        log("Deleting database: \(database.name)")
+
+        let success = await sshService.deleteDatabase(name: database.name, type: database.type.rawValue, via: session)
+
+        if success {
+            databases.removeAll { $0.id == database.id }
+            overviewCounts.databases = databases.count
+            log("Database \(database.name) deleted successfully")
+        } else {
+            log("Failed to delete database \(database.name)")
+        }
+    }
+
+    /// Backup a database
+    func backupDatabase(_ database: Database) async -> String? {
+        guard let session = session else { return nil }
+
+        if database.type == .mysql {
+            return await sshService.backupMySQLDatabase(name: database.name, via: session)
+        }
+
+        log("⚠️ Backup not implemented for \(database.type.rawValue)")
+        return nil
     }
     
     // MARK: - Private
@@ -867,16 +1375,183 @@ final class ServerManagementViewModel: ObservableObject {
         return nil
     }
     
-    /// Start periodic stats refresh (real SSH)
+    /// Start periodic stats refresh (real SSH - optimized)
     func startLiveUpdates() {
-        log("Starting periodic stats refresh...")
-        Timer.scheduledTimer(withTimeInterval: 10.0, repeats: true) { [weak self] _ in
+        log("Starting periodic stats refresh (optimized)...")
+        Timer.scheduledTimer(withTimeInterval: 15.0, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
-                guard let self = self, let _ = self.session else { return }
-                
-                // Only refresh stats (lightweight)
-                await self.fetchRealServerStats()
+                guard let self = self, let session = self.session else { return }
+
+                // Use optimized batch command for stats (single SSH call)
+                let parsedStats = await self.sshService.fetchAllStatsOptimized(via: session)
+
+                // Update published properties
+                self.stats = ServerStats(
+                    cpuUsage: parsedStats.cpuUsage,
+                    ramUsage: parsedStats.ramUsage,
+                    diskUsage: parsedStats.diskUsage,
+                    uptime: 0,
+                    isOnline: true,
+                    osName: parsedStats.osName,
+                    ipAddress: parsedStats.ipAddress
+                )
+
+                self.serverHostname = parsedStats.hostname
+                self.serverIP = parsedStats.ipAddress
+                self.serverOS = parsedStats.osName
+                self.serverUptime = parsedStats.uptime
+                self.cpuUsage = Int(parsedStats.cpuUsage * 100)
+                self.ramUsage = Int(parsedStats.ramUsage * 100)
+                self.diskUsage = Int(parsedStats.diskUsage * 100)
+
+                // Update history
+                let now = Date()
+                self.cpuHistory.append(HistoryPoint(date: now, value: parsedStats.cpuUsage))
+                self.ramHistory.append(HistoryPoint(date: now, value: parsedStats.ramUsage))
+                if self.cpuHistory.count > 20 { self.cpuHistory.removeFirst() }
+                if self.ramHistory.count > 20 { self.ramHistory.removeFirst() }
+
+                // Update traffic history periodically
+                await self.fetchTrafficStats()
             }
         }
+    }
+
+    // MARK: - Domain Management (Real SSH)
+
+    /// Published property for configured domains
+    @Published var configuredDomains: [String] = []
+
+    /// Fetch all configured domains from web servers
+    func fetchConfiguredDomains() async {
+        guard let session = session else { return }
+        log("Fetching configured domains...")
+        configuredDomains = await sshService.fetchConfiguredDomains(via: session)
+    }
+
+    /// Add a domain alias to an existing website
+    func addDomainAlias(toWebsite website: Website, aliasDomain: String) async -> Bool {
+        guard let session = session else { return false }
+
+        let webServer = website.framework.lowercased().contains("nginx") ? "nginx" :
+                        website.framework.lowercased().contains("apache") ? "apache" : "nginx"
+
+        let success = await sshService.addDomainAlias(
+            mainDomain: website.domain,
+            aliasDomain: aliasDomain,
+            webServer: webServer,
+            via: session
+        )
+
+        if success {
+            // Refresh domains list
+            await fetchConfiguredDomains()
+        }
+
+        return success
+    }
+
+    // MARK: - Network Traffic Stats
+
+    /// Fetch network traffic and add to history
+    func fetchTrafficStats() async {
+        guard let session = session else { return }
+
+        let (rx, tx) = await sshService.fetchNetworkStats(via: session)
+
+        // Convert bytes to KB
+        let rxKB = Double(rx) / 1024.0
+        let txKB = Double(tx) / 1024.0
+
+        // Only add if we have meaningful data
+        if rx > 0 || tx > 0 {
+            let point = TrafficPoint(
+                timestamp: Date(),
+                upstreamKB: txKB / 1000, // Convert to reasonable scale
+                downstreamKB: rxKB / 1000
+            )
+
+            await MainActor.run {
+                self.trafficHistory.append(point)
+                // Keep last 30 points
+                if self.trafficHistory.count > 30 {
+                    self.trafficHistory.removeFirst()
+                }
+            }
+        }
+    }
+
+    // MARK: - Optimized Data Loading
+
+    /// Load all data using optimized batch commands (faster, less server load)
+    func loadAllDataOptimized() async {
+        guard let session = session else {
+            log("❌ No SSH session available")
+            return
+        }
+
+        guard !dataLoadedOnce else {
+            log("Data already loaded, skipping...")
+            return
+        }
+
+        log("🚀 Loading all server data (optimized)...")
+        isLoading = true
+
+        // STEP 1: Load server status using optimized batch command
+        log("📌 Step 1: Checking server software status (optimized)...")
+        isLoadingServerStatus = true
+        serverStatus = await sshService.fetchServerStatusOptimized(via: session)
+        isLoadingServerStatus = false
+
+        // STEP 2: Load stats using optimized batch command
+        log("📌 Step 2: Loading server stats (optimized)...")
+        let parsedStats = await sshService.fetchAllStatsOptimized(via: session)
+
+        self.stats = ServerStats(
+            cpuUsage: parsedStats.cpuUsage,
+            ramUsage: parsedStats.ramUsage,
+            diskUsage: parsedStats.diskUsage,
+            uptime: 0,
+            isOnline: true,
+            osName: parsedStats.osName,
+            ipAddress: parsedStats.ipAddress
+        )
+
+        self.serverHostname = parsedStats.hostname
+        self.serverIP = parsedStats.ipAddress
+        self.serverOS = parsedStats.osName
+        self.serverUptime = parsedStats.uptime
+        self.cpuUsage = Int(parsedStats.cpuUsage * 100)
+        self.ramUsage = Int(parsedStats.ramUsage * 100)
+        self.diskUsage = Int(parsedStats.diskUsage * 100)
+
+        // STEP 3: Load dependent data
+        log("📌 Step 3: Loading websites and databases...")
+
+        if serverStatus.hasWebServer {
+            await fetchRealWebsites()
+        } else {
+            websites = []
+        }
+
+        if serverStatus.hasDatabase {
+            await fetchRealDatabases()
+        } else {
+            databases = []
+        }
+
+        // STEP 4: Files
+        await fetchRealFiles(at: currentPath)
+
+        // Update installed software from status
+        updateInstalledSoftwareFromStatus()
+
+        dataLoadedOnce = true
+        isLoading = false
+        log("✅ All data loaded successfully (optimized)")
+
+        // Start optimized periodic refresh
+        startLiveUpdates()
     }
 }

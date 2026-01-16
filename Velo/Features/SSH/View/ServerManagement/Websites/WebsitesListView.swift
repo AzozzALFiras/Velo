@@ -57,17 +57,29 @@ struct WebsitesListView: View {
         }
         .alert("Delete Website", isPresented: $showingDeleteAlert) {
             Button("Cancel", role: .cancel) { websiteToDelete = nil }
-            Button("Delete", role: .destructive) {
+            Button("Delete Config Only", role: .destructive) {
                 if let website = websiteToDelete {
                     viewModel.securelyPerformAction(reason: "Confirm website deletion") {
-                        viewModel.deleteWebsite(website)
+                        Task {
+                            await viewModel.deleteWebsite(website, deleteFiles: false)
+                        }
+                    }
+                }
+                websiteToDelete = nil
+            }
+            Button("Delete All (with files)", role: .destructive) {
+                if let website = websiteToDelete {
+                    viewModel.securelyPerformAction(reason: "Confirm website and files deletion") {
+                        Task {
+                            await viewModel.deleteWebsite(website, deleteFiles: true)
+                        }
                     }
                 }
                 websiteToDelete = nil
             }
         } message: {
             if let website = websiteToDelete {
-                Text("Are you sure you want to delete \(website.domain)? This action cannot be undone.")
+                Text("Delete \(website.domain)?\n\n• Delete Config Only: Removes web server config but keeps files\n• Delete All: Removes config AND website files at \(website.path)")
             }
         }
         .alert("Authentication Error", isPresented: $showingErrorAlert) {
@@ -170,7 +182,13 @@ struct WebsitesListView: View {
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 340), spacing: 16)], spacing: 16) {
                         ForEach(filteredWebsites) { website in
                             WebsiteCard(website: website, onToggleStatus: {
-                                viewModel.toggleWebsiteStatus(website)
+                                Task {
+                                    await viewModel.toggleWebsiteStatus(website)
+                                }
+                            }, onRestart: {
+                                Task {
+                                    await viewModel.restartWebsite(website)
+                                }
                             }, onOpenDetails: {
                                 selectedWebsite = website
                             }, onEdit: {
@@ -494,9 +512,10 @@ private struct FilterPill: View {
 // MARK: - Website Card
 
 private struct WebsiteCard: View {
-    
+
     let website: Website
     let onToggleStatus: () -> Void
+    let onRestart: () -> Void
     let onOpenDetails: () -> Void
     let onEdit: () -> Void
     let onDelete: () -> Void
@@ -567,8 +586,10 @@ private struct WebsiteCard: View {
                 ) {
                     onToggleStatus()
                 }
-                
-                ActionButton(title: "Restart", icon: "arrow.clockwise", color: .blue) {}
+
+                ActionButton(title: "Restart", icon: "arrow.clockwise", color: .blue) {
+                    onRestart()
+                }
                 
                 ActionButton(title: "Edit", icon: "pencil", color: .orange) {
                     onEdit()

@@ -29,9 +29,9 @@ struct ServerManagementView: View {
         .frame(minWidth: 800, maxWidth: .infinity, minHeight: 600, maxHeight: .infinity)
         .background(ColorTokens.layer0)
         .onAppear {
-            // Load real data when view appears
+            // Load real data when view appears using optimized batch commands
             Task {
-                await viewModel.loadAllData()
+                await viewModel.loadAllDataOptimized()
             }
         }
     }

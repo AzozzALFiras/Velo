@@ -842,22 +842,22 @@ final class SSHServerCommandService: ObservableObject {
     }
     
     // MARK: - Install Package
-    
+
     /// Install a package via apt/yum with streaming output
     func installPackage(_ command: String, via session: TerminalViewModel, onOutput: @escaping (String) -> Void) async -> Bool {
         log("Installing package: \(command)")
-        
+
         // Send the install command
         session.terminalEngine.sendInput("\(command)\n")
-        
+
         // Stream output
         var lastLineCount = session.outputLines.count
         var attempts = 0
         let maxAttempts = 600 // 60 seconds max for installation
-        
+
         while attempts < maxAttempts {
             try? await Task.sleep(nanoseconds: 100_000_000) // 100ms
-            
+
             // Check for new lines
             if session.outputLines.count > lastLineCount {
                 let newLines = session.outputLines.dropFirst(lastLineCount)
@@ -866,18 +866,647 @@ final class SSHServerCommandService: ObservableObject {
                 }
                 lastLineCount = session.outputLines.count
             }
-            
+
             // Check if command completed (prompt returned)
             if let lastLine = session.outputLines.last?.text,
                (lastLine.contains("#") || lastLine.contains("$")) && attempts > 10 {
                 break
             }
-            
+
             attempts += 1
         }
-        
+
         log("Installation completed")
         return true
+    }
+
+    // MARK: - Website Management (Real SSH)
+
+    /// Create Nginx virtual host configuration
+    func createNginxSite(domain: String, path: String, port: Int, phpVersion: String?, via session: TerminalViewModel) async -> Bool {
+        log("Creating Nginx site for \(domain)")
+
+        // Build Nginx config
+        var config = """
+        server {
+            listen 80;
+            listen [::]:80;
+
+            server_name \(domain) www.\(domain);
+            root \(path);
+            index index.html index.htm index.php;
+
+            location / {
+                try_files $uri $uri/ =404;
+            }
+        """
+
+        // Add PHP support if version specified
+        if let php = phpVersion {
+            config += """
+
+
+            location ~ \\.php$ {
+                include snippets/fastcgi-php.conf;
+                fastcgi_pass unix:/var/run/php/php\(php)-fpm.sock;
+            }
+
+            location ~ /\\.ht {
+                deny all;
+            }
+        """
+        }
+
+        config += "\n}"
+
+        // Create config file using base64 to avoid escaping issues
+        if let data = config.data(using: .utf8) {
+            let base64 = data.base64EncodedString()
+            let configPath = "/etc/nginx/sites-available/\(domain)"
+
+            // Write config file
+            _ = await executeCommand("echo '\(base64)' | base64 --decode | sudo tee \(configPath) > /dev/null", via: session, timeout: 15)
+
+            // Enable site (create symlink)
+            _ = await executeCommand("sudo ln -sf \(configPath) /etc/nginx/sites-enabled/\(domain)", via: session, timeout: 10)
+
+            // Test nginx configuration
+            let testResult = await executeCommand("sudo nginx -t 2>&1", via: session, timeout: 15)
+            if cleanOutput(testResult.output).contains("successful") || cleanOutput(testResult.output).contains("ok") {
+                // Reload nginx
+                _ = await executeCommand("sudo systemctl reload nginx", via: session, timeout: 15)
+                log("✅ Nginx site \(domain) created and enabled")
+                return true
+            } else {
+                log("❌ Nginx config test failed: \(testResult.output)")
+                // Rollback - remove bad config
+                _ = await executeCommand("sudo rm -f /etc/nginx/sites-enabled/\(domain) /etc/nginx/sites-available/\(domain)", via: session, timeout: 10)
+                return false
+            }
+        }
+        return false
+    }
+
+    /// Create Apache virtual host configuration
+    func createApacheSite(domain: String, path: String, port: Int, via session: TerminalViewModel) async -> Bool {
+        log("Creating Apache site for \(domain)")
+
+        let config = """
+        <VirtualHost *:\(port)>
+            ServerName \(domain)
+            ServerAlias www.\(domain)
+            DocumentRoot \(path)
+
+            <Directory \(path)>
+                Options Indexes FollowSymLinks
+                AllowOverride All
+                Require all granted
+            </Directory>
+
+            ErrorLog ${APACHE_LOG_DIR}/\(domain)_error.log
+            CustomLog ${APACHE_LOG_DIR}/\(domain)_access.log combined
+        </VirtualHost>
+        """
+
+        if let data = config.data(using: .utf8) {
+            let base64 = data.base64EncodedString()
+            let configPath = "/etc/apache2/sites-available/\(domain).conf"
+
+            // Write config file
+            _ = await executeCommand("echo '\(base64)' | base64 --decode | sudo tee \(configPath) > /dev/null", via: session, timeout: 15)
+
+            // Enable site
+            _ = await executeCommand("sudo a2ensite \(domain).conf", via: session, timeout: 15)
+
+            // Test apache configuration
+            let testResult = await executeCommand("sudo apache2ctl configtest 2>&1", via: session, timeout: 15)
+            if cleanOutput(testResult.output).contains("Syntax OK") || testResult.output.isEmpty {
+                // Reload apache
+                _ = await executeCommand("sudo systemctl reload apache2", via: session, timeout: 15)
+                log("✅ Apache site \(domain) created and enabled")
+                return true
+            } else {
+                log("❌ Apache config test failed: \(testResult.output)")
+                // Rollback
+                _ = await executeCommand("sudo a2dissite \(domain).conf && sudo rm -f \(configPath)", via: session, timeout: 10)
+                return false
+            }
+        }
+        return false
+    }
+
+    /// Delete website (Nginx or Apache)
+    func deleteWebsite(domain: String, path: String?, deleteFiles: Bool, webServer: String, via session: TerminalViewModel) async -> Bool {
+        log("Deleting website \(domain) from \(webServer)")
+
+        if webServer.lowercased() == "nginx" {
+            // Disable and remove Nginx site
+            _ = await executeCommand("sudo rm -f /etc/nginx/sites-enabled/\(domain)", via: session, timeout: 10)
+            _ = await executeCommand("sudo rm -f /etc/nginx/sites-available/\(domain)", via: session, timeout: 10)
+            _ = await executeCommand("sudo systemctl reload nginx", via: session, timeout: 15)
+        } else if webServer.lowercased() == "apache" {
+            // Disable and remove Apache site
+            _ = await executeCommand("sudo a2dissite \(domain).conf 2>/dev/null || true", via: session, timeout: 15)
+            _ = await executeCommand("sudo rm -f /etc/apache2/sites-available/\(domain).conf", via: session, timeout: 10)
+            _ = await executeCommand("sudo systemctl reload apache2", via: session, timeout: 15)
+        }
+
+        // Optionally delete files
+        if deleteFiles, let sitePath = path, !sitePath.isEmpty && sitePath != "/" && sitePath != "/var" && sitePath != "/var/www" {
+            _ = await executeCommand("sudo rm -rf '\(sitePath)'", via: session, timeout: 30)
+            log("Deleted website files at \(sitePath)")
+        }
+
+        log("✅ Website \(domain) deleted")
+        return true
+    }
+
+    /// Restart web server service
+    func restartWebService(_ service: String, via session: TerminalViewModel) async -> Bool {
+        log("Restarting \(service)...")
+        let result = await executeCommand("sudo systemctl restart \(service)", via: session, timeout: 30)
+
+        // Verify service is running
+        let statusResult = await executeCommand("systemctl is-active \(service) 2>/dev/null", via: session, timeout: 10)
+        let isActive = cleanOutput(statusResult.output) == "active"
+
+        if isActive {
+            log("✅ \(service) restarted successfully")
+        } else {
+            log("❌ \(service) restart may have failed")
+        }
+        return isActive
+    }
+
+    // MARK: - Database Management (Real SSH)
+
+    /// Create MySQL/MariaDB database
+    func createMySQLDatabase(name: String, username: String?, password: String?, via session: TerminalViewModel) async -> Bool {
+        log("Creating MySQL database: \(name)")
+
+        // Create database
+        let createDbResult = await executeCommand("sudo mysql -e \"CREATE DATABASE IF NOT EXISTS \(name);\"", via: session, timeout: 15)
+
+        // Create user if provided
+        if let user = username, !user.isEmpty, let pass = password, !pass.isEmpty {
+            _ = await executeCommand("sudo mysql -e \"CREATE USER IF NOT EXISTS '\(user)'@'localhost' IDENTIFIED BY '\(pass)';\"", via: session, timeout: 15)
+            _ = await executeCommand("sudo mysql -e \"GRANT ALL PRIVILEGES ON \(name).* TO '\(user)'@'localhost';\"", via: session, timeout: 15)
+            _ = await executeCommand("sudo mysql -e \"FLUSH PRIVILEGES;\"", via: session, timeout: 10)
+        }
+
+        log("✅ MySQL database \(name) created")
+        return true
+    }
+
+    /// Create PostgreSQL database
+    func createPostgreSQLDatabase(name: String, username: String?, password: String?, via session: TerminalViewModel) async -> Bool {
+        log("Creating PostgreSQL database: \(name)")
+
+        // Create database
+        _ = await executeCommand("sudo -u postgres createdb \(name) 2>/dev/null || true", via: session, timeout: 15)
+
+        // Create user if provided
+        if let user = username, !user.isEmpty, let pass = password, !pass.isEmpty {
+            _ = await executeCommand("sudo -u postgres psql -c \"CREATE USER \(user) WITH PASSWORD '\(pass)';\" 2>/dev/null || true", via: session, timeout: 15)
+            _ = await executeCommand("sudo -u postgres psql -c \"GRANT ALL PRIVILEGES ON DATABASE \(name) TO \(user);\"", via: session, timeout: 15)
+        }
+
+        log("✅ PostgreSQL database \(name) created")
+        return true
+    }
+
+    /// Delete database (MySQL or PostgreSQL)
+    func deleteDatabase(name: String, type: String, via session: TerminalViewModel) async -> Bool {
+        log("Deleting \(type) database: \(name)")
+
+        if type.lowercased().contains("mysql") || type.lowercased().contains("mariadb") {
+            _ = await executeCommand("sudo mysql -e \"DROP DATABASE IF EXISTS \(name);\"", via: session, timeout: 15)
+        } else if type.lowercased().contains("postgres") {
+            _ = await executeCommand("sudo -u postgres dropdb \(name) 2>/dev/null || true", via: session, timeout: 15)
+        }
+
+        log("✅ Database \(name) deleted")
+        return true
+    }
+
+    /// Backup MySQL database
+    func backupMySQLDatabase(name: String, via session: TerminalViewModel) async -> String? {
+        log("Backing up MySQL database: \(name)")
+
+        let timestamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
+        let backupPath = "/tmp/\(name)_\(timestamp).sql"
+
+        let result = await executeCommand("sudo mysqldump \(name) > '\(backupPath)' 2>/dev/null && echo 'SUCCESS'", via: session, timeout: 120)
+
+        if cleanOutput(result.output).contains("SUCCESS") {
+            log("✅ Database backup saved to \(backupPath)")
+            return backupPath
+        }
+        log("❌ Database backup failed")
+        return nil
+    }
+
+    // MARK: - File Operations (Real SSH)
+
+    /// Rename file on server
+    func renameFile(at path: String, from oldName: String, to newName: String, via session: TerminalViewModel) async -> Bool {
+        let oldPath = path == "/" ? "/\(oldName)" : "\(path)/\(oldName)"
+        let newPath = path == "/" ? "/\(newName)" : "\(path)/\(newName)"
+
+        log("Renaming \(oldPath) to \(newPath)")
+        let result = await executeCommand("sudo mv '\(oldPath)' '\(newPath)' && echo 'SUCCESS'", via: session, timeout: 15)
+
+        return cleanOutput(result.output).contains("SUCCESS")
+    }
+
+    /// Delete file or directory on server
+    func deleteFile(at path: String, name: String, isDirectory: Bool, via session: TerminalViewModel) async -> Bool {
+        let fullPath = path == "/" ? "/\(name)" : "\(path)/\(name)"
+
+        // Safety check - don't delete critical paths
+        let protectedPaths = ["/", "/etc", "/var", "/usr", "/bin", "/sbin", "/boot", "/root", "/home"]
+        if protectedPaths.contains(fullPath) {
+            log("❌ Cannot delete protected path: \(fullPath)")
+            return false
+        }
+
+        log("Deleting \(fullPath)")
+        let flag = isDirectory ? "-rf" : "-f"
+        let result = await executeCommand("sudo rm \(flag) '\(fullPath)' && echo 'SUCCESS'", via: session, timeout: 30)
+
+        return cleanOutput(result.output).contains("SUCCESS")
+    }
+
+    /// Change file permissions
+    func changePermissions(at path: String, name: String, permissions: String, via session: TerminalViewModel) async -> Bool {
+        let fullPath = path == "/" ? "/\(name)" : "\(path)/\(name)"
+
+        log("Changing permissions of \(fullPath) to \(permissions)")
+        let result = await executeCommand("sudo chmod \(permissions) '\(fullPath)' && echo 'SUCCESS'", via: session, timeout: 15)
+
+        return cleanOutput(result.output).contains("SUCCESS")
+    }
+
+    /// Change file owner
+    func changeOwner(at path: String, name: String, owner: String, via session: TerminalViewModel) async -> Bool {
+        let fullPath = path == "/" ? "/\(name)" : "\(path)/\(name)"
+
+        log("Changing owner of \(fullPath) to \(owner)")
+        let result = await executeCommand("sudo chown \(owner) '\(fullPath)' && echo 'SUCCESS'", via: session, timeout: 15)
+
+        return cleanOutput(result.output).contains("SUCCESS")
+    }
+
+    /// Create directory on server
+    func createDirectory(at path: String, name: String, via session: TerminalViewModel) async -> Bool {
+        let fullPath = path == "/" ? "/\(name)" : "\(path)/\(name)"
+
+        log("Creating directory: \(fullPath)")
+        let result = await executeCommand("sudo mkdir -p '\(fullPath)' && echo 'SUCCESS'", via: session, timeout: 15)
+
+        return cleanOutput(result.output).contains("SUCCESS")
+    }
+
+    // MARK: - Service Management (Real SSH)
+
+    /// Restart a system service
+    func restartService(_ service: String, via session: TerminalViewModel) async -> Bool {
+        log("Restarting service: \(service)")
+        _ = await executeCommand("sudo systemctl restart \(service)", via: session, timeout: 30)
+
+        // Verify service is running
+        let statusResult = await executeCommand("systemctl is-active \(service) 2>/dev/null", via: session, timeout: 10)
+        let isActive = cleanOutput(statusResult.output) == "active"
+
+        log(isActive ? "✅ Service \(service) restarted" : "❌ Service \(service) may have failed")
+        return isActive
+    }
+
+    /// Stop a system service
+    func stopService(_ service: String, via session: TerminalViewModel) async -> Bool {
+        log("Stopping service: \(service)")
+        _ = await executeCommand("sudo systemctl stop \(service)", via: session, timeout: 30)
+
+        let statusResult = await executeCommand("systemctl is-active \(service) 2>/dev/null", via: session, timeout: 10)
+        let isStopped = cleanOutput(statusResult.output) != "active"
+
+        log(isStopped ? "✅ Service \(service) stopped" : "❌ Service \(service) still running")
+        return isStopped
+    }
+
+    /// Start a system service
+    func startService(_ service: String, via session: TerminalViewModel) async -> Bool {
+        log("Starting service: \(service)")
+        _ = await executeCommand("sudo systemctl start \(service)", via: session, timeout: 30)
+
+        let statusResult = await executeCommand("systemctl is-active \(service) 2>/dev/null", via: session, timeout: 10)
+        let isActive = cleanOutput(statusResult.output) == "active"
+
+        log(isActive ? "✅ Service \(service) started" : "❌ Service \(service) failed to start")
+        return isActive
+    }
+
+    /// Change root password
+    func changeRootPassword(newPassword: String, via session: TerminalViewModel) async -> Bool {
+        log("Changing root password...")
+        let result = await executeCommand("echo 'root:\(newPassword)' | sudo chpasswd && echo 'SUCCESS'", via: session, timeout: 15)
+        return cleanOutput(result.output).contains("SUCCESS")
+    }
+
+    /// Change MySQL root password
+    func changeMySQLRootPassword(newPassword: String, via session: TerminalViewModel) async -> Bool {
+        log("Changing MySQL root password...")
+        let result = await executeCommand("sudo mysql -e \"ALTER USER 'root'@'localhost' IDENTIFIED BY '\(newPassword)'; FLUSH PRIVILEGES;\" && echo 'SUCCESS'", via: session, timeout: 15)
+        return cleanOutput(result.output).contains("SUCCESS")
+    }
+
+    // MARK: - Traffic / Network Stats (Optimized)
+
+    /// Fetch network traffic stats (lightweight)
+    func fetchNetworkStats(via session: TerminalViewModel) async -> (rx: Int64, tx: Int64) {
+        // Use /proc/net/dev for lightweight stats - single command
+        let result = await executeCommand("cat /proc/net/dev | grep -E 'eth0|ens|enp' | head -1 | awk '{print $2,$10}'", via: session, timeout: 10)
+        let parts = cleanOutput(result.output).components(separatedBy: " ").compactMap { Int64($0) }
+
+        if parts.count >= 2 {
+            return (rx: parts[0], tx: parts[1])
+        }
+        return (rx: 0, tx: 0)
+    }
+
+    // MARK: - Optimized Batch Commands
+
+    /// Fetch all basic stats in a single command (optimized for performance)
+    func fetchAllStatsOptimized(via session: TerminalViewModel) async -> ParsedServerStats {
+        log("Fetching optimized server stats (batch)...")
+
+        // Single compound command to get all stats at once - much faster than multiple calls
+        let batchCommand = """
+        echo "===HOSTNAME===" && hostname && \
+        echo "===IP===" && hostname -I | awk '{print $1}' && \
+        echo "===OS===" && cat /etc/os-release 2>/dev/null | grep PRETTY_NAME | cut -d= -f2 | tr -d '"' && \
+        echo "===UPTIME===" && uptime -p && \
+        echo "===LOAD===" && cat /proc/loadavg | awk '{print $1}' && \
+        echo "===MEM===" && free -m | grep Mem | awk '{print $2,$3}' && \
+        echo "===DISK===" && df -h / | tail -1 | awk '{print $2,$3,$5}'
+        """
+
+        let result = await executeCommand(batchCommand, via: session, timeout: 20)
+        var stats = ParsedServerStats()
+
+        // Parse the sectioned output
+        let sections = result.output.components(separatedBy: "===")
+
+        for section in sections {
+            let lines = section.components(separatedBy: .newlines).map { $0.trimmingCharacters(in: .whitespaces) }
+            guard let header = lines.first, lines.count > 1 else { continue }
+            let value = lines.dropFirst().joined(separator: " ").trimmingCharacters(in: .whitespaces)
+
+            switch header {
+            case "HOSTNAME":
+                stats.hostname = cleanOutput(value)
+            case "IP":
+                stats.ipAddress = cleanOutput(value)
+            case "OS":
+                stats.osName = cleanOutput(value)
+            case "UPTIME":
+                stats.uptime = cleanOutput(value)
+            case "LOAD":
+                if let load = Double(cleanOutput(value)) {
+                    stats.cpuUsage = min(load, 1.0)
+                }
+            case "MEM":
+                let memParts = cleanOutput(value).components(separatedBy: " ").compactMap { Int($0) }
+                if memParts.count >= 2 {
+                    stats.ramTotal = memParts[0]
+                    stats.ramUsed = memParts[1]
+                    stats.ramUsage = stats.ramTotal > 0 ? Double(stats.ramUsed) / Double(stats.ramTotal) : 0
+                }
+            case "DISK":
+                let diskParts = cleanOutput(value).components(separatedBy: " ").filter { !$0.isEmpty }
+                if diskParts.count >= 3 {
+                    stats.diskTotal = diskParts[0]
+                    stats.diskUsed = diskParts[1]
+                    let percentStr = diskParts[2].replacingOccurrences(of: "%", with: "")
+                    stats.diskUsage = (Double(percentStr) ?? 0) / 100.0
+                }
+            default:
+                break
+            }
+        }
+
+        log("Optimized stats: CPU \(Int(stats.cpuUsage * 100))%, RAM \(Int(stats.ramUsage * 100))%, Disk \(Int(stats.diskUsage * 100))%")
+        return stats
+    }
+
+    /// Check multiple software statuses in optimized batch
+    func fetchServerStatusOptimized(via session: TerminalViewModel) async -> ServerStatus {
+        log("🔍 Checking server software status (optimized batch)...")
+        var status = ServerStatus()
+
+        // Improved batch command that checks both binary existence AND version
+        // Uses 'which' as fallback to ensure we detect installed software
+        let batchCommand = """
+        echo "===NGINX===" && (which nginx >/dev/null 2>&1 && nginx -v 2>&1 | head -1 || echo "not_installed") && (systemctl is-active nginx 2>/dev/null || echo "inactive") && \
+        echo "===APACHE===" && (which apache2 >/dev/null 2>&1 && apache2 -v 2>&1 | head -1 || echo "not_installed") && (systemctl is-active apache2 2>/dev/null || echo "inactive") && \
+        echo "===MYSQL===" && (which mysql >/dev/null 2>&1 && mysql --version 2>/dev/null | head -1 || echo "not_installed") && (systemctl is-active mysql 2>/dev/null || systemctl is-active mariadb 2>/dev/null || echo "inactive") && \
+        echo "===PHP===" && (which php >/dev/null 2>&1 && php -v 2>/dev/null | head -1 || echo "not_installed") && (systemctl list-units --type=service --state=running | grep -q 'php.*fpm' && echo "active" || echo "inactive") && \
+        echo "===NODE===" && (which node >/dev/null 2>&1 && node -v 2>/dev/null || echo "not_installed") && \
+        echo "===PGSQL===" && (which psql >/dev/null 2>&1 && psql --version 2>/dev/null | head -1 || echo "not_installed") && (systemctl is-active postgresql 2>/dev/null || echo "inactive") && \
+        echo "===REDIS===" && (which redis-server >/dev/null 2>&1 && redis-server --version 2>/dev/null | head -1 || echo "not_installed") && (systemctl is-active redis-server 2>/dev/null || systemctl is-active redis 2>/dev/null || echo "inactive") && \
+        echo "===GIT===" && (which git >/dev/null 2>&1 && git --version 2>/dev/null | head -1 || echo "not_installed") && \
+        echo "===PYTHON===" && (which python3 >/dev/null 2>&1 && python3 --version 2>/dev/null || echo "not_installed") && \
+        echo "===COMPOSER===" && (which composer >/dev/null 2>&1 && composer --version 2>/dev/null | head -1 || echo "not_installed")
+        """
+
+        let result = await executeCommand(batchCommand, via: session, timeout: 45)
+        let sections = result.output.components(separatedBy: "===")
+
+        for section in sections {
+            let lines = section.components(separatedBy: .newlines).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+            guard let header = lines.first, lines.count > 1 else { continue }
+
+            let versionLine = lines.count > 1 ? lines[1] : ""
+            let statusLine = lines.count > 2 ? lines[2] : ""
+            let isActive = statusLine == "active"
+
+            // Check if software is installed (not just version detection)
+            let isInstalled = !versionLine.contains("not_installed") &&
+                              !versionLine.contains("not found") &&
+                              !versionLine.contains("No such file") &&
+                              !versionLine.isEmpty
+
+            // Extract version number with improved regex patterns
+            var version: String? = nil
+            if isInstalled {
+                // Try multiple version patterns
+                let patterns = [
+                    "[0-9]+\\.[0-9]+\\.[0-9]+",  // X.Y.Z
+                    "[0-9]+\\.[0-9]+",           // X.Y
+                    "v[0-9]+\\.[0-9]+",          // vX.Y
+                ]
+                for pattern in patterns {
+                    if let match = versionLine.range(of: pattern, options: .regularExpression) {
+                        var v = String(versionLine[match])
+                        if v.hasPrefix("v") { v = String(v.dropFirst()) }
+                        version = v
+                        break
+                    }
+                }
+                // Fallback: if no version found but software is installed, use "installed"
+                if version == nil {
+                    version = "installed"
+                }
+            }
+
+            switch header {
+            case "NGINX":
+                if let v = version {
+                    status.nginx = isActive ? .running(version: v) : .installed(version: v)
+                    log("  Nginx: \(status.nginx)")
+                }
+            case "APACHE":
+                if let v = version {
+                    status.apache = isActive ? .running(version: v) : .installed(version: v)
+                    log("  Apache: \(status.apache)")
+                }
+            case "MYSQL":
+                if let v = version {
+                    // Check if it's MariaDB
+                    if versionLine.lowercased().contains("mariadb") {
+                        status.mariadb = isActive ? .running(version: v) : .installed(version: v)
+                        log("  MariaDB: \(status.mariadb)")
+                    } else {
+                        status.mysql = isActive ? .running(version: v) : .installed(version: v)
+                        log("  MySQL: \(status.mysql)")
+                    }
+                }
+            case "PHP":
+                if let v = version {
+                    // For PHP, check if PHP-FPM is running
+                    status.php = isActive ? .running(version: v) : .installed(version: v)
+                    log("  PHP: \(status.php)")
+                }
+            case "NODE":
+                if isInstalled {
+                    var v = versionLine.trimmingCharacters(in: .whitespaces)
+                    if v.hasPrefix("v") { v = String(v.dropFirst()) }
+                    if !v.isEmpty && !v.contains("not_installed") {
+                        status.nodejs = .installed(version: v)
+                        log("  Node.js: \(status.nodejs)")
+                    }
+                }
+            case "PGSQL":
+                if let v = version {
+                    status.postgresql = isActive ? .running(version: v) : .installed(version: v)
+                    log("  PostgreSQL: \(status.postgresql)")
+                }
+            case "REDIS":
+                if let v = version {
+                    status.redis = isActive ? .running(version: v) : .installed(version: v)
+                    log("  Redis: \(status.redis)")
+                }
+            case "GIT":
+                if let v = version {
+                    status.git = .installed(version: v)
+                    log("  Git: \(status.git)")
+                }
+            case "PYTHON":
+                if isInstalled {
+                    var v = versionLine.replacingOccurrences(of: "Python ", with: "").trimmingCharacters(in: .whitespaces)
+                    if !v.isEmpty && !v.contains("not_installed") {
+                        status.python = .installed(version: v)
+                        log("  Python: \(status.python)")
+                    }
+                }
+            case "COMPOSER":
+                if let v = version {
+                    status.composer = .installed(version: v)
+                    log("  Composer: \(status.composer)")
+                }
+            default:
+                break
+            }
+        }
+
+        log("✅ Optimized status check complete - hasWebServer: \(status.hasWebServer), hasDatabase: \(status.hasDatabase)")
+        return status
+    }
+
+    // MARK: - Domain Management (Real SSH)
+
+    /// Get list of domains configured on server
+    func fetchConfiguredDomains(via session: TerminalViewModel) async -> [String] {
+        log("Fetching configured domains...")
+        var domains: [String] = []
+
+        // Check Nginx sites
+        let nginxResult = await executeCommand("grep -h server_name /etc/nginx/sites-enabled/* 2>/dev/null | grep -oE '[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}' | sort -u", via: session, timeout: 15)
+        let nginxDomains = cleanOutput(nginxResult.output).components(separatedBy: .newlines).filter { !$0.isEmpty && $0.contains(".") }
+        domains.append(contentsOf: nginxDomains)
+
+        // Check Apache sites
+        let apacheResult = await executeCommand("grep -h ServerName /etc/apache2/sites-enabled/* 2>/dev/null | awk '{print $2}' | sort -u", via: session, timeout: 15)
+        let apacheDomains = cleanOutput(apacheResult.output).components(separatedBy: .newlines).filter { !$0.isEmpty && $0.contains(".") }
+        domains.append(contentsOf: apacheDomains)
+
+        // Remove duplicates
+        let uniqueDomains = Array(Set(domains)).sorted()
+        log("Found \(uniqueDomains.count) configured domains")
+        return uniqueDomains
+    }
+
+    /// Add domain alias to existing site
+    func addDomainAlias(mainDomain: String, aliasDomain: String, webServer: String, via session: TerminalViewModel) async -> Bool {
+        log("Adding domain alias \(aliasDomain) to \(mainDomain)")
+
+        if webServer.lowercased() == "nginx" {
+            // Update Nginx server_name to include alias
+            let configPath = "/etc/nginx/sites-available/\(mainDomain)"
+            _ = await executeCommand("sudo sed -i 's/server_name \\(.*\\);/server_name \\1 \(aliasDomain);/' \(configPath)", via: session, timeout: 15)
+            _ = await executeCommand("sudo nginx -t && sudo systemctl reload nginx", via: session, timeout: 20)
+        } else if webServer.lowercased() == "apache" {
+            let configPath = "/etc/apache2/sites-available/\(mainDomain).conf"
+            _ = await executeCommand("sudo sed -i '/ServerName/a\\    ServerAlias \(aliasDomain)' \(configPath)", via: session, timeout: 15)
+            _ = await executeCommand("sudo apache2ctl configtest && sudo systemctl reload apache2", via: session, timeout: 20)
+        }
+
+        log("✅ Domain alias \(aliasDomain) added")
+        return true
+    }
+
+    // MARK: - PHP Version Management
+
+    /// Get list of installed PHP versions
+    func fetchInstalledPHPVersions(via session: TerminalViewModel) async -> [String] {
+        log("Fetching installed PHP versions...")
+
+        let result = await executeCommand("ls -1 /etc/php/ 2>/dev/null | grep -E '^[0-9]'", via: session, timeout: 10)
+        let versions = cleanOutput(result.output).components(separatedBy: .newlines).filter { !$0.isEmpty }
+
+        log("Found PHP versions: \(versions.joined(separator: ", "))")
+        return versions
+    }
+
+    /// Switch PHP version for a site (Nginx)
+    func switchPHPVersion(forDomain domain: String, toVersion version: String, via session: TerminalViewModel) async -> Bool {
+        log("Switching PHP version for \(domain) to \(version)")
+
+        let configPath = "/etc/nginx/sites-available/\(domain)"
+
+        // Update PHP-FPM socket path in Nginx config
+        _ = await executeCommand("sudo sed -i 's/php[0-9.]*-fpm.sock/php\(version)-fpm.sock/g' \(configPath)", via: session, timeout: 15)
+
+        // Test and reload
+        let testResult = await executeCommand("sudo nginx -t 2>&1", via: session, timeout: 15)
+        if cleanOutput(testResult.output).contains("successful") || cleanOutput(testResult.output).contains("ok") {
+            _ = await executeCommand("sudo systemctl reload nginx", via: session, timeout: 15)
+            log("✅ PHP version switched to \(version) for \(domain)")
+            return true
+        }
+
+        log("❌ Failed to switch PHP version")
+        return false
     }
     
     // MARK: - Helpers

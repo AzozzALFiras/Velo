@@ -150,12 +150,45 @@ struct FilesListView: View {
                                     viewModel.navigateTo(folder: file)
                                 }
                             } onDelete: {
-                                viewModel.deleteFile(file)
+                                Task {
+                                    viewModel.securelyPerformAction(reason: "Confirm deletion of \(file.name)") {
+                                        Task {
+                                            let success = await viewModel.deleteFile(file)
+                                            if success {
+                                                await MainActor.run {
+                                                    triggerToast("Deleted \(file.name)")
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
                             } onRename: { newName in
-                                viewModel.renameFile(file, to: newName)
+                                Task {
+                                    let success = await viewModel.renameFile(file, to: newName)
+                                    if success {
+                                        await MainActor.run {
+                                            triggerToast("Renamed to \(newName)")
+                                        }
+                                    }
+                                }
                             } onPermissionUpdate: { newPerms in
-                                viewModel.updatePermissions(file, to: newPerms)
-                                triggerToast("Permissions updated for \(file.name)")
+                                Task {
+                                    let success = await viewModel.updatePermissions(file, to: newPerms)
+                                    if success {
+                                        await MainActor.run {
+                                            triggerToast("Permissions updated for \(file.name)")
+                                        }
+                                    }
+                                }
+                            } onOwnerUpdate: { newOwner in
+                                Task {
+                                    let success = await viewModel.updateOwner(file, to: newOwner)
+                                    if success {
+                                        await MainActor.run {
+                                            triggerToast("Owner changed to \(newOwner)")
+                                        }
+                                    }
+                                }
                             } onDownload: {
                                 viewModel.downloadFile(file)
                                 triggerToast("Downloading \(file.name)...")
@@ -237,8 +270,9 @@ private struct FileRow: View {
     let onDelete: () -> Void
     let onRename: (String) -> Void
     let onPermissionUpdate: (String) -> Void
+    let onOwnerUpdate: (String) -> Void
     let onDownload: () -> Void
-    
+
     @State private var isHovered = false
     @State private var isRenaming = false
     @State private var newNameBuffer = ""
@@ -320,8 +354,11 @@ private struct FileRow: View {
             .frame(width: 40)
             .opacity(isHovered ? 1 : 0)
             .popover(isPresented: $isShowingPermissionEditor, arrowEdge: .trailing) {
-                PermissionEditorView(initialPerms: file.permissions) { newPerms in
+                PermissionEditorView(initialPerms: file.permissions, initialOwner: file.owner) { newPerms, newOwner in
                     onPermissionUpdate(newPerms)
+                    if newOwner != file.owner {
+                        onOwnerUpdate(newOwner)
+                    }
                 }
             }
             .popover(isPresented: $isShowingRenameDialog, arrowEdge: .trailing) {
@@ -441,8 +478,9 @@ private struct RenameDialogView: View {
 private struct PermissionEditorView: View {
     @Environment(\.dismiss) var dismiss
     let initialPerms: String
-    let onSave: (String) -> Void
-    
+    let initialOwner: String
+    let onSave: (String, String) -> Void
+
     @State private var octal: String
     @State private var ownerR: Bool
     @State private var ownerW: Bool
@@ -453,31 +491,33 @@ private struct PermissionEditorView: View {
     @State private var publicR: Bool
     @State private var publicW: Bool
     @State private var publicX: Bool
-    @State private var owner = "www-data"
+    @State private var owner: String
     @State private var applyToSubdir = false
-    
+
     // Available owners for the picker
-    let availableOwners = ["root", "www-data", "admin", "guest"]
-    
-    init(initialPerms: String, onSave: @escaping (String) -> Void) {
+    let availableOwners = ["root", "www-data", "nginx", "admin", "nobody"]
+
+    init(initialPerms: String, initialOwner: String, onSave: @escaping (String, String) -> Void) {
         self.initialPerms = initialPerms
+        self.initialOwner = initialOwner
         self.onSave = onSave
         _octal = State(initialValue: initialPerms)
-        
+        _owner = State(initialValue: initialOwner)
+
         // Deconstruct octal to checkboxes
         let p = Int(initialPerms) ?? 644
         let o = p / 100
         let g = (p / 10) % 10
         let u = p % 10
-        
+
         _ownerR = State(initialValue: (o & 4) != 0)
         _ownerW = State(initialValue: (o & 2) != 0)
         _ownerX = State(initialValue: (o & 1) != 0)
-        
+
         _groupR = State(initialValue: (g & 4) != 0)
         _groupW = State(initialValue: (g & 2) != 0)
         _groupX = State(initialValue: (g & 1) != 0)
-        
+
         _publicR = State(initialValue: (u & 4) != 0)
         _publicW = State(initialValue: (u & 2) != 0)
         _publicX = State(initialValue: (u & 1) != 0)
@@ -543,9 +583,9 @@ private struct PermissionEditorView: View {
                 .toggleStyle(.checkbox)
                 
                 Spacer()
-                
+
                 Button("Save") {
-                    onSave(octal)
+                    onSave(octal, owner)
                     dismiss() // Close the popover
                 }
                 .buttonStyle(.borderedProminent)

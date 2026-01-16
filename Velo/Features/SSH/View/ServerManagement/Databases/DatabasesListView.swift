@@ -51,11 +51,19 @@ struct DatabasesListView: View {
         }
         // Present Editor Sheet
         .sheet(isPresented: $showingEditor) {
-            DatabaseEditorView(database: editingDatabase) { newDb in
-                if let _ = editingDatabase {
+            DatabaseEditorView(viewModel: viewModel, database: editingDatabase) { newDb in
+                if let existing = editingDatabase {
                     viewModel.updateDatabase(newDb)
                 } else {
-                    viewModel.addDatabase(newDb)
+                    // Create real database via SSH
+                    Task {
+                        _ = await viewModel.createRealDatabase(
+                            name: newDb.name,
+                            type: newDb.type,
+                            username: newDb.username,
+                            password: newDb.password
+                        )
+                    }
                 }
             }
         }
@@ -65,14 +73,16 @@ struct DatabasesListView: View {
             Button("Delete", role: .destructive) {
                 if let db = databaseToDelete {
                     viewModel.securelyPerformAction(reason: "Confirm database deletion") {
-                        viewModel.deleteDatabase(db)
+                        Task {
+                            await viewModel.deleteDatabase(db)
+                        }
                     }
                 }
                 databaseToDelete = nil
             }
         } message: {
             if let db = databaseToDelete {
-                Text("Are you sure you want to delete \(db.name)? All data will be permanently removed.")
+                Text("Are you sure you want to delete \(db.name)? All data will be permanently removed from the server.")
             }
         }
         // Authentication Error Alert
@@ -176,7 +186,14 @@ struct DatabasesListView: View {
                     // List
                     VStack(spacing: 16) {
                         ForEach(filteredDatabases) { db in
-                            DatabaseRow(database: db, onEdit: {
+                            DatabaseRow(database: db, onBackup: {
+                                Task {
+                                    if let backupPath = await viewModel.backupDatabase(db) {
+                                        // Show success message (could add a toast here)
+                                        print("Backup saved to: \(backupPath)")
+                                    }
+                                }
+                            }, onEdit: {
                                 editingDatabase = db
                                 showingEditor = true
                             }, onDelete: {
@@ -327,15 +344,38 @@ private struct DatabaseOptionCard: View {
 
 struct DatabaseEditorView: View {
     @Environment(\.dismiss) var dismiss
+    @ObservedObject var viewModel: ServerManagementViewModel
     let database: Database?
     let onSave: (Database) -> Void
-    
+
     @State private var name: String = ""
     @State private var type: Database.DatabaseType = .mysql
     @State private var username: String = ""
     @State private var password: String = ""
-    
-    init(database: Database?, onSave: @escaping (Database) -> Void) {
+    @State private var isSaving = false
+    @State private var errorMessage: String?
+
+    // Computed available types based on installed databases
+    var availableTypes: [Database.DatabaseType] {
+        var types: [Database.DatabaseType] = []
+        if viewModel.serverStatus.mysql.isInstalled || viewModel.serverStatus.mariadb.isInstalled {
+            types.append(.mysql)
+        }
+        if viewModel.serverStatus.postgresql.isInstalled {
+            types.append(.postgres)
+        }
+        if viewModel.serverStatus.redis.isInstalled {
+            types.append(.redis)
+        }
+        // Default to mysql if nothing installed (will show error on save)
+        if types.isEmpty {
+            types = Database.DatabaseType.allCases
+        }
+        return types
+    }
+
+    init(viewModel: ServerManagementViewModel, database: Database?, onSave: @escaping (Database) -> Void) {
+        self.viewModel = viewModel
         self.database = database
         self.onSave = onSave
         _name = State(initialValue: database?.name ?? "")
@@ -346,60 +386,114 @@ struct DatabaseEditorView: View {
     
     var body: some View {
         VStack(alignment: .leading, spacing: 24) {
-            Text(database == nil ? "Add Database" : "Edit Database")
-                .font(.system(size: 20, weight: .bold))
-                .foregroundStyle(ColorTokens.textPrimary)
-            
+            HStack {
+                Text(database == nil ? "Add Database" : "Edit Database")
+                    .font(.system(size: 20, weight: .bold))
+                    .foregroundStyle(ColorTokens.textPrimary)
+
+                Spacer()
+
+                if isSaving {
+                    ProgressView()
+                        .scaleEffect(0.8)
+                }
+            }
+
+            if let error = errorMessage {
+                Text(error)
+                    .foregroundStyle(.red)
+                    .font(.caption)
+            }
+
             VStack(spacing: 16) {
                 VeloEditorField(label: "Database Name", placeholder: "my_database", text: $name)
-                
+
                 HStack(spacing: 16) {
-                    VeloEditorField(label: "Username", placeholder: "db_user", text: $username)
-                    VeloEditorField(label: "Password", placeholder: "••••••••", text: $password)
+                    VeloEditorField(label: "Username (optional)", placeholder: "db_user", text: $username)
+                    VeloEditorField(label: "Password (optional)", placeholder: "••••••••", text: $password)
                 }
-                
+
                 VStack(alignment: .leading, spacing: 10) {
                     Text("Database Type")
                         .font(.system(size: 11, weight: .bold))
                         .foregroundStyle(ColorTokens.textTertiary)
-                    
+
                     Picker("", selection: $type) {
-                        ForEach(Database.DatabaseType.allCases, id: \.self) { type in
-                            Text(type.rawValue).tag(type)
+                        ForEach(availableTypes, id: \.self) { dbType in
+                            Text(dbType.rawValue).tag(dbType)
                         }
                     }
                     .pickerStyle(.segmented)
+
+                    if database == nil {
+                        Text("Only installed database types are shown")
+                            .font(.system(size: 10))
+                            .foregroundStyle(ColorTokens.textTertiary)
+                    }
                 }
             }
-            
+
             Spacer()
-            
+
             HStack(spacing: 12) {
                 Spacer()
                 Button("Cancel") { dismiss() }
                     .buttonStyle(.plain)
                     .foregroundStyle(ColorTokens.textSecondary)
-                
-                Button("Save") {
-                    let newDb = Database(
-                        id: database?.id ?? UUID(),
-                        name: name,
-                        type: type,
-                        username: username.isEmpty ? nil : username,
-                        password: password.isEmpty ? nil : password,
-                        sizeBytes: database?.sizeBytes ?? 0,
-                        status: database?.status ?? .active
-                    )
-                    onSave(newDb)
-                    dismiss()
+                    .disabled(isSaving)
+
+                Button(database == nil ? "Create Database" : "Save") {
+                    saveDatabase()
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(ColorTokens.accentPrimary)
+                .disabled(isSaving || name.isEmpty)
             }
         }
         .padding(32)
-        .frame(width: 500, height: 420)
+        .frame(width: 500, height: 460)
         .background(ColorTokens.layer1)
+    }
+
+    private func saveDatabase() {
+        isSaving = true
+        errorMessage = nil
+
+        let newDb = Database(
+            id: database?.id ?? UUID(),
+            name: name,
+            type: type,
+            username: username.isEmpty ? nil : username,
+            password: password.isEmpty ? nil : password,
+            sizeBytes: database?.sizeBytes ?? 0,
+            status: database?.status ?? .active
+        )
+
+        if database == nil {
+            // Creating new database - use async SSH
+            Task {
+                let success = await viewModel.createRealDatabase(
+                    name: newDb.name,
+                    type: newDb.type,
+                    username: newDb.username,
+                    password: newDb.password
+                )
+
+                await MainActor.run {
+                    isSaving = false
+                    if success {
+                        dismiss()
+                    } else {
+                        errorMessage = "Failed to create database on server"
+                    }
+                }
+            }
+        } else {
+            // Editing existing - just update local state
+            onSave(newDb)
+            isSaving = false
+            dismiss()
+        }
     }
 }
 
@@ -429,12 +523,14 @@ private struct TypeTab: View {
 // MARK: - Database Row
 
 private struct DatabaseRow: View {
-    
+
     let database: Database
+    let onBackup: () -> Void
     let onEdit: () -> Void
     let onDelete: () -> Void
     let onOpenDetails: () -> Void
     @State private var isHovered = false
+    @State private var isBackingUp = false
     
     var body: some View {
         Button(action: onOpenDetails) {
@@ -486,8 +582,24 @@ private struct DatabaseRow: View {
             
             // Actions
             HStack(spacing: 8) {
-                Button("Backup") {}
-                    .buttonStyle(SecondaryButtonStyle())
+                Button(action: {
+                    isBackingUp = true
+                    onBackup()
+                    // Reset after delay (backup runs async)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                        isBackingUp = false
+                    }
+                }) {
+                    HStack(spacing: 4) {
+                        if isBackingUp {
+                            ProgressView()
+                                .scaleEffect(0.6)
+                        }
+                        Text(isBackingUp ? "Backing up..." : "Backup")
+                    }
+                }
+                .buttonStyle(SecondaryButtonStyle())
+                .disabled(isBackingUp || database.type == .redis || database.type == .mongo)
                 
                 Button(action: onEdit) {
                     Image(systemName: "pencil")
