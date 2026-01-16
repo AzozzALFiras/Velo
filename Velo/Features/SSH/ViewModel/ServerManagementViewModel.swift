@@ -24,6 +24,9 @@ final class ServerManagementViewModel: ObservableObject {
     @Published var pathStack: [String] = ["/"]
     @Published var activeUploads: [FileUploadTask] = []
     @Published var isLoading = false
+    @Published var errorMessage: String? = nil
+    
+    // MARK: - Server Info for Settings
     
     // Server Info for Settings
     @Published var serverHostname = "production-sg-01"
@@ -157,8 +160,10 @@ final class ServerManagementViewModel: ObservableObject {
     }
     
     func deleteFile(_ file: ServerFileItem) {
-        withAnimation {
-            files.removeAll(where: { $0.id == file.id })
+        securelyPerformAction(reason: "Confirm deletion of \(file.name)") {
+            withAnimation {
+                self.files.removeAll(where: { $0.id == file.id })
+            }
         }
     }
     
@@ -212,20 +217,56 @@ final class ServerManagementViewModel: ObservableObject {
         }
     }
     
+    // MARK: - Website Management
+    
+    func addWebsite(_ website: Website) {
+        websites.insert(website, at: 0)
+        print("Website \(website.domain) added.")
+    }
+    
+    func updateWebsite(_ website: Website) {
+        if let index = websites.firstIndex(where: { $0.id == website.id }) {
+            websites[index] = website
+            print("Website \(website.domain) updated.")
+        }
+    }
+    
     func toggleWebsiteStatus(_ website: Website) {
         if let index = websites.firstIndex(where: { $0.id == website.id }) {
-            withAnimation {
-                websites[index].status = websites[index].status == .running ? .stopped : .running
-            }
+            websites[index].status = websites[index].status == .running ? .stopped : .running
+        }
+    }
+    
+    func deleteWebsite(_ website: Website) {
+        websites.removeAll { $0.id == website.id }
+        print("Website \(website.domain) deleted.")
+    }
+    
+    // MARK: - Secure Actions
+    
+    func securelyPerformAction(reason: String, action: @escaping () -> Void) {
+        SecurityManager.shared.securelyPerformAction(reason: reason, action: action) { error in
+            self.errorMessage = error
+        }
+    }
+    
+    // MARK: - Database Management
+    
+    func addDatabase(_ database: Database) {
+        databases.insert(database, at: 0)
+        print("Database \(database.name) added.")
+    }
+    
+    func updateDatabase(_ database: Database) {
+        if let index = databases.firstIndex(where: { $0.id == database.id }) {
+            databases[index] = database
+            print("Database \(database.name) updated.")
         }
     }
     
     func deleteDatabase(_ database: Database) {
-        if let index = databases.firstIndex(where: { $0.id == database.id }) {
-            withAnimation {
-                databases.remove(at: index)
-            }
-        }
+        databases.removeAll { $0.id == database.id }
+        print("Database \(database.name) deleted.")
     }
     
     // MARK: - Private

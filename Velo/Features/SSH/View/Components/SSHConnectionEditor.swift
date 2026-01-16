@@ -90,13 +90,13 @@ struct SSHConnectionEditor: View {
                             .font(TypographyTokens.caption)
                             .foregroundColor(ColorTokens.textTertiary)
 
-                        EditorField(label: "Name", placeholder: "My Server", text: $name)
-                        EditorField(label: "Host", placeholder: "example.com", text: $host)
+                        VeloEditorField(label: "Name", placeholder: "My Server", text: $name)
+                        VeloEditorField(label: "Host", placeholder: "example.com", text: $host)
 
                         HStack {
-                            EditorField(label: "Port", placeholder: "22", text: $port)
+                            VeloEditorField(label: "Port", placeholder: "22", text: $port)
                                 .frame(width: 100)
-                            EditorField(label: "Username", placeholder: NSUserName(), text: $username)
+                            VeloEditorField(label: "Username", placeholder: NSUserName(), text: $username)
                         }
                     }
 
@@ -125,7 +125,7 @@ struct SSHConnectionEditor: View {
                                 .background(ColorTokens.layer2)
                                 .cornerRadius(6)
                         case .privateKey:
-                            EditorField(label: "Key Path", placeholder: "~/.ssh/id_rsa", text: $privateKeyPath)
+                            VeloEditorField(label: "Key Path", placeholder: "~/.ssh/id_rsa", text: $privateKeyPath)
                         case .sshAgent:
                             Text("Will use SSH Agent for authentication")
                                 .font(TypographyTokens.caption)

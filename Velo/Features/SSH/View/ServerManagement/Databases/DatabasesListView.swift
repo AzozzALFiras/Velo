@@ -12,10 +12,18 @@ struct DatabasesListView: View {
     
     @ObservedObject var viewModel: ServerManagementViewModel
     
+    @State private var showingEditor = false
+    @State private var editingDatabase: Database? = nil
+    
     // State for Search & Filter
     @State private var searchText = ""
     @State private var selectedType: Database.DatabaseType? = nil
     @State private var selectedDatabase: Database? = nil
+    
+    // For Deletion Confirmation
+    @State private var showingDeleteAlert = false
+    @State private var databaseToDelete: Database? = nil
+    @State private var showingErrorAlert = false
     
     var filteredDatabases: [Database] {
         viewModel.databases.filter { db in
@@ -26,57 +34,95 @@ struct DatabasesListView: View {
     }
     
     var body: some View {
-        ScrollView {
-            VStack(spacing: 20) {
+        VStack(spacing: 0) {
+            // Header with Add Button
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Databases")
+                        .font(.system(size: 24, weight: .bold))
+                        .foregroundStyle(ColorTokens.textPrimary)
+                    Text("\(viewModel.databases.count) databases managed on this server")
+                        .font(.system(size: 13))
+                        .foregroundStyle(ColorTokens.textSecondary)
+                }
                 
-                // Controls: Search & Tabs
-                VStack(spacing: 12) {
-                    // Type Tabs (Top)
-                    HStack(spacing: 0) {
-                        TypeTab(title: "All", isSelected: selectedType == nil) {
-                            selectedType = nil
-                        }
-                        
-                        ForEach(Database.DatabaseType.allCases, id: \.self) { type in
-                            TypeTab(title: type.rawValue, isSelected: selectedType == type) {
-                                selectedType = selectedType == type ? nil : type
-                            }
-                        }
-                        Spacer()
-                    }
-                    .padding(.bottom, 4)
-                    .overlay(Divider(), alignment: .bottom)
-                    
-                    // Search Bar
+                Spacer()
+                
+                Button(action: {
+                    editingDatabase = nil
+                    showingEditor = true
+                }) {
                     HStack(spacing: 8) {
-                        Image(systemName: "magnifyingglass")
-                            .foregroundStyle(ColorTokens.textTertiary)
-                        TextField("Search databases...", text: $searchText)
-                            .textFieldStyle(PlainTextFieldStyle())
+                        Image(systemName: "plus")
+                        Text("Add Database")
                     }
-                    .padding(8)
-                    .background(ColorTokens.layer1)
+                    .font(.system(size: 13, weight: .bold))
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .background(ColorTokens.accentPrimary)
+                    .foregroundStyle(.white)
                     .clipShape(RoundedRectangle(cornerRadius: 8))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8)
-                            .strokeBorder(ColorTokens.borderSubtle, lineWidth: 1)
-                    )
                 }
-                .padding(.horizontal, 20)
-                .padding(.top, 20)
-                
-                // List
-                VStack(spacing: 16) {
-                    ForEach(filteredDatabases) { db in
-                        DatabaseRow(database: db, onDelete: {
-                            viewModel.deleteDatabase(db)
-                        }, onOpenDetails: {
-                            selectedDatabase = db
-                        })
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 32)
+            .padding(.top, 32)
+            .padding(.bottom, 20)
+
+            ScrollView {
+                VStack(spacing: 20) {
+                    // Controls: Search & Tabs
+                    VStack(spacing: 12) {
+                        // Type Tabs (Top)
+                        HStack(spacing: 0) {
+                            TypeTab(title: "All", isSelected: selectedType == nil) {
+                                selectedType = nil
+                            }
+                            
+                            ForEach(Database.DatabaseType.allCases, id: \.self) { type in
+                                TypeTab(title: type.rawValue, isSelected: selectedType == type) {
+                                    selectedType = selectedType == type ? nil : type
+                                }
+                            }
+                            Spacer()
+                        }
+                        .padding(.bottom, 4)
+                        .overlay(Divider(), alignment: .bottom)
+                        
+                        // Search Bar
+                        HStack(spacing: 8) {
+                            Image(systemName: "magnifyingglass")
+                                .foregroundStyle(ColorTokens.textTertiary)
+                            TextField("Search databases...", text: $searchText)
+                                .textFieldStyle(PlainTextFieldStyle())
+                        }
+                        .padding(8)
+                        .background(ColorTokens.layer1)
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8)
+                                .strokeBorder(ColorTokens.borderSubtle, lineWidth: 1)
+                        )
                     }
+                    .padding(.horizontal, 20)
+                    
+                    // List
+                    VStack(spacing: 16) {
+                        ForEach(filteredDatabases) { db in
+                            DatabaseRow(database: db, onEdit: {
+                                editingDatabase = db
+                                showingEditor = true
+                            }, onDelete: {
+                                databaseToDelete = db
+                                showingDeleteAlert = true
+                            }, onOpenDetails: {
+                                selectedDatabase = db
+                            })
+                        }
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 20)
                 }
-                .padding(.horizontal, 20)
-                .padding(.bottom, 20)
             }
         }
         .background(ColorTokens.layer0)
@@ -86,6 +132,125 @@ struct DatabasesListView: View {
                 DatabaseDetailsView(database: $viewModel.databases[index])
             }
         }
+        // Present Editor Sheet
+        .sheet(isPresented: $showingEditor) {
+            DatabaseEditorView(database: editingDatabase) { newDb in
+                if let _ = editingDatabase {
+                    viewModel.updateDatabase(newDb)
+                } else {
+                    viewModel.addDatabase(newDb)
+                }
+            }
+        }
+        // Deletion Confirmation Alert
+        .alert("Delete Database", isPresented: $showingDeleteAlert) {
+            Button("Cancel", role: .cancel) { databaseToDelete = nil }
+            Button("Delete", role: .destructive) {
+                if let db = databaseToDelete {
+                    viewModel.securelyPerformAction(reason: "Confirm database deletion") {
+                        viewModel.deleteDatabase(db)
+                    }
+                }
+                databaseToDelete = nil
+            }
+        } message: {
+            if let db = databaseToDelete {
+                Text("Are you sure you want to delete \(db.name)? All data will be permanently removed.")
+            }
+        }
+        // Authentication Error Alert
+        .alert("Authentication Error", isPresented: $showingErrorAlert) {
+            Button("OK", role: .cancel) { viewModel.errorMessage = nil }
+        } message: {
+            if let error = viewModel.errorMessage {
+                Text(error)
+            }
+        }
+        .onChange(of: viewModel.errorMessage) { newValue in
+            if newValue != nil {
+                showingErrorAlert = true
+            }
+        }
+    }
+}
+
+// MARK: - Database Editor View
+
+struct DatabaseEditorView: View {
+    @Environment(\.dismiss) var dismiss
+    let database: Database?
+    let onSave: (Database) -> Void
+    
+    @State private var name: String = ""
+    @State private var type: Database.DatabaseType = .mysql
+    @State private var username: String = ""
+    @State private var password: String = ""
+    
+    init(database: Database?, onSave: @escaping (Database) -> Void) {
+        self.database = database
+        self.onSave = onSave
+        _name = State(initialValue: database?.name ?? "")
+        _type = State(initialValue: database?.type ?? .mysql)
+        _username = State(initialValue: database?.username ?? "")
+        _password = State(initialValue: database?.password ?? "")
+    }
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 24) {
+            Text(database == nil ? "Add Database" : "Edit Database")
+                .font(.system(size: 20, weight: .bold))
+                .foregroundStyle(ColorTokens.textPrimary)
+            
+            VStack(spacing: 16) {
+                VeloEditorField(label: "Database Name", placeholder: "my_database", text: $name)
+                
+                HStack(spacing: 16) {
+                    VeloEditorField(label: "Username", placeholder: "db_user", text: $username)
+                    VeloEditorField(label: "Password", placeholder: "••••••••", text: $password)
+                }
+                
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Database Type")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(ColorTokens.textTertiary)
+                    
+                    Picker("", selection: $type) {
+                        ForEach(Database.DatabaseType.allCases, id: \.self) { type in
+                            Text(type.rawValue).tag(type)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                }
+            }
+            
+            Spacer()
+            
+            HStack(spacing: 12) {
+                Spacer()
+                Button("Cancel") { dismiss() }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(ColorTokens.textSecondary)
+                
+                Button("Save") {
+                    let newDb = Database(
+                        id: database?.id ?? UUID(),
+                        name: name,
+                        type: type,
+                        username: username.isEmpty ? nil : username,
+                        password: password.isEmpty ? nil : password,
+                        sizeBytes: database?.sizeBytes ?? 0,
+                        status: database?.status ?? .active
+                    )
+                    onSave(newDb)
+                    dismiss()
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(ColorTokens.accentPrimary)
+            }
+        }
+        .padding(32)
+        .frame(width: 500, height: 420)
+        .background(ColorTokens.layer1)
     }
 }
 
@@ -117,6 +282,7 @@ private struct TypeTab: View {
 private struct DatabaseRow: View {
     
     let database: Database
+    let onEdit: () -> Void
     let onDelete: () -> Void
     let onOpenDetails: () -> Void
     @State private var isHovered = false
@@ -173,6 +339,15 @@ private struct DatabaseRow: View {
             HStack(spacing: 8) {
                 Button("Backup") {}
                     .buttonStyle(SecondaryButtonStyle())
+                
+                Button(action: onEdit) {
+                    Image(systemName: "pencil")
+                        .foregroundStyle(Color.blue)
+                        .frame(width: 30, height: 30)
+                        .background(Color.blue.opacity(0.1))
+                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                }
+                .buttonStyle(.plain)
                 
                 Button(action: onDelete) {
                     Image(systemName: "trash")

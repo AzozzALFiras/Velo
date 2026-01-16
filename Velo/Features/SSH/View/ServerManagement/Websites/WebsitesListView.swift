@@ -17,6 +17,14 @@ struct WebsitesListView: View {
     @State private var selectedStatus: Website.WebsiteStatus? = nil
     @State private var selectedWebsite: Website? = nil
     
+    @State private var showingEditor = false
+    @State private var editingWebsite: Website? = nil
+    
+    // For Deletion Confirmation
+    @State private var showingDeleteAlert = false
+    @State private var websiteToDelete: Website? = nil
+    @State private var showingErrorAlert = false
+    
     var filteredWebsites: [Website] {
         viewModel.websites.filter { site in
             let matchesSearch = searchText.isEmpty || site.domain.localizedCaseInsensitiveContains(searchText) || site.path.localizedCaseInsensitiveContains(searchText)
@@ -26,56 +34,96 @@ struct WebsitesListView: View {
     }
     
     var body: some View {
-        ScrollView {
-            VStack(spacing: 20) {
+        VStack(spacing: 0) {
+            // Header with Add Button
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Websites")
+                        .font(.system(size: 24, weight: .bold))
+                        .foregroundStyle(ColorTokens.textPrimary)
+                    Text("\(viewModel.websites.count) sites hosted on this server")
+                        .font(.system(size: 13))
+                        .foregroundStyle(ColorTokens.textSecondary)
+                }
                 
-                // Controls: Search & Filter
-                HStack(spacing: 12) {
-                    // Search Bar
+                Spacer()
+                
+                Button(action: {
+                    editingWebsite = nil
+                    showingEditor = true
+                }) {
                     HStack(spacing: 8) {
-                        Image(systemName: "magnifyingglass")
-                            .foregroundStyle(ColorTokens.textTertiary)
-                        TextField("Search websites...", text: $searchText)
-                            .textFieldStyle(PlainTextFieldStyle())
+                        Image(systemName: "plus")
+                        Text("Add Website")
                     }
-                    .padding(8)
-                    .background(ColorTokens.layer1)
+                    .font(.system(size: 13, weight: .bold))
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .background(ColorTokens.accentPrimary)
+                    .foregroundStyle(.white)
                     .clipShape(RoundedRectangle(cornerRadius: 8))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8)
-                            .strokeBorder(ColorTokens.borderSubtle, lineWidth: 1)
-                    )
-                    
-                    // Filter Pills
-                    ScrollView(.horizontal, showsIndicators: false) {
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 32)
+            .padding(.top, 32)
+            .padding(.bottom, 20)
+
+            ScrollView {
+                VStack(spacing: 20) {
+                    // Controls: Search & Filter
+                    HStack(spacing: 12) {
+                        // Search Bar
                         HStack(spacing: 8) {
-                            FilterPill(title: "All", isSelected: selectedStatus == nil) {
-                                selectedStatus = nil
-                            }
-                            
-                            ForEach(Website.WebsiteStatus.allCases, id: \.self) { status in
-                                FilterPill(title: status.title, isSelected: selectedStatus == status) {
-                                    selectedStatus = selectedStatus == status ? nil : status
+                            Image(systemName: "magnifyingglass")
+                                .foregroundStyle(ColorTokens.textTertiary)
+                            TextField("Search websites...", text: $searchText)
+                                .textFieldStyle(PlainTextFieldStyle())
+                        }
+                        .padding(8)
+                        .background(ColorTokens.layer1)
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8)
+                                .strokeBorder(ColorTokens.borderSubtle, lineWidth: 1)
+                        )
+                        
+                        // Filter Pills
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 8) {
+                                FilterPill(title: "All", isSelected: selectedStatus == nil) {
+                                    selectedStatus = nil
+                                }
+                                
+                                ForEach(Website.WebsiteStatus.allCases, id: \.self) { status in
+                                    FilterPill(title: status.title, isSelected: selectedStatus == status) {
+                                        selectedStatus = selectedStatus == status ? nil : status
+                                    }
                                 }
                             }
                         }
                     }
-                }
-                .padding(.horizontal, 20)
-                .padding(.top, 20)
-                
-                // Grid
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 340), spacing: 16)], spacing: 16) {
-                    ForEach(filteredWebsites) { website in
-                        WebsiteCard(website: website, onToggleStatus: {
-                            viewModel.toggleWebsiteStatus(website)
-                        }, onOpenDetails: {
-                            selectedWebsite = website
-                        })
+                    .padding(.horizontal, 20)
+                    
+                    // Grid
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 340), spacing: 16)], spacing: 16) {
+                        ForEach(filteredWebsites) { website in
+                            WebsiteCard(website: website, onToggleStatus: {
+                                viewModel.toggleWebsiteStatus(website)
+                            }, onOpenDetails: {
+                                selectedWebsite = website
+                            }, onEdit: {
+                                editingWebsite = website
+                                showingEditor = true
+                            }, onDelete: {
+                                websiteToDelete = website
+                                showingDeleteAlert = true
+                            })
+                        }
                     }
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 20)
                 }
-                .padding(.horizontal, 20)
-                .padding(.bottom, 20)
             }
         }
         .background(ColorTokens.layer0)
@@ -84,6 +132,42 @@ struct WebsitesListView: View {
             // Create a binding to the website in the viewModel array
             if let index = viewModel.websites.firstIndex(where: { $0.id == website.id }) {
                 WebsiteDetailsView(website: $viewModel.websites[index])
+            }
+        }
+        .sheet(isPresented: $showingEditor) {
+            WebsiteEditorView(website: editingWebsite) { newWebsite in
+                if let _ = editingWebsite {
+                    viewModel.updateWebsite(newWebsite)
+                } else {
+                    viewModel.addWebsite(newWebsite)
+                }
+            }
+        }
+        .alert("Delete Website", isPresented: $showingDeleteAlert) {
+            Button("Cancel", role: .cancel) { websiteToDelete = nil }
+            Button("Delete", role: .destructive) {
+                if let website = websiteToDelete {
+                    viewModel.securelyPerformAction(reason: "Confirm website deletion") {
+                        viewModel.deleteWebsite(website)
+                    }
+                }
+                websiteToDelete = nil
+            }
+        } message: {
+            if let website = websiteToDelete {
+                Text("Are you sure you want to delete \(website.domain)? This action cannot be undone.")
+            }
+        }
+        .alert("Authentication Error", isPresented: $showingErrorAlert) {
+            Button("OK", role: .cancel) { viewModel.errorMessage = nil }
+        } message: {
+            if let error = viewModel.errorMessage {
+                Text(error)
+            }
+        }
+        .onChange(of: viewModel.errorMessage) { newValue in
+            if newValue != nil {
+                showingErrorAlert = true
             }
         }
     }
@@ -120,6 +204,8 @@ private struct WebsiteCard: View {
     let website: Website
     let onToggleStatus: () -> Void
     let onOpenDetails: () -> Void
+    let onEdit: () -> Void
+    let onDelete: () -> Void
     @State private var isHovered = false
     
     var body: some View {
@@ -190,7 +276,15 @@ private struct WebsiteCard: View {
                 
                 ActionButton(title: "Restart", icon: "arrow.clockwise", color: .blue) {}
                 
+                ActionButton(title: "Edit", icon: "pencil", color: .orange) {
+                    onEdit()
+                }
+                
                 Spacer()
+                
+                ActionButton(title: "Delete", icon: "trash", color: .red) {
+                    onDelete()
+                }
                 
                 ActionButton(title: "Open", icon: "safari", color: .gray) {}
             }
@@ -210,6 +304,74 @@ private struct WebsiteCard: View {
         .onHover { hovering in
             isHovered = hovering
         }
+    }
+}
+
+// MARK: - Website Editor View
+
+struct WebsiteEditorView: View {
+    @Environment(\.dismiss) var dismiss
+    let website: Website?
+    let onSave: (Website) -> Void
+    
+    @State private var domain: String = ""
+    @State private var path: String = "/var/www/html"
+    @State private var framework: String = "PHP"
+    @State private var port: String = "80"
+    
+    init(website: Website?, onSave: @escaping (Website) -> Void) {
+        self.website = website
+        self.onSave = onSave
+        _domain = State(initialValue: website?.domain ?? "")
+        _path = State(initialValue: website?.path ?? "/var/www/html")
+        _framework = State(initialValue: website?.framework ?? "PHP")
+        _port = State(initialValue: String(website?.port ?? 80))
+    }
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 24) {
+            Text(website == nil ? "Add Website" : "Edit Website")
+                .font(.system(size: 20, weight: .bold))
+                .foregroundStyle(ColorTokens.textPrimary)
+            
+            VStack(spacing: 16) {
+                VeloEditorField(label: "Domain Name", placeholder: "example.com", text: $domain)
+                VeloEditorField(label: "Root Path", placeholder: "/var/www/html", text: $path)
+                
+                HStack(spacing: 16) {
+                    VeloEditorField(label: "Framework", placeholder: "PHP", text: $framework)
+                    VeloEditorField(label: "Port", placeholder: "80", text: $port)
+                        .frame(width: 80)
+                }
+            }
+            
+            Spacer()
+            
+            HStack(spacing: 12) {
+                Spacer()
+                Button("Cancel") { dismiss() }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(ColorTokens.textSecondary)
+                
+                Button("Save") {
+                    let newWebsite = Website(
+                        id: website?.id ?? UUID(),
+                        domain: domain,
+                        path: path,
+                        status: website?.status ?? .stopped,
+                        port: Int(port) ?? 80,
+                        framework: framework
+                    )
+                    onSave(newWebsite)
+                    dismiss()
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(ColorTokens.accentPrimary)
+            }
+        }
+        .padding(32)
+        .frame(width: 500, height: 400)
+        .background(ColorTokens.layer1)
     }
 }
 

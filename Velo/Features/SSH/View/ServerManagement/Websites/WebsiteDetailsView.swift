@@ -17,6 +17,10 @@ struct WebsiteDetailsView: View {
     @State private var domainEdit = ""
     @State private var pathEdit = ""
     
+    // Security
+    @State private var errorMessage: String? = nil
+    @State private var showingErrorAlert = false
+    
     // Mock Logs
     let logs = [
         "[2024-01-15 10:00:01] [INFO] Server started on port 8080",
@@ -108,6 +112,13 @@ struct WebsiteDetailsView: View {
         }
         .frame(width: 500, height: 600)
         .background(ColorTokens.layer0)
+        .alert("Authentication Error", isPresented: $showingErrorAlert) {
+            Button("OK", role: .cancel) { errorMessage = nil }
+        } message: {
+            if let error = errorMessage {
+                Text(error)
+            }
+        }
         .onAppear {
             domainEdit = website.domain
             pathEdit = website.path
@@ -126,7 +137,15 @@ struct WebsiteDetailsView: View {
             
             HStack(spacing: 12) {
                 ActionButton(title: "Restart Service", icon: "arrow.clockwise", color: .blue) {}
-                ActionButton(title: "Clear Cache", icon: "trash", color: .orange) {}
+                ActionButton(title: "Clear Cache", icon: "trash", color: .orange) {
+                    SecurityManager.shared.securelyPerformAction(reason: "Clear cache for \(website.domain)") {
+                        // Action: Clear Cache
+                        print("Cache cleared for \(website.domain)")
+                    } onError: { error in
+                        self.errorMessage = error
+                        self.showingErrorAlert = true
+                    }
+                }
             }
         }
         .padding()

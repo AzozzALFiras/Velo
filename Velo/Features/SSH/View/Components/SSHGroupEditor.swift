@@ -40,7 +40,7 @@ struct SSHGroupEditor: View {
                 .font(TypographyTokens.heading)
                 .foregroundColor(ColorTokens.textPrimary)
 
-            EditorField(label: "Name", placeholder: "Production Servers", text: $name)
+            VeloEditorField(label: "Name", placeholder: "Production Servers", text: $name)
 
             HStack {
                 ColorPicker("Color", selection: Binding(

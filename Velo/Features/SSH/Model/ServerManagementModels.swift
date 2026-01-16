@@ -31,12 +31,21 @@ struct ServerStats: Identifiable {
 // MARK: - Website Model
 
 struct Website: Identifiable {
-    let id = UUID()
+    var id = UUID()
     var domain: String
     var path: String
     var status: WebsiteStatus
     var port: Int
     var framework: String // e.g., "Node.js", "PHP", "Static"
+    
+    init(id: UUID = UUID(), domain: String, path: String, status: WebsiteStatus, port: Int, framework: String) {
+        self.id = id
+        self.domain = domain
+        self.path = path
+        self.status = status
+        self.port = port
+        self.framework = framework
+    }
     
     enum WebsiteStatus: String, CaseIterable {
         case running
@@ -66,11 +75,23 @@ struct Website: Identifiable {
 // MARK: - Database Model
 
 struct Database: Identifiable {
-    let id = UUID()
+    var id = UUID()
     var name: String
     var type: DatabaseType
+    var username: String?
+    var password: String?
     var sizeBytes: Int64
     var status: DatabaseStatus
+    
+    init(id: UUID = UUID(), name: String, type: DatabaseType, username: String? = nil, password: String? = nil, sizeBytes: Int64, status: DatabaseStatus) {
+        self.id = id
+        self.name = name
+        self.type = type
+        self.username = username
+        self.password = password
+        self.sizeBytes = sizeBytes
+        self.status = status
+    }
     
     var sizeString: String {
         ByteCountFormatter.string(fromByteCount: sizeBytes, countStyle: .file)

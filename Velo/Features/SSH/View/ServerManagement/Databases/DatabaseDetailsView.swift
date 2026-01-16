@@ -15,6 +15,10 @@ struct DatabaseDetailsView: View {
     
     @State private var activeTab = "Tables"
     
+    // Security
+    @State private var errorMessage: String? = nil
+    @State private var showingErrorAlert = false
+    
     // Mock Data
     @State private var tables = [
         "users", "orders", "products", "transactions", "logs", "settings"
@@ -106,6 +110,13 @@ struct DatabaseDetailsView: View {
         }
         .frame(width: 500, height: 600)
         .background(ColorTokens.layer0)
+        .alert("Authentication Error", isPresented: $showingErrorAlert) {
+            Button("OK", role: .cancel) { errorMessage = nil }
+        } message: {
+            if let error = errorMessage {
+                Text(error)
+            }
+        }
     }
     
     // MARK: - Tabs
@@ -146,7 +157,16 @@ struct DatabaseDetailsView: View {
             
             Divider().padding(.vertical, 8)
             
-            Button(action: {}) {
+            Button(action: {
+                SecurityManager.shared.securelyPerformAction(reason: "Delete database \(database.name)") {
+                    // Action: Delete Database (Service call would go here)
+                    print("Database \(database.name) deleted via details.")
+                    dismiss()
+                } onError: { error in
+                    self.errorMessage = error
+                    self.showingErrorAlert = true
+                }
+            }) {
                 HStack {
                     Image(systemName: "trash")
                     Text("Delete Database")

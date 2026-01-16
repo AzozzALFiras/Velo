@@ -13,6 +13,12 @@ struct ThemeSettingsView: View {
     @State private var showingCustomThemeEditor = false
     @State private var editingTheme: VeloTheme?
     
+    // Deletion State
+    @State private var showingDeleteAlert = false
+    @State private var themeToDelete: VeloTheme?
+    @State private var errorMessage: String?
+    @State private var showingErrorAlert = false
+    
     var body: some View {
         VStack(alignment: .leading, spacing: VeloDesign.Spacing.lg) {
             // Built-in Themes
@@ -56,7 +62,10 @@ struct ThemeSettingsView: View {
                                 isSelected: themeManager.currentTheme.id == theme.id,
                                 onSelect: { themeManager.setTheme(theme) },
                                 onEdit: { editingTheme = theme },
-                                onDelete: { themeManager.deleteCustomTheme(theme) }
+                                onDelete: {
+                                    themeToDelete = theme
+                                    showingDeleteAlert = true
+                                }
                             )
                         }
                     }
@@ -86,6 +95,33 @@ struct ThemeSettingsView: View {
         }
         .sheet(item: $editingTheme) { theme in
             CustomThemeEditorView(theme: theme)
+        }
+        // Deletion Confirmation Alert
+        .alert("Delete Theme", isPresented: $showingDeleteAlert) {
+            Button("Cancel", role: .cancel) { themeToDelete = nil }
+            Button("Delete", role: .destructive) {
+                if let theme = themeToDelete {
+                    SecurityManager.shared.securelyPerformAction(reason: "Delete custom theme \(theme.name)") {
+                        themeManager.deleteCustomTheme(theme)
+                    } onError: { error in
+                        self.errorMessage = error
+                        self.showingErrorAlert = true
+                    }
+                }
+                themeToDelete = nil
+            }
+        } message: {
+            if let theme = themeToDelete {
+                Text("Are you sure you want to delete '\(theme.name)'? This action cannot be undone.")
+            }
+        }
+        // Error Alert
+        .alert("Authentication Error", isPresented: $showingErrorAlert) {
+            Button("OK", role: .cancel) { errorMessage = nil }
+        } message: {
+            if let error = errorMessage {
+                Text(error)
+            }
         }
     }
 }

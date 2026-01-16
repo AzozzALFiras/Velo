@@ -7,23 +7,27 @@
 
 import SwiftUI
 
-struct EditorField: View {
+struct VeloEditorField: View {
     let label: String
     let placeholder: String
     @Binding var text: String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 6) {
             Text(label)
-                .font(TypographyTokens.caption)
+                .font(.system(size: 11, weight: .bold))
                 .foregroundColor(ColorTokens.textTertiary)
 
             TextField(placeholder, text: $text)
                 .textFieldStyle(.plain)
                 .font(TypographyTokens.mono)
-                .padding(VeloDesign.Spacing.sm)
+                .padding(10)
                 .background(ColorTokens.layer2)
-                .cornerRadius(6)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(Color.white.opacity(0.1), lineWidth: 1)
+                )
         }
     }
 }
