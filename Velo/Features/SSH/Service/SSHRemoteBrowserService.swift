@@ -74,7 +74,7 @@ final class SSHRemoteBrowserService: ObservableObject {
             let escapedPath = targetDirectory.replacingOccurrences(of: "'", with: "'\\''")
             let lsCommand = "ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 \(sshHost) \"echo '\(delimiter)'; ls -1ap --color=never '\(escapedPath)'\""
 
-            var env = ProcessInfo.processInfo.environment
+            var env = Foundation.ProcessInfo.processInfo.environment
             env["SSH_ASKPASS"] = ""
 
             do {
@@ -136,7 +136,7 @@ final class SSHRemoteBrowserService: ObservableObject {
         cleanedOutput = cleanedOutput.replacingOccurrences(of: "\u{1B}", with: "")
         cleanedOutput = cleanedOutput.replacingOccurrences(of: "\u{07}", with: "")
 
-        let lines = cleanedOutput.components(separatedBy: .newlines)
+        let lines = cleanedOutput.components(separatedBy: CharacterSet.newlines)
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { line in
                 !line.isEmpty &&

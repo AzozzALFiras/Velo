@@ -146,7 +146,7 @@ struct SSHConfigParser {
         var currentPort: Int = 22
         var currentIdentityFile: String?
         
-        for line in content.components(separatedBy: .newlines) {
+        for line in content.components(separatedBy: CharacterSet.newlines) {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
             guard !trimmed.isEmpty, !trimmed.hasPrefix("#") else { continue }
             

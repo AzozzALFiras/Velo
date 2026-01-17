@@ -1,0 +1,366 @@
+//
+//  ServerManagementViewModel.swift
+//  Velo
+//
+//  ViewModel for the Server Management UI.
+//  Acts as a lightweight container/coordinator for specialized modular ViewModels.
+//
+
+import Foundation
+import Combine
+import SwiftUI
+
+@MainActor
+final class ServerManagementViewModel: ObservableObject {
+    
+    // MARK: - Child ViewModels (Modular)
+    @Published var overviewVM: ServerOverviewViewModel
+    @Published var websitesVM: WebsitesViewModel
+    @Published var databasesVM: DatabasesViewModel
+    @Published var servicesVM: ServiceManagementViewModel
+    @Published var installerVM: ServerInstallerViewModel
+    
+    // MARK: - Dependencies
+    weak var session: TerminalViewModel? {
+        didSet {
+            // Propagate session to children
+            overviewVM.session = session
+            websitesVM.session = session
+            databasesVM.session = session
+            servicesVM.session = session
+            installerVM.session = session
+        }
+    }
+    
+    // MARK: - Published State (Compatibility Wrappers)
+    
+    // Overview / Stats
+    var stats: ServerStats {
+        ServerStats(
+            cpuUsage: Double(overviewVM.cpuUsage) / 100.0,
+            ramUsage: Double(overviewVM.ramUsage) / 100.0,
+            diskUsage: Double(overviewVM.diskUsage) / 100.0,
+            uptime: 0,
+            isOnline: true,
+            osName: overviewVM.osName,
+            ipAddress: overviewVM.ipAddress
+        )
+    }
+    
+    var overviewCounts: OverviewCounts {
+        OverviewCounts(
+            sites: websitesVM.websites.count,
+            ftp: 0,
+            databases: databasesVM.totalDatabaseCount,
+            security: overviewVM.installedSoftware.count
+        )
+    }
+    
+    var serverStatus: ServerStatus { overviewVM.serverStatus }
+    var websites: [Website] { websitesVM.websites }
+    var databases: [Database] { databasesVM.databases }
+    var installedSoftware: [InstalledSoftware] { overviewVM.installedSoftware }
+    
+    // Server Info Wrappers
+    var serverHostname: String { overviewVM.hostname }
+    var serverIP: String { overviewVM.ipAddress }
+    var serverOS: String { overviewVM.osName }
+    var serverUptime: String { overviewVM.uptime }
+    var cpuUsage: Int { overviewVM.cpuUsage }
+    var ramUsage: Int { overviewVM.ramUsage }
+    var trafficHistory: [TrafficPoint] { overviewVM.trafficHistory }
+    
+    // Applications / Installer
+    @Published var searchQuery: String = ""
+    var filteredCapabilities: [Capability] {
+        if searchQuery.isEmpty {
+            return installerVM.availableCapabilities
+        }
+        return installerVM.availableCapabilities.filter {
+            $0.name.localizedCaseInsensitiveContains(searchQuery) ||
+            $0.description.localizedCaseInsensitiveContains(searchQuery) ||
+            $0.slug.localizedCaseInsensitiveContains(searchQuery)
+        }
+    }
+    
+    // Loading State
+    @Published var isLoading = false
+    @Published var errorMessage: String? = nil
+    
+    // Files (To be modularized later)
+    @Published var files: [ServerFileItem] = []
+    @Published var currentPath: String = "/"
+    @Published var pathStack: [String] = ["/"]
+    @Published var activeUploads: [FileUploadTask] = []
+    
+    // Capabilities / Installation Wrappers
+    var availableCapabilities: [Capability] { installerVM.availableCapabilities }
+    var isInstalling: Bool { installerVM.isInstalling }
+    var installLog: String { installerVM.installLog }
+    var installProgress: Double { installerVM.installProgress }
+    var showInstallOverlay: Bool {
+        get { installerVM.showInstallOverlay }
+        set { installerVM.showInstallOverlay = newValue }
+    }
+    var currentInstallingCapability: String? { installerVM.currentInstallingCapability }
+    
+    private var subscribers: Set<AnyCancellable> = []
+    private var dataLoadedOnce = false
+    
+    // MARK: - Init
+    
+    init(session: TerminalViewModel? = nil) {
+        self.session = session
+        
+        // Initialize Children
+        self.overviewVM = ServerOverviewViewModel(session: session)
+        self.websitesVM = WebsitesViewModel(session: session)
+        self.databasesVM = DatabasesViewModel(session: session)
+        self.servicesVM = ServiceManagementViewModel(session: session)
+        self.installerVM = ServerInstallerViewModel(session: session)
+        
+        setupBindings()
+    }
+    
+    private func setupBindings() {
+        // Forward changes from children to self
+        overviewVM.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }.store(in: &subscribers)
+        websitesVM.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }.store(in: &subscribers)
+        databasesVM.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }.store(in: &subscribers)
+        servicesVM.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }.store(in: &subscribers)
+        installerVM.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }.store(in: &subscribers)
+        
+        // Handle post-install refresh
+        installerVM.onInstallationComplete = { [weak self] success in
+            if success {
+                Task { await self?.refreshServerStatus() }
+            }
+        }
+    }
+    
+    // MARK: - Data Loading
+    
+    func loadAllData(force: Bool = false) async {
+        guard !dataLoadedOnce || force else { return }
+        isLoading = true
+        
+        AppLogger.shared.log("Starting full server analysis...", level: .info)
+        
+        // Parallel load
+        async let overview: () = overviewVM.loadData()
+        async let sites: () = websitesVM.loadWebsites()
+        async let dbs: () = databasesVM.loadDatabases()
+        async let services: () = servicesVM.loadServices()
+        async let caps: () = installerVM.fetchCapabilities()
+        
+        await overview
+        await sites
+        await dbs
+        await services
+        await caps
+        
+        AppLogger.shared.log("Full server analysis completed correctly ✅", level: .result)
+        
+        // Start live updates
+        overviewVM.startLiveUpdates()
+        
+        dataLoadedOnce = true
+        isLoading = false
+    }
+    
+    func loadAllDataOptimized() async {
+        await loadAllData(force: true)
+    }
+    
+    func refreshServerStatus() async {
+        await overviewVM.fetchServerStatus()
+        await websitesVM.loadWebsites()
+        await databasesVM.loadDatabases()
+    }
+    
+    func refreshData() {
+        Task {
+            await loadAllData(force: true)
+        }
+    }
+    
+    // MARK: - Delegated Actions
+    
+    // Websites
+    func createRealWebsite(domain: String, path: String, framework: String, port: Int) async throws {
+        _ = await websitesVM.createWebsite(domain: domain, path: path, framework: framework, port: port)
+    }
+    
+    func deleteWebsite(_ website: Website, deleteFiles: Bool = false) async {
+        _ = await websitesVM.deleteWebsite(website, deleteFiles: deleteFiles)
+    }
+    
+    func fetchInstalledPHPVersions() async -> [String] {
+        await websitesVM.availablePHPVersions
+    }
+    
+    func switchPHPVersion(forWebsite website: Website, toVersion version: String) async -> Bool {
+        await websitesVM.switchPHPVersion(forWebsite: website, toVersion: version)
+    }
+    
+    func toggleWebsiteStatus(_ website: Website) async {
+        _ = await websitesVM.toggleWebsiteStatus(website)
+    }
+    
+    func restartWebsite(_ website: Website) async {
+        _ = await websitesVM.restartWebsite(website)
+    }
+    
+    // Databases
+    func createRealDatabase(name: String, type: DatabaseType, username: String?, password: String?) async -> Bool {
+        await databasesVM.createDatabase(name: name, type: type, username: username, password: password)
+    }
+    
+    func deleteDatabase(_ database: Database) async {
+        _ = await databasesVM.deleteDatabase(database)
+    }
+    
+    func backupDatabase(_ database: Database) async -> String? {
+        await databasesVM.backupDatabase(database)
+    }
+    
+    func updateDatabase(_ database: Database) {
+        databasesVM.updateDatabase(database)
+    }
+    
+    func updateWebsite(_ website: Website) {
+        websitesVM.updateWebsite(website)
+    }
+    
+    // Services
+    func restartService(_ serviceName: String) async -> Bool {
+        let temp = ServiceInfo(name: serviceName, serviceName: serviceName, type: .other, status: .unknown, canReload: true)
+        return await servicesVM.restartService(temp)
+    }
+    
+    func stopService(_ serviceName: String) async -> Bool {
+         let temp = ServiceInfo(name: serviceName, serviceName: serviceName, type: .other, status: .unknown, canReload: true)
+        return await servicesVM.stopService(temp)
+    }
+    
+    func startService(_ serviceName: String) async -> Bool {
+         let temp = ServiceInfo(name: serviceName, serviceName: serviceName, type: .other, status: .unknown, canReload: true)
+        return await servicesVM.startService(temp)
+    }
+    
+    // Install
+    func installCapabilityBySlug(_ slug: String) {
+        installerVM.installCapabilityBySlug(slug)
+    }
+    
+    func installCapability(_ capability: Capability, version: String) async {
+        // In a real scenario, we might pass the version. 
+        // For now, our installerVM handles the latest stable by slug.
+        installerVM.installCapabilityBySlug(capability.slug)
+    }
+    
+    func installStack(_ slugs: [String]) {
+        let os = overviewVM.osName.isEmpty ? "ubuntu" : overviewVM.osName
+        installerVM.installStack(slugs, osType: os)
+    }
+    
+    // Settings / Security
+    func changeRootPassword(newPass: String) async -> Bool {
+        // Implementation placeholder
+        return true
+    }
+    
+    func changeDBPassword(newPass: String) async -> Bool {
+        // Implementation placeholder
+        return true
+    }
+    
+    // Secure Actions
+    func securelyPerformAction(reason: String, action: @escaping () -> Void) {
+        SecurityManager.shared.securelyPerformAction(reason: reason, action: action) { [weak self] error in
+            self?.errorMessage = error
+        }
+    }
+    
+    // MARK: - Files (Skeleton)
+    func fetchFilesForPicker(path: String) async -> [ServerFileItem] {
+        let result = await SSHBaseService.shared.execute("ls -1F '\(path)' 2>/dev/null", via: session ?? TerminalViewModel())
+        let lines = result.output.components(separatedBy: CharacterSet.newlines)
+        return lines.compactMap { line -> ServerFileItem? in
+            let name = line.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+            guard !name.isEmpty else { return nil }
+            let isDir = name.hasSuffix("/")
+            let cleanName = isDir ? String(name.dropLast()) : name
+            return ServerFileItem(name: cleanName, path: "\(path)/\(cleanName)", isDirectory: isDir, sizeBytes: 0, permissions: "755", modificationDate: Date(), owner: "root")
+        }
+    }
+    
+    func navigateBack() {
+        guard pathStack.count > 1 else { return }
+        pathStack.removeLast()
+        currentPath = pathStack.last ?? "/"
+        Task { await loadFiles() }
+    }
+    
+    func jumpToPath(_ path: String) {
+        currentPath = path
+        pathStack = [path]
+        Task { await loadFiles() }
+    }
+    
+    func navigateTo(folder: ServerFileItem) {
+        guard folder.isDirectory else { return }
+        currentPath = folder.path
+        pathStack.append(currentPath)
+        Task { await loadFiles() }
+    }
+    
+    func loadFiles() async {
+        files = await fetchFilesForPicker(path: currentPath)
+    }
+    
+    func deleteFile(_ file: ServerFileItem) async -> Bool {
+        // Implementation placeholder
+        return true
+    }
+    
+    func renameFile(_ file: ServerFileItem, to: String) async -> Bool {
+        // Implementation placeholder
+        return true
+    }
+    
+    func updatePermissions(_ file: ServerFileItem, to: String) async -> Bool {
+        // Implementation placeholder
+        return true
+    }
+    
+    func updateOwner(_ file: ServerFileItem, to: String) async -> Bool {
+        // Implementation placeholder
+        return true
+    }
+    
+    func downloadFile(_ file: ServerFileItem) {
+        // Implementation placeholder
+    }
+    
+    func startMockUpload(fileName: String) {
+        let task = FileUploadTask(fileName: fileName, progress: 0.1)
+        activeUploads.append(task)
+        
+        // Mock progress
+        Task {
+            for i in 1...10 {
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                if let index = activeUploads.firstIndex(where: { $0.id == task.id }) {
+                    activeUploads[index].progress = Double(i) / 10.0
+                    if i == 10 {
+                        activeUploads[index].isCompleted = true
+                    }
+                }
+            }
+            // Cleanup after delay
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            activeUploads.removeAll { $0.id == task.id }
+        }
+    }
+}

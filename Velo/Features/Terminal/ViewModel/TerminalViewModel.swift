@@ -61,14 +61,23 @@ final class TerminalViewModel: ObservableObject, Identifiable {
     var activeSSHConnectionString: String? {
         guard isSSHActive else { return nil }
         let cmd = activeCommand.trimmingCharacters(in: .whitespaces)
-        // Extract user@host from "ssh -tt user@host" or "ssh user@host"
-        // Simply removing "ssh " and flags until we hit the user@host part
-        // This is a naive implementation; a better one would tokenize, but for now:
         let parts = cmd.components(separatedBy: .whitespaces).filter { !$0.isEmpty }
-        // Find the part that contains "@" or looks like a host
-        // parts[0] is ssh
-        for part in parts.dropFirst() {
-            if !part.hasPrefix("-") { // Skip flags like -tt, -p
+        
+        // Find the user@host part
+        // We skip flags and their values
+        var i = 1 // Start after 'ssh'
+        while i < parts.count {
+            let part = parts[i]
+            if part.hasPrefix("-") {
+                // Common flags that take an argument
+                let flagsWithArgs = ["-p", "-i", "-l", "-F", "-E", "-c", "-m", "-O", "-S", "-W", "-L", "-R", "-D"]
+                if flagsWithArgs.contains(part) {
+                    i += 2 // Skip flag and its value
+                } else {
+                    i += 1 // Skip flag without value (like -v, -t)
+                }
+            } else {
+                // First non-flag part is usually user@host
                 return part
             }
         }
@@ -505,15 +514,10 @@ final class TerminalViewModel: ObservableObject, Identifiable {
             var text = line.text
             
             // First, clean ANSI/OSC sequences from the line before regex matching
-            // Remove OSC sequences: ]0;...BEL or ]0;... or ]1; ]2;
-            text = text.replacingOccurrences(of: "\\\\u{1B}\\\\].*?(?:\\\\u{07}|\\\\u{1B}\\\\\\\\)", with: "", options: .regularExpression)
-            text = text.replacingOccurrences(of: "\\]\\d+;[^\u{07}\\n]*\u{07}?", with: "", options: .regularExpression)
-            
-            // Remove ESC sequences (colors, cursor movement)
-            text = text.replacingOccurrences(of: "\u{1B}\\[[0-9;?]*[a-zA-Z]", with: "", options: .regularExpression)
-            text = text.replacingOccurrences(of: "\u{1B}\\[[0-9;?]*[mK]", with: "", options: .regularExpression)
-            text = text.replacingOccurrences(of: "\u{1B}", with: "")
-            text = text.replacingOccurrences(of: "\u{07}", with: "")
+            let ansiPattern = "[\\u001B\\u009B][[\\]()#;?]*((?:[a-zA-Z\\d]*(?:;[-a-zA-Z\\d\\/#&.:=?%@~_]*)*)?\\u0007|(?:(?:\\d{1,4}(?:;\\d{0,4})*)?[\\dA-PR-TZcf-ntqry=><~]))"
+            text = text.replacingOccurrences(of: ansiPattern, with: "", options: .regularExpression)
+            text = text.replacingOccurrences(of: "\\r", with: "")
+            text = text.replacingOccurrences(of: "\\u{07}", with: "")
             
             // Handle mid-string prompts (e.g. from multiple commands) by looking at the last part
             let cleanedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -554,17 +558,8 @@ final class TerminalViewModel: ObservableObject, Identifiable {
             
             for word in words {
                 // Remove ANSI codes fully
-                var cleaned = word
-                // Remove CSI sequences: ESC [ ... letter
-                    .replacingOccurrences(of: "\\u{1B}\\[[0-9;?]*[a-zA-Z]", with: "", options: .regularExpression)
-                // Remove OSC sequences: ESC ] ... BEL or ESC ] ... ST
-                    .replacingOccurrences(of: "\\u{1B}\\][^\u{07}]*\u{07}", with: "", options: .regularExpression)
-                // Remove OSC without ESC: ]0; ]1; ]2; followed by content
-                    .replacingOccurrences(of: "\\]\\d+;[^\\s]*", with: "", options: .regularExpression)
-                // Remove remaining ESC characters
-                    .replacingOccurrences(of: "\u{1B}", with: "")
-                // Remove BEL character
-                    .replacingOccurrences(of: "\u{07}", with: "")
+                let ansiPattern = "[\\u001B\\u009B][[\\]()#;?]*((?:[a-zA-Z\\d]*(?:;[-a-zA-Z\\d\\/#&.:=?%@~_]*)*)?\\u0007|(?:(?:\\d{1,4}(?:;\\d{0,4})*)?[\\dA-PR-TZcf-ntqry=><~]))"
+                var cleaned = word.replacingOccurrences(of: ansiPattern, with: "", options: .regularExpression)
                 
                 // Preserve trailing / for directories!
                 let hasTrailingSlash = cleaned.hasSuffix("/")

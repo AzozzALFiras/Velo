@@ -172,7 +172,7 @@ final class SSHFileTransferService: ObservableObject {
         let controlChars = CharacterSet(charactersIn: "\u{0001}"..."\u{001F}").subtracting(CharacterSet(charactersIn: "\n\t"))
         cleaned = cleaned.components(separatedBy: controlChars).joined()
         cleaned = cleaned.replacingOccurrences(of: "]\\d+;[^\n]*", with: "", options: .regularExpression)
-        cleaned = cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
+        cleaned = cleaned.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
 
         // Remove trailing slash
         if cleaned.hasSuffix("/") {

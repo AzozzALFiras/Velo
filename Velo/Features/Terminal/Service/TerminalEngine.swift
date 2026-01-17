@@ -8,10 +8,17 @@
 import Foundation
 import Combine
 
+// MARK: - Delegate Protocol
+protocol TerminalOutputDelegate: AnyObject {
+    func terminalDidReceiveOutput(_ engine: TerminalEngine, text: String)
+}
+
 // MARK: - Terminal Engine
 /// Core engine for managing shell processes and command execution
 @MainActor
 final class TerminalEngine: ObservableObject {
+    
+    weak var delegate: TerminalOutputDelegate?
     
     // MARK: - Published State
     @Published private(set) var isRunning: Bool = false
@@ -205,6 +212,11 @@ final class TerminalEngine: ObservableObject {
         // Create PTY process with output handler
         ptyProcess = PTYProcess { [weak self] text in
             self?.outputBuffer.append(text, isError: false)
+            
+            // Fast-track for SSHBaseService and other delegates
+            Task { @MainActor in
+                self?.delegate?.terminalDidReceiveOutput(self!, text: text)
+            }
         }
         
         // Start flush timer
@@ -311,6 +323,11 @@ final class TerminalEngine: ObservableObject {
             guard !data.isEmpty else { return }
             if let text = String(data: data, encoding: .utf8) {
                 self?.outputBuffer.append(text, isError: false)
+                
+                // Fast-track for delegates
+                Task { @MainActor in
+                    self?.delegate?.terminalDidReceiveOutput(self!, text: text)
+                }
             }
         }
         
@@ -320,6 +337,11 @@ final class TerminalEngine: ObservableObject {
             guard !data.isEmpty else { return }
             if let text = String(data: data, encoding: .utf8) {
                 self?.outputBuffer.append(text, isError: true)
+                
+                // Fast-track for delegates
+                Task { @MainActor in
+                    self?.delegate?.terminalDidReceiveOutput(self!, text: text)
+                }
             }
         }
     }
