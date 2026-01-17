@@ -183,8 +183,22 @@ final class ServerManagementViewModel: ObservableObject {
     // MARK: - Delegated Actions
     
     // Websites
-    func createRealWebsite(domain: String, path: String, framework: String, port: Int) async throws {
-        _ = await websitesVM.createWebsite(domain: domain, path: path, framework: framework, port: port)
+    func createRealWebsite(
+        domain: String,
+        path: String,
+        framework: String,
+        port: Int,
+        shouldGenerateSSL: Bool = false,
+        sslEmail: String? = nil
+    ) async throws {
+        _ = await websitesVM.createWebsite(
+            domain: domain,
+            path: path,
+            framework: framework,
+            port: port,
+            shouldGenerateSSL: shouldGenerateSSL,
+            sslEmail: sslEmail
+        )
     }
     
     func deleteWebsite(_ website: Website, deleteFiles: Bool = false) async {

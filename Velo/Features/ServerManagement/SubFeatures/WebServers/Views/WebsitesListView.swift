@@ -26,6 +26,9 @@ struct WebsitesListView: View {
     @State private var websiteToDelete: Website? = nil
     @State private var showingErrorAlert = false
     
+    // For SSL Management
+    @State private var sslWebsite: Website? = nil
+    
     var filteredWebsites: [Website] {
         viewModel.websitesVM.websites.filter { site in
             let matchesSearch = searchText.isEmpty || site.domain.localizedCaseInsensitiveContains(searchText) || site.path.localizedCaseInsensitiveContains(searchText)
@@ -61,6 +64,15 @@ struct WebsitesListView: View {
             WebsiteEditorView(viewModel: viewModel, website: websiteToEdit) { _ in
                 editingWebsite = nil
             }
+        }
+        .sheet(item: $sslWebsite) { website in
+            SSLManagementView(
+                viewModel: viewModel,
+                website: website,
+                onDismiss: {
+                    sslWebsite = nil
+                }
+            )
         }
         .alert("Delete Website", isPresented: $showingDeleteAlert) {
             Button("Cancel", role: .cancel) { websiteToDelete = nil }
@@ -205,10 +217,12 @@ struct WebsitesListView: View {
                                 showingDeleteAlert = true
                             }, onOpen: {
                                 // Open website in default browser
-                                let urlString = "http://\(website.domain)"
+                                let urlString = website.hasSSL ? "https://\(website.domain)" : "http://\(website.domain)"
                                 if let url = URL(string: urlString) {
                                     NSWorkspace.shared.open(url)
                                 }
+                            }, onSSL: {
+                                sslWebsite = website
                             })
                         }
                     }
@@ -532,6 +546,7 @@ private struct WebsiteCard: View {
     let onEdit: () -> Void
     let onDelete: () -> Void
     let onOpen: () -> Void
+    let onSSL: () -> Void
     @State private var isHovered = false
     
     var body: some View {
@@ -567,6 +582,19 @@ private struct WebsiteCard: View {
                             .background(ColorTokens.layer2)
                             .clipShape(RoundedRectangle(cornerRadius: 4))
                             .foregroundStyle(ColorTokens.textSecondary)
+                        
+                        // SSL Badge
+                        HStack(spacing: 3) {
+                            Image(systemName: website.sslStatus.icon)
+                                .font(.system(size: 8))
+                            Text(website.hasSSL ? "SSL" : "No SSL")
+                                .font(.system(size: 9, weight: .medium))
+                        }
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(sslBadgeColor.opacity(0.15))
+                        .clipShape(RoundedRectangle(cornerRadius: 4))
+                        .foregroundStyle(sslBadgeColor)
                     }
                     .padding(.top, 4)
                 }
@@ -591,30 +619,33 @@ private struct WebsiteCard: View {
                 .background(ColorTokens.borderSubtle)
             
             // Actions
-            HStack {
+            HStack(spacing: 8) {
                 ActionButton(
                     title: website.status == .running ? "Stop" : "Start",
                     icon: website.status == .running ? "stop.fill" : "play.fill",
-                    color: website.status == .running ? .red : .green
+                    color: website.status == .running ? .red : .green,
+                    isExpandable: true
                 ) {
                     onToggleStatus()
                 }
 
-                ActionButton(title: "Restart", icon: "arrow.clockwise", color: .blue) {
+                ActionButton(title: "Restart", icon: "arrow.clockwise", color: .blue, isExpandable: true) {
                     onRestart()
                 }
                 
-                ActionButton(title: "Edit", icon: "pencil", color: .orange) {
+                ActionButton(title: "Edit", icon: "pencil", color: .orange, isExpandable: true) {
                     onEdit()
                 }
                 
-                Spacer()
+                ActionButton(title: "SSL", icon: website.hasSSL ? "lock.fill" : "lock.open", color: website.hasSSL ? .green : .gray, isExpandable: true) {
+                    onSSL()
+                }
                 
-                ActionButton(title: "Delete", icon: "trash", color: .red) {
+                ActionButton(title: "Delete", icon: "trash", color: .red, isExpandable: true) {
                     onDelete()
                 }
                 
-                ActionButton(title: "Open", icon: "safari", color: .blue) {
+                ActionButton(title: "Open", icon: "safari", color: .blue, isExpandable: true) {
                     onOpen()
                 }
             }
@@ -633,6 +664,17 @@ private struct WebsiteCard: View {
         .buttonStyle(.plain) // Important for wrapping button
         .onHover { hovering in
             isHovered = hovering
+        }
+    }
+    
+    // SSL badge color based on status
+    private var sslBadgeColor: Color {
+        switch website.sslStatus {
+        case .active: return .green
+        case .expiringSoon: return .orange
+        case .expired, .error: return .red
+        case .pending: return .orange
+        case .none: return .gray
         }
     }
 }
@@ -661,6 +703,11 @@ struct WebsiteEditorView: View {
     @State private var isSaving = false
     @State private var errorMessage: String?
     @State private var hasPopulated = false
+    
+    // SSL States
+    @State private var shouldGenerateSSL: Bool = false
+    @State private var sslEmail: String = ""
+    @State private var showingSSLManagement: Bool = false
     
     // Computed frameworks based on installed software
     var availableFrameworks: [String] {
@@ -836,11 +883,60 @@ struct WebsiteEditorView: View {
                     VeloEditorField(label: "Port", placeholder: "80", text: $port)
                         .frame(width: 80)
                 }
+                
+                // SSL Toggle (Only for New Website)
+                if isNewWebsite {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Toggle(isOn: $shouldGenerateSSL) {
+                            HStack {
+                                Image(systemName: "lock.shield.fill")
+                                    .foregroundStyle(shouldGenerateSSL ? .green : .gray)
+                                Text("Generate SSL Certificate (Let's Encrypt)")
+                                    .font(.system(size: 13, weight: .medium))
+                            }
+                        }
+                        .toggleStyle(.switch)
+                        
+                        if shouldGenerateSSL {
+                            VeloEditorField(
+                                label: "SSL Email",
+                                placeholder: "admin@\(domain.isEmpty ? "example.com" : domain)",
+                                text: $sslEmail
+                            )
+                            .transition(.move(edge: .top).combined(with: .opacity))
+                            
+                            Text("Required by Let's Encrypt for expiry notifications")
+                                .font(.system(size: 11))
+                                .foregroundStyle(ColorTokens.textSecondary)
+                                .padding(.top, -4)
+                        }
+                    }
+                    .padding()
+                    .background(ColorTokens.layer2)
+                    .cornerRadius(8)
+                    .animation(.spring(), value: shouldGenerateSSL)
+                }
             }
             
             Spacer()
             
             HStack(spacing: 12) {
+                if !isNewWebsite, let site = website {
+                    Button(action: { showingSSLManagement = true }) {
+                        HStack {
+                            Image(systemName: site.hasSSL ? "lock.fill" : "lock.open")
+                            Text("SSL")
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(site.hasSSL ? Color.green.opacity(0.1) : ColorTokens.layer2)
+                    .foregroundStyle(site.hasSSL ? .green : ColorTokens.textPrimary)
+                    .cornerRadius(6)
+                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(site.hasSSL ? Color.green.opacity(0.3) : ColorTokens.borderSubtle, lineWidth: 1))
+                }
+                
                 Spacer()
                 Button("Cancel") { dismiss() }
                     .buttonStyle(.plain)
@@ -860,6 +956,17 @@ struct WebsiteEditorView: View {
         .background(ColorTokens.layer1)
         .sheet(isPresented: $showFilePicker) {
             FilePickerSheet(viewModel: viewModel, currentPath: $path)
+        }
+        .sheet(isPresented: $showingSSLManagement) {
+            if let site = website {
+                SSLManagementView(
+                    viewModel: viewModel,
+                    website: site,
+                    onDismiss: {
+                        showingSSLManagement = false
+                    }
+                )
+            }
         }
         .onAppear {
             // Populate fields from website when editing - ONLY ONCE
@@ -922,7 +1029,9 @@ struct WebsiteEditorView: View {
                         domain: domain,
                         path: path,
                         framework: framework,
-                        port: Int(port) ?? 80
+                        port: Int(port) ?? 80,
+                        shouldGenerateSSL: shouldGenerateSSL,
+                        sslEmail: shouldGenerateSSL ? sslEmail : nil
                     )
                     
                     await MainActor.run {

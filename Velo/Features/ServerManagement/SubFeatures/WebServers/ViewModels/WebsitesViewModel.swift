@@ -104,9 +104,17 @@ final class WebsitesViewModel: ObservableObject {
     // MARK: - Website CRUD Operations
 
     /// Create a new website
-    func createWebsite(domain: String, path: String, framework: String, port: Int = 80, phpVersion: String? = nil) async -> Bool {
+    func createWebsite(
+        domain: String,
+        path: String,
+        framework: String,
+        port: Int,
+        phpVersion: String? = nil,
+        shouldGenerateSSL: Bool = false,
+        sslEmail: String? = nil
+    ) async -> Bool {
         guard let session = session else { return false }
-
+        
         isCreating = true
         errorMessage = nil
 
@@ -162,6 +170,30 @@ final class WebsitesViewModel: ObservableObject {
             )
             websites.insert(newSite, at: 0)
             print("✅ [WebsitesVM] Website created locally: \(domain)")
+            
+            // Handle automatic SSL generation if requested
+            if shouldGenerateSSL, let email = sslEmail {
+                Task {
+                    print("🔐 [WebsitesVM] Starting automatic SSL generation for \(domain)...")
+                    let cert = await SSLService.shared.generateLetsEncrypt(
+                        domain: domain,
+                        email: email,
+                        webServer: webServerUsed.lowercased(),
+                        via: session
+                    )
+                    
+                    if let cert = cert {
+                        await MainActor.run {
+                            if let index = websites.firstIndex(where: { $0.domain == domain }) {
+                                websites[index].sslCertificate = cert
+                                print("✅ [WebsitesVM] SSL generated and attached to \(domain)")
+                            }
+                        }
+                    } else {
+                        print("❌ [WebsitesVM] Automatic SSL generation failed for \(domain)")
+                    }
+                }
+            }
         } else {
             errorMessage = "Failed to create website configuration"
         }
