@@ -50,6 +50,21 @@ struct ApachePathResolver {
 
     /// Detect OS type
     func getOSType(via session: TerminalViewModel) async -> OSType {
+        // 1. Check directory structure first (most accurate for configuration)
+        let checkResult = await baseService.execute("""
+            if [ -d /etc/apache2 ]; then echo 'DEBIAN';
+            elif [ -d /etc/httpd ]; then echo 'RHEL';
+            else echo 'UNKNOWN'; fi
+        """, via: session, timeout: 5)
+        
+        let structure = checkResult.output.trimmingCharacters(in: .whitespacesAndNewlines)
+        if structure == "DEBIAN" {
+            return .debian
+        } else if structure == "RHEL" {
+            return .rhel
+        }
+
+        // 2. Fallback to OS ID
         let osResult = await baseService.execute("cat /etc/os-release 2>/dev/null | grep -E '^ID=' | cut -d= -f2 | tr -d '\"'", via: session, timeout: 10)
         let osId = osResult.output.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines).lowercased()
 
@@ -59,9 +74,7 @@ struct ApachePathResolver {
         case "centos", "rhel", "fedora", "rocky", "almalinux", "amzn":
             return .rhel
         default:
-            // Check if sites-available exists (Debian-style)
-            let checkResult = await baseService.execute("test -d /etc/apache2/sites-available && echo 'DEBIAN'", via: session, timeout: 5)
-            return checkResult.output.contains("DEBIAN") ? .debian : .rhel
+            return .debian
         }
     }
 
@@ -77,13 +90,33 @@ struct ApachePathResolver {
         return paths.configFile
     }
 
-    /// Get sites-available directory path
+    /// Get all potential sites-available directory paths
+    func getAllSitesAvailablePaths(via session: TerminalViewModel) async -> [String] {
+        var paths = ["/etc/apache2/sites-available", "/etc/httpd/conf.d"]
+        
+        // Add panel-specific paths
+        paths.append("/www/server/panel/vhost/apache") // aaPanel / BT
+        
+        return paths
+    }
+
+    /// Get all potential sites-enabled directory paths
+    func getAllSitesEnabledPaths(via session: TerminalViewModel) async -> [String] {
+        var paths = ["/etc/apache2/sites-enabled", "/etc/httpd/conf.d"]
+        
+        // Add panel-specific paths
+        paths.append("/www/server/panel/vhost/apache")
+        
+        return paths
+    }
+
+    /// Get sites-available directory path (legacy/fallback)
     func getSitesAvailablePath(via session: TerminalViewModel) async -> String {
         let paths = await getPaths(via: session)
         return paths.sitesAvailable
     }
 
-    /// Get sites-enabled directory path
+    /// Get sites-enabled directory path (legacy/fallback)
     func getSitesEnabledPath(via session: TerminalViewModel) async -> String {
         let paths = await getPaths(via: session)
         return paths.sitesEnabled
@@ -119,9 +152,44 @@ struct ApachePathResolver {
         return "\(logDir)/access.log"
     }
 
-    /// Get default document root
     func getDefaultDocumentRoot(via session: TerminalViewModel) async -> String {
+        let enabledPaths = await getAllSitesEnabledPaths(via: session)
+        
+        // 1. Try to find the most common DocumentRoot from enabled sites
+        let pathsStr = enabledPaths.joined(separator: "' '")
+        let scanCommand = """
+        grep -rhE "^\\s*DocumentRoot\\s+" '\(pathsStr)' 2>/dev/null | awk '{print $2}' | tr -d '"' | sed 's/\\/*$//' | sort | uniq -c | sort -rn | head -n 5
+        """
+        
+        let scanResult = await baseService.execute(scanCommand, via: session, timeout: 10)
+        let output = scanResult.output.trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        if !output.isEmpty {
+            let lines = output.components(separatedBy: .newlines)
+            for line in lines {
+                let parts = line.trimmingCharacters(in: .whitespaces).components(separatedBy: .whitespaces).filter { !$0.isEmpty }
+                if parts.count >= 2 {
+                    let path = parts[1]
+                    let parent = (path as NSString).deletingLastPathComponent
+                    if !parent.isEmpty && parent != "/" && parent != "/var" {
+                        print("🔍 [ApachePathResolver] Detected common root parent: \(parent)")
+                        return parent
+                    }
+                }
+            }
+        }
+        
+        // 2. Check for panel/custom locations
+        let panelPaths = ["/www/wwwroot", "/home/wwwroot", "/var/www"]
+        for p in panelPaths {
+            let check = await baseService.execute("test -d '\(p)' && echo 'YES'", via: session, timeout: 5)
+            if check.output.contains("YES") {
+                return p
+            }
+        }
+        
+        // 3. OS default fallback
         let osType = await getOSType(via: session)
-        return osType == .debian ? "/var/www/html" : "/var/www/html"
+        return "/var/www"
     }
 }

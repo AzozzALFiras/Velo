@@ -70,6 +70,9 @@ protocol WebServerService: ControllableService {
 
     /// Validate the server configuration
     func validateConfig(via session: TerminalViewModel) async -> (isValid: Bool, message: String)
+
+    /// Get the dynamic default document root for new websites
+    func getDefaultDocumentRoot(via session: TerminalViewModel) async -> String
 }
 
 /// Protocol for database servers (MySQL, PostgreSQL, Redis)

@@ -1,5 +1,11 @@
 import Foundation
 
+public enum WebServerType: String, Codable {
+    case nginx
+    case apache
+    case other
+}
+
 public struct Website: Identifiable, Codable {
     public var id = UUID()
     public var domain: String
@@ -8,11 +14,11 @@ public struct Website: Identifiable, Codable {
     public var port: Int
     public var framework: String // e.g., "Node.js", "PHP", "Static"
     public var sslCertificate: SSLCertificate?
+    public var webServer: WebServerType = .nginx
     
     /// Whether website has SSL configured
     public var hasSSL: Bool {
-        guard let ssl = sslCertificate else { return false }
-        return ssl.status == .active || ssl.status == .expiringSoon
+        return sslCertificate != nil
     }
     
     /// SSL status for display
@@ -27,7 +33,8 @@ public struct Website: Identifiable, Codable {
         status: WebsiteStatus,
         port: Int,
         framework: String,
-        sslCertificate: SSLCertificate? = nil
+        sslCertificate: SSLCertificate? = nil,
+        webServer: WebServerType = .nginx
     ) {
         self.id = id
         self.domain = domain
@@ -36,5 +43,6 @@ public struct Website: Identifiable, Codable {
         self.port = port
         self.framework = framework
         self.sslCertificate = sslCertificate
+        self.webServer = webServer
     }
 }

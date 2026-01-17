@@ -68,71 +68,90 @@ final class ApacheService: ObservableObject, WebServerService {
     // MARK: - WebServerService
 
     func fetchSites(via session: TerminalViewModel) async -> [Website] {
-        // Fetch from sites-available (all sites) not sites-enabled (only active)
-        let availablePath = await pathResolver.getSitesAvailablePath(via: session)
-        let enabledPath = await pathResolver.getSitesEnabledPath(via: session)
+        let availablePaths = await pathResolver.getAllSitesAvailablePaths(via: session)
+        let enabledPaths = await pathResolver.getAllSitesEnabledPaths(via: session)
         
-        print("🔍 [ApacheService] Fetching sites from: \(availablePath)")
+        print("🔍 [ApacheService] Multi-path scan starting: \(availablePaths)")
         
-        // Use --color=never to prevent ANSI escape codes in output
-        let result = await baseService.execute("ls -1 --color=never '\(availablePath)' 2>/dev/null", via: session, timeout: 10)
+        var allSites: [Website] = []
+        var detectedDomains = Set<String>()
+        var allEnabledFiles = Set<String>()
         
-        // Strip any remaining ANSI escape codes for robustness
-        let rawOutput = result.output.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
-        let output = stripANSICodes(rawOutput)
-        
-        print("🔍 [ApacheService] ls output (cleaned): '\(output)'")
-        print("🔍 [ApacheService] ls exitCode: \(result.exitCode)")
-
-        guard !output.isEmpty && !output.contains("cannot access") else {
-            print("⚠️ [ApacheService] sites-available is empty or inaccessible")
-            return []
+        // 1. Collect all enabled files across all potential paths
+        for path in enabledPaths {
+            print("🔍 [ApacheService] Collecting enabled sites from: \(path)")
+            let enabledResult = await baseService.execute("ls -1 --color=never '\(path)' 2>/dev/null", via: session, timeout: 5)
+            let output = stripANSICodes(enabledResult.output.trimmingCharacters(in: .whitespacesAndNewlines))
+            if !output.isEmpty {
+                let files = output.components(separatedBy: .newlines).map { $0.trimmingCharacters(in: .whitespaces) }
+                for file in files {
+                    allEnabledFiles.insert(file)
+                }
+            }
         }
-
-        // Get list of enabled sites
-        let enabledResult = await baseService.execute("ls -1 --color=never '\(enabledPath)' 2>/dev/null", via: session, timeout: 10)
-        let enabledOutput = stripANSICodes(enabledResult.output.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines))
-        let enabledSites = Set(enabledOutput.components(separatedBy: CharacterSet.newlines).map { $0.trimmingCharacters(in: .whitespaces) })
-
-        var sites: [Website] = []
-        let lines = output.components(separatedBy: CharacterSet.newlines)
-        print("🔍 [ApacheService] Found \(lines.count) lines in output")
-
-        for line in lines {
-            let siteName = line.trimmingCharacters(in: .whitespaces)
-            print("🔍 [ApacheService] Checking site: '\(siteName)'")
+        
+        // 2. Scan each available path
+        for availablePath in availablePaths {
+            print("🔍 [ApacheService] Scanning available path: \(availablePath)")
             
-            guard isValidSiteConfig(siteName) else {
-                print("❌ [ApacheService] Rejected by filter: '\(siteName)'")
+            let result = await baseService.execute("ls -1 --color=never '\(availablePath)' 2>/dev/null", via: session, timeout: 10)
+            let output = stripANSICodes(result.output.trimmingCharacters(in: .whitespacesAndNewlines))
+            
+            guard !output.isEmpty && !output.contains("cannot access") else {
                 continue
             }
             
-            print("✅ [ApacheService] Accepted site: '\(siteName)'")
+            let lines = output.components(separatedBy: .newlines)
+            print("🔍 [ApacheService] Found \(lines.count) lines in \(availablePath)")
 
-            let configResult = await baseService.execute(
-                "grep -E '^[^#]*(ServerName|DocumentRoot|<VirtualHost|php|fpm|fcgi|ProxyPass)' '\(availablePath)/\(siteName)' 2>/dev/null | head -20",
-                via: session, timeout: 10
-            )
-
-            var config = parseSiteConfig(configResult.output, siteName: siteName)
-            
-            // Check if site is enabled (exists in sites-enabled)
-            let isEnabled = enabledSites.contains(siteName)
-            config.status = isEnabled ? .running : .stopped
-            
-            sites.append(config)
+            for line in lines {
+                let siteName = line.trimmingCharacters(in: .whitespaces)
+                guard isValidSiteConfig(siteName) else { continue }
+                
+                let configResult = await baseService.execute(
+                    "grep -Ei '^[^#]*(ServerName|DocumentRoot|<VirtualHost|php|fpm|fcgi|ProxyPass|SSLEngine|SSLCertificateFile|DirectoryIndex|include)' '\(availablePath)/\(siteName)' 2>/dev/null | head -40",
+                    via: session, timeout: 10
+                )
+                
+                if let config = await parseSiteConfig(configResult.output, siteName: siteName, via: session) {
+                    var finalConfig = config
+                    
+                    // Avoid duplicates by domain
+                    if detectedDomains.contains(finalConfig.domain) {
+                        print("🔍 [ApacheService] Skipping duplicate domain: \(finalConfig.domain)")
+                        continue
+                    }
+                    detectedDomains.insert(finalConfig.domain)
+                    
+                    finalConfig.webServer = .apache
+                    
+                    // Check if site is enabled
+                    let isEnabled = allEnabledFiles.contains(siteName) || 
+                                  allEnabledFiles.contains(siteName.replacingOccurrences(of: ".conf", with: "")) ||
+                                  (!siteName.hasSuffix(".conf") && allEnabledFiles.contains("\(siteName).conf"))
+                    
+                    finalConfig.status = isEnabled ? .running : .stopped
+                    
+                    if finalConfig.hasSSL {
+                        finalConfig.sslCertificate = await SSLService.shared.getCertificateInfo(domain: finalConfig.domain, via: session)
+                    }
+                    
+                    allSites.append(finalConfig)
+                }
+            }
         }
-
-        print("🔍 [ApacheService] Total valid sites found: \(sites.count)")
-        return sites
+        
+        print("🔍 [ApacheService] Multi-path scan complete. Found \(allSites.count) sites.")
+        return allSites
     }
 
     func createSite(domain: String, path: String, port: Int, phpVersion: String?, via session: TerminalViewModel) async -> Bool {
         let safeDomain = domain.lowercased().trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
         var safePath = path.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
 
-        if safePath.isEmpty || safePath == "/var/www" {
-            safePath = "/var/www/\(safeDomain.replacingOccurrences(of: ".", with: "_"))"
+        if safePath.isEmpty {
+            let defaultRoot = await pathResolver.getDefaultDocumentRoot(via: session)
+            safePath = "\(defaultRoot)/\(safeDomain.replacingOccurrences(of: ".", with: "_"))"
         }
 
         if !safePath.hasPrefix("/") {
@@ -228,6 +247,10 @@ final class ApacheService: ObservableObject, WebServerService {
         await configValidator.validate(via: session)
     }
 
+    func getDefaultDocumentRoot(via session: TerminalViewModel) async -> String {
+        await pathResolver.getDefaultDocumentRoot(via: session)
+    }
+
     // MARK: - ControllableService Override
 
     func reload(via session: TerminalViewModel) async -> Bool {
@@ -240,7 +263,16 @@ final class ApacheService: ObservableObject, WebServerService {
         let trimmed = name.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
         guard !trimmed.isEmpty, trimmed.count >= 3, trimmed.count < 100 else { return false }
 
-        let junk = ["welcome", "ubuntu", "nginx", "apache", "mysql", "php", "active", "___velo", "echo ", "root@", "vmi", "[0", "total ", "drw", "password", "ver ", "Ver ", "(ubuntu)", "inactive"]
+        // Filter out aaPanel/BT internal files and common junk
+        if trimmed.hasPrefix("0.") || trimmed.hasPrefix(".") { return false }
+
+        let junk = [
+            "welcome", "ubuntu", "nginx", "apache", "mysql", "php", "active", "___velo", 
+            "echo ", "root@", "vmi", "[0", "total ", "drw", "password", "ver ", "Ver ", 
+            "(ubuntu)", "inactive", "btwaf", "well-known", "phpinfo", "rewrite", 
+            "proxy", "waf", "redirect", "monitor", "websocket"
+        ]
+        
         for j in junk {
             if trimmed.lowercased().contains(j) { return false }
         }
@@ -265,11 +297,13 @@ final class ApacheService: ObservableObject, WebServerService {
         return regex.stringByReplacingMatches(in: input, options: [], range: range, withTemplate: "")
     }
 
-    private func parseSiteConfig(_ output: String, siteName: String) -> Website {
+    private func parseSiteConfig(_ output: String, siteName: String, via session: TerminalViewModel) async -> Website? {
         var domain = siteName.replacingOccurrences(of: ".conf", with: "")
-        var path = "/var/www/html"
+        var path = "" // Empty path initially to detect if 'DocumentRoot' is present
         var port = 80
-        var detectedFramework = "Static HTML"  // Default to Static HTML
+        var detectedFramework = "Static HTML"
+        var hasSSL = false
+        var hasValidServerName = false
 
         let lines = output.components(separatedBy: CharacterSet.newlines)
         for line in lines {
@@ -278,7 +312,13 @@ final class ApacheService: ObservableObject, WebServerService {
             if trimmed.contains("ServerName") {
                 let parts = trimmed.components(separatedBy: .whitespaces).filter { !$0.isEmpty }
                 if parts.count >= 2 {
-                    domain = parts[1]
+                    let rawDomain = parts[1].replacingOccurrences(of: "\"", with: "")
+                    let domainCandidate = rawDomain.hasPrefix("SSL.") ? String(rawDomain.dropFirst(4)) : rawDomain
+                    
+                    if domainCandidate != "_" && domainCandidate != "localhost" {
+                        domain = domainCandidate
+                        hasValidServerName = true
+                    }
                 }
             }
             if trimmed.contains("DocumentRoot") {
@@ -288,28 +328,52 @@ final class ApacheService: ObservableObject, WebServerService {
                 }
             }
             if trimmed.contains("<VirtualHost") {
+                if trimmed.contains(":443") {
+                    hasSSL = true
+                }
                 if let portMatch = trimmed.range(of: ":(\\d+)", options: .regularExpression) {
                     let portStr = String(trimmed[portMatch]).dropFirst()
                     port = Int(portStr) ?? 80
                 }
             }
             
-            // Detect PHP - look for php module or handler
-            if trimmed.lowercased().contains("php") || trimmed.contains("fpm") || trimmed.contains("fcgi") {
+            if trimmed.contains("SSLEngine on") || trimmed.contains("SSLCertificateFile") {
+                hasSSL = true
+            }
+            
+            // Detect PHP - look for php module, handler, or index.php
+            let lowerTrimmed = trimmed.lowercased()
+            if lowerTrimmed.contains("php") || 
+               lowerTrimmed.contains("fpm") || 
+               lowerTrimmed.contains("fcgi") ||
+               (lowerTrimmed.contains("directoryindex") && lowerTrimmed.contains(".php")) {
                 detectedFramework = "PHP"
             }
             
             // Detect proxy to backend apps
-            if trimmed.contains("ProxyPass") {
-                if trimmed.contains("3000") || trimmed.contains("8080") {
+            if lowerTrimmed.contains("proxypass") {
+                if trimmed.contains("3000") || trimmed.contains("8080") || trimmed.contains("8000") {
                     if detectedFramework == "Static HTML" {
-                        detectedFramework = "Node.js"
+                        detectedFramework = "Proxy"
                     }
                 }
             }
         }
 
-        return Website(domain: domain, path: path, status: .running, port: port, framework: detectedFramework)
+        // If no ServerName found, it's likely a generic config or snippet
+        guard hasValidServerName else { return nil }
+
+        // Fallback path if none found
+        if path.isEmpty {
+            let defaultRoot = await pathResolver.getDefaultDocumentRoot(via: session)
+            path = "\(defaultRoot)/\(domain)"
+        }
+
+        var website = Website(domain: domain, path: path, status: .running, port: port, framework: detectedFramework, webServer: .apache)
+        if hasSSL {
+            website.sslCertificate = SSLCertificate(domain: domain, issuer: "Detected", type: .custom, status: .active)
+        }
+        return website
     }
 
     private func buildSiteConfig(domain: String, path: String, port: Int) -> String {

@@ -124,7 +124,15 @@ final class WebsitesViewModel: ObservableObject {
 
         // Create document root and index file first
         let baseService = SSHBaseService.shared
-        let safePath = path.isEmpty ? "/var/www/\(domain.replacingOccurrences(of: ".", with: "_"))" : path
+        var defaultRoot = "/var/www"
+        
+        if hasNginx {
+            defaultRoot = await nginxService.getDefaultDocumentRoot(via: session)
+        } else if hasApache {
+            defaultRoot = await apacheService.getDefaultDocumentRoot(via: session)
+        }
+        
+        let safePath = path.isEmpty ? "\(defaultRoot)/\(domain.replacingOccurrences(of: ".", with: "_"))" : path
 
         // Create directory
         let mkdirRes = await baseService.execute("sudo mkdir -p '\(safePath)'", via: session, timeout: 15)
@@ -166,7 +174,8 @@ final class WebsitesViewModel: ObservableObject {
                 path: safePath,
                 status: .running,
                 port: port,
-                framework: "\(framework) (\(webServerUsed))"
+                framework: framework,
+                webServer: webServerUsed == "Nginx" ? .nginx : .apache
             )
             websites.insert(newSite, at: 0)
             print("✅ [WebsitesVM] Website created locally: \(domain)")
@@ -206,10 +215,10 @@ final class WebsitesViewModel: ObservableObject {
     func deleteWebsite(_ website: Website, deleteFiles: Bool = false) async -> Bool {
         guard let session = session else { return false }
 
-        let isNginx = website.framework.lowercased().contains("nginx")
+        let useNginx = website.webServer == .nginx
         let success: Bool
 
-        if isNginx {
+        if useNginx {
             success = await nginxService.deleteSite(domain: website.domain, deleteFiles: deleteFiles, via: session)
         } else {
             success = await apacheService.deleteSite(domain: website.domain, deleteFiles: deleteFiles, via: session)
@@ -226,13 +235,13 @@ final class WebsitesViewModel: ObservableObject {
     func toggleWebsiteStatus(_ website: Website) async -> Bool {
         guard let session = session else { return false }
 
-        let isNginx = website.framework.lowercased().contains("nginx")
+        let useNginx = website.webServer == .nginx
         let isRunning = website.status == .running
         var success = false
 
         if isRunning {
             // Disable site
-            if isNginx {
+            if useNginx {
                 success = await nginxService.disableSite(domain: website.domain, via: session)
                 if success {
                     _ = await nginxService.reload(via: session)
@@ -245,7 +254,7 @@ final class WebsitesViewModel: ObservableObject {
             }
         } else {
             // Enable site
-            if isNginx {
+            if useNginx {
                 success = await nginxService.enableSite(domain: website.domain, via: session)
                 if success {
                     _ = await nginxService.reload(via: session)
@@ -271,9 +280,9 @@ final class WebsitesViewModel: ObservableObject {
     func restartWebsite(_ website: Website) async -> Bool {
         guard let session = session else { return false }
 
-        let isNginx = website.framework.lowercased().contains("nginx")
+        let useNginx = website.webServer == .nginx
 
-        if isNginx {
+        if useNginx {
             return await nginxService.restart(via: session)
         } else {
             return await apacheService.restart(via: session)
@@ -292,7 +301,7 @@ final class WebsitesViewModel: ObservableObject {
     /// Switch PHP version for a website (Nginx only)
     func switchPHPVersion(forWebsite website: Website, toVersion version: String) async -> Bool {
         guard let session = session else { return false }
-        guard website.framework.lowercased().contains("nginx") else {
+        guard website.webServer == .nginx else {
             errorMessage = "PHP version switching is only supported for Nginx sites"
             return false
         }
