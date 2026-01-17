@@ -18,7 +18,7 @@ struct WebsitesListView: View {
     @State private var selectedStatus: WebsiteStatus? = nil
     @State private var selectedWebsite: Website? = nil
     
-    @State private var showingEditor = false
+    // For editing - using item pattern instead of isPresented for proper data passing
     @State private var editingWebsite: Website? = nil
     
     // For Deletion Confirmation
@@ -57,9 +57,9 @@ struct WebsitesListView: View {
                     .environmentObject(ServerServiceAggregator.shared)
             }
         }
-        .sheet(isPresented: $showingEditor) {
-            WebsiteEditorView(viewModel: viewModel, website: editingWebsite) { _ in
-                showingEditor = false
+        .sheet(item: $editingWebsite) { websiteToEdit in
+            WebsiteEditorView(viewModel: viewModel, website: websiteToEdit) { _ in
+                editingWebsite = nil
             }
         }
         .alert("Delete Website", isPresented: $showingDeleteAlert) {
@@ -129,8 +129,8 @@ struct WebsitesListView: View {
                 Spacer()
                 
                 Button(action: {
-                    editingWebsite = nil
-                    showingEditor = true
+                    // Create a placeholder for "Add New" - editor checks if id is this special one
+                    editingWebsite = Website(id: UUID(), domain: "", path: "/var/www", status: .stopped, port: 80, framework: "")
                 }) {
                     HStack(spacing: 8) {
                         Image(systemName: "plus")
@@ -200,10 +200,15 @@ struct WebsitesListView: View {
                                 selectedWebsite = website
                             }, onEdit: {
                                 editingWebsite = website
-                                showingEditor = true
                             }, onDelete: {
                                 websiteToDelete = website
                                 showingDeleteAlert = true
+                            }, onOpen: {
+                                // Open website in default browser
+                                let urlString = "http://\(website.domain)"
+                                if let url = URL(string: urlString) {
+                                    NSWorkspace.shared.open(url)
+                                }
                             })
                         }
                     }
@@ -526,6 +531,7 @@ private struct WebsiteCard: View {
     let onOpenDetails: () -> Void
     let onEdit: () -> Void
     let onDelete: () -> Void
+    let onOpen: () -> Void
     @State private var isHovered = false
     
     var body: some View {
@@ -608,7 +614,9 @@ private struct WebsiteCard: View {
                     onDelete()
                 }
                 
-                ActionButton(title: "Open", icon: "safari", color: .gray) {}
+                ActionButton(title: "Open", icon: "safari", color: .blue) {
+                    onOpen()
+                }
             }
             }
             .padding()
@@ -638,6 +646,11 @@ struct WebsiteEditorView: View {
     let website: Website?
     let onSave: (Website) -> Void // Just for callback if needed
     
+    // Computed property to detect if this is a new website (empty domain) or edit
+    private var isNewWebsite: Bool {
+        website?.domain.isEmpty ?? true
+    }
+    
     @State private var domain: String = ""
     @State private var path: String = "/var/www"
     @State private var framework: String = "Static HTML"
@@ -647,6 +660,7 @@ struct WebsiteEditorView: View {
     @State private var showFilePicker = false
     @State private var isSaving = false
     @State private var errorMessage: String?
+    @State private var hasPopulated = false
     
     // Computed frameworks based on installed software
     var availableFrameworks: [String] {
@@ -664,6 +678,31 @@ struct WebsiteEditorView: View {
         return String(input.unicodeScalars.filter { allowed.contains($0) })
     }
     
+    // Extract base framework name from stored value like "PHP (Nginx)" -> "PHP"
+    // Also handles legacy values like "Nginx" or "Apache" by mapping to appropriate framework
+    private func extractBaseFramework(_ storedFramework: String) -> String {
+        // If it's a server name only (legacy), default to Static HTML
+        let serverNames = ["nginx", "apache", "httpd"]
+        if serverNames.contains(storedFramework.lowercased()) {
+            // Check if PHP is available, default to PHP, otherwise Static HTML
+            return viewModel.serverStatus.php.isInstalled ? "PHP" : "Static HTML"
+        }
+        
+        // Remove anything in parentheses and trim
+        if let parenIndex = storedFramework.firstIndex(of: "(") {
+            return String(storedFramework[..<parenIndex]).trimmingCharacters(in: .whitespaces)
+        }
+        
+        // If it's already a valid framework name, return as-is
+        let validFrameworks = ["Static HTML", "PHP", "Node.js", "Python"]
+        if validFrameworks.contains(storedFramework) {
+            return storedFramework
+        }
+        
+        // Fallback to Static HTML
+        return "Static HTML"
+    }
+    
     init(viewModel: ServerManagementViewModel, website: Website?, onSave: @escaping (Website) -> Void) {
         self.viewModel = viewModel
         self.website = website
@@ -675,15 +714,15 @@ struct WebsiteEditorView: View {
         _framework = State(initialValue: website?.framework ?? (viewModel.serverStatus.php.isInstalled ? "PHP" : "Static HTML"))
         _port = State(initialValue: String(website?.port ?? 80))
         
-        // If editing existing, disable auto-path by default
-        _isAutoPath = State(initialValue: website == nil)
+        // If editing existing (has domain), disable auto-path by default
+        _isAutoPath = State(initialValue: website?.domain.isEmpty ?? true)
     }
     
     var body: some View {
         VStack(alignment: .leading, spacing: 24) {
             // Header
             HStack {
-                Text(website == nil ? "Add Website" : "Edit Website")
+                Text(isNewWebsite ? "Add Website" : "Edit Website")
                     .font(.system(size: 20, weight: .bold))
                     .foregroundStyle(ColorTokens.textPrimary)
                 
@@ -711,7 +750,7 @@ struct WebsiteEditorView: View {
                                 domain = sanitized
                             }
                             
-                            if isAutoPath && website == nil {
+                            if isAutoPath && isNewWebsite {
                                 // Auto-update path
                                 let cleanDomain = sanitized.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
                                 if cleanDomain.isEmpty {
@@ -722,7 +761,7 @@ struct WebsiteEditorView: View {
                             }
                         }
                     
-                    if website == nil {
+                    if isNewWebsite {
                         Toggle("Auto-generate root path", isOn: $isAutoPath)
                             .toggleStyle(CheckboxToggleStyle()) // Assuming this exists or standard toggle
                             .font(.system(size: 12))
@@ -808,7 +847,7 @@ struct WebsiteEditorView: View {
                     .foregroundStyle(ColorTokens.textSecondary)
                     .disabled(isSaving)
                 
-                Button(website == nil ? "Create Website" : "Save Changes") {
+                Button(isNewWebsite ? "Create Website" : "Save Changes") {
                     saveWebsite()
                 }
                 .buttonStyle(.borderedProminent)
@@ -822,12 +861,30 @@ struct WebsiteEditorView: View {
         .sheet(isPresented: $showFilePicker) {
             FilePickerSheet(viewModel: viewModel, currentPath: $path)
         }
+        .onAppear {
+            // Populate fields from website when editing - ONLY ONCE
+            // This fixes SwiftUI State initialization issue where State in init 
+            // doesn't work correctly when the view is recreated
+            guard !hasPopulated else { return }
+            hasPopulated = true
+            
+            // Only populate if this is an edit (website has non-empty domain)
+            if let site = website, !site.domain.isEmpty {
+                domain = site.domain
+                path = site.path
+                // Extract base framework from stored value like "PHP (Nginx)" -> "PHP"
+                framework = extractBaseFramework(site.framework)
+                port = String(site.port)
+                isAutoPath = false
+            }
+        }
         .task {
             // Ensure status is up to date (e.g. if we just installed PHP)
             await viewModel.refreshServerStatus()
             
             // Re-evaluate default framework if it was static HTML and PHP is now found
-            if framework == "Static HTML" && viewModel.serverStatus.php.isInstalled {
+            // ONLY for new websites, not editing existing ones
+            if isNewWebsite && framework == "Static HTML" && viewModel.serverStatus.php.isInstalled {
                 framework = "PHP"
             }
         }
@@ -839,14 +896,14 @@ struct WebsiteEditorView: View {
         
         Task {
             do {
-                if let _ = website {
+                if !isNewWebsite, let existingSite = website {
                     // Edit mode - just update local for now (or implement updateRealWebsite)
                     // Currently user only asked for CREATE logic changes
                     let updated = Website(
-                        id: website!.id,
+                        id: existingSite.id,
                         domain: domain,
                         path: path,
-                        status: website!.status,
+                        status: existingSite.status,
                         port: Int(port) ?? 80,
                         framework: framework
                     )

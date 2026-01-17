@@ -53,30 +53,63 @@ final class NginxService: ObservableObject, WebServerService {
     // MARK: - WebServerService
 
     func fetchSites(via session: TerminalViewModel) async -> [Website] {
-        let sitesPath = await pathResolver.getSitesEnabledPath(via: session)
-        let result = await baseService.execute("ls -1 '\(sitesPath)' 2>/dev/null", via: session, timeout: 10)
-        let output = result.output.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+        // Fetch from sites-available (all sites) not sites-enabled (only active)
+        let availablePath = await pathResolver.getSitesAvailablePath(via: session)
+        let enabledPath = await pathResolver.getSitesEnabledPath(via: session)
+        
+        print("🔍 [NginxService] Fetching sites from: \(availablePath)")
+        
+        // Use --color=never to prevent ANSI escape codes in output
+        let result = await baseService.execute("ls -1 --color=never '\(availablePath)' 2>/dev/null", via: session, timeout: 10)
+        
+        // Strip any remaining ANSI escape codes for robustness
+        let rawOutput = result.output.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+        let output = stripANSICodes(rawOutput)
+        
+        print("🔍 [NginxService] Raw output length: \(result.output.count), cleaned length: \(output.count)")
+        print("🔍 [NginxService] ls output (cleaned): '\(output)'")
+        print("🔍 [NginxService] ls exitCode: \(result.exitCode)")
 
         guard !output.isEmpty && !output.contains("cannot access") else {
+            print("⚠️ [NginxService] sites-available is empty or inaccessible, rawOutput: '\(rawOutput)'")
             return []
         }
 
+        // Get list of enabled sites
+        let enabledResult = await baseService.execute("ls -1 --color=never '\(enabledPath)' 2>/dev/null", via: session, timeout: 10)
+        let enabledOutput = stripANSICodes(enabledResult.output.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines))
+        let enabledSites = Set(enabledOutput.components(separatedBy: CharacterSet.newlines).map { $0.trimmingCharacters(in: .whitespaces) })
+
         var sites: [Website] = []
         let lines = output.components(separatedBy: CharacterSet.newlines)
+        print("🔍 [NginxService] Found \(lines.count) lines in output")
 
         for line in lines {
             let siteName = line.trimmingCharacters(in: .whitespaces)
-            guard isValidSiteConfig(siteName) else { continue }
+            print("🔍 [NginxService] Checking site: '\(siteName)'")
+            
+            guard isValidSiteConfig(siteName) else {
+                print("❌ [NginxService] Rejected by filter: '\(siteName)'")
+                continue
+            }
+            
+            print("✅ [NginxService] Accepted site: '\(siteName)'")
 
             let configResult = await baseService.execute(
-                "grep -E '^[^#]*(server_name|root|listen)' '\(sitesPath)/\(siteName)' 2>/dev/null | head -10",
+                "grep -E '^[^#]*(server_name|root|listen|fastcgi_pass|php|proxy_pass)' '\(availablePath)/\(siteName)' 2>/dev/null | head -20",
                 via: session, timeout: 10
             )
 
-            let config = parseSiteConfig(configResult.output, siteName: siteName)
+            var config = parseSiteConfig(configResult.output, siteName: siteName)
+            
+            // Check if site is enabled (exists in sites-enabled)
+            let isEnabled = enabledSites.contains(siteName)
+            config.status = isEnabled ? .running : .stopped
+            
             sites.append(config)
         }
 
+        print("🔍 [NginxService] Total valid sites found: \(sites.count)")
         return sites
     }
 
@@ -190,11 +223,24 @@ final class NginxService: ObservableObject, WebServerService {
 
         return true
     }
+    
+    /// Strips ANSI escape codes from a string (e.g., color codes from ls output)
+    private func stripANSICodes(_ input: String) -> String {
+        // ANSI escape sequences: ESC [ ... m (where ESC is \u{1B} or \u{001B})
+        // Also handles sequences like [0m, [01;36m, etc.
+        let pattern = "\\x1B\\[[0-9;]*[mGKHF]|\\[\\d*(;\\d+)*m"
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else {
+            return input
+        }
+        let range = NSRange(input.startIndex..., in: input)
+        return regex.stringByReplacingMatches(in: input, options: [], range: range, withTemplate: "")
+    }
 
     private func parseSiteConfig(_ output: String, siteName: String) -> Website {
         var domain = siteName.replacingOccurrences(of: ".conf", with: "")
         var path = "/var/www/\(domain)"
         var port = 80
+        var detectedFramework = "Static HTML"  // Default to Static HTML
 
         let lines = output.components(separatedBy: CharacterSet.newlines)
         for line in lines {
@@ -217,9 +263,24 @@ final class NginxService: ObservableObject, WebServerService {
                     port = Int(trimmed[portMatch]) ?? 80
                 }
             }
+            
+            // Detect PHP - look for fastcgi_pass or php-fpm
+            if trimmed.contains("fastcgi_pass") || trimmed.contains("php-fpm") || trimmed.contains("php") && trimmed.contains("sock") {
+                detectedFramework = "PHP"
+            }
+            
+            // Detect Node.js/Python - look for proxy_pass to common ports
+            if trimmed.contains("proxy_pass") {
+                if trimmed.contains("3000") || trimmed.contains("8080") {
+                    // Could be Node.js or other backend
+                    if detectedFramework == "Static HTML" {
+                        detectedFramework = "Node.js"
+                    }
+                }
+            }
         }
 
-        return Website(domain: domain, path: path, status: .running, port: port, framework: "Nginx")
+        return Website(domain: domain, path: path, status: .running, port: port, framework: detectedFramework)
     }
 
     private func buildSiteConfig(domain: String, path: String, port: Int, phpSocket: String?) -> String {

@@ -26,6 +26,9 @@ final class WebsitesViewModel: ObservableObject {
     @Published var isCreating = false
     @Published var errorMessage: String?
 
+    // Track locally-created websites that may not yet be visible on the server
+    private var locallyCreatedDomains: Set<String> = []
+
     // Server capabilities
     @Published var hasNginx = false
     @Published var hasApache = false
@@ -61,19 +64,35 @@ final class WebsitesViewModel: ObservableObject {
         }
 
         // Fetch sites from installed web servers
-        var allSites: [Website] = []
+        var serverSites: [Website] = []
 
         if hasNginx {
             let nginxSites = await nginxService.fetchSites(via: session)
-            allSites.append(contentsOf: nginxSites)
+            serverSites.append(contentsOf: nginxSites)
+            print("🌐 [WebsitesVM] Fetched \(nginxSites.count) Nginx sites")
         }
 
         if hasApache {
             let apacheSites = await apacheService.fetchSites(via: session)
-            allSites.append(contentsOf: apacheSites)
+            serverSites.append(contentsOf: apacheSites)
+            print("🌐 [WebsitesVM] Fetched \(apacheSites.count) Apache sites")
         }
 
-        websites = allSites
+        // Merge: Keep locally-created sites that aren't yet on the server
+        let serverDomains = Set(serverSites.map { $0.domain.lowercased() })
+        let localOnlySites = websites.filter { site in
+            let domainLower = site.domain.lowercased()
+            return locallyCreatedDomains.contains(domainLower) && !serverDomains.contains(domainLower)
+        }
+        
+        // Remove from tracking any sites that now appear on server
+        locallyCreatedDomains = locallyCreatedDomains.filter { !serverDomains.contains($0) }
+        
+        // Combine: server sites first, then local-only sites
+        websites = serverSites + localOnlySites
+        
+        print("🌐 [WebsitesVM] Total websites: \(websites.count) (server: \(serverSites.count), local-only: \(localOnlySites.count))")
+        
         isLoading = false
     }
 
@@ -129,6 +148,9 @@ final class WebsitesViewModel: ObservableObject {
         }
 
         if success {
+            // Track this domain as locally-created
+            locallyCreatedDomains.insert(domain.lowercased())
+            
             // Add to local state
             let newSite = Website(
                 id: UUID(),
@@ -139,6 +161,7 @@ final class WebsitesViewModel: ObservableObject {
                 framework: "\(framework) (\(webServerUsed))"
             )
             websites.insert(newSite, at: 0)
+            print("✅ [WebsitesVM] Website created locally: \(domain)")
         } else {
             errorMessage = "Failed to create website configuration"
         }
