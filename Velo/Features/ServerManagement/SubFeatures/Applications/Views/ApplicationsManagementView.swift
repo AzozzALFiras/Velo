@@ -10,6 +10,20 @@ import SwiftUI
 struct ApplicationsManagementView: View {
     @ObservedObject var viewModel: ServerManagementViewModel
     @State private var selectedCapability: Capability?
+    @State private var showPHPDetail = false
+    
+    /// Slugs of installed software (lowercased for matching)
+    private var installedSlugs: Set<String> {
+        Set(viewModel.installedSoftware.map { $0.name.lowercased() })
+    }
+    
+    /// Filter capabilities to show only those NOT installed
+    private var availableToInstall: [Capability] {
+        viewModel.filteredCapabilities.filter { cap in
+            !installedSlugs.contains(cap.slug.lowercased()) &&
+            !installedSlugs.contains(cap.name.lowercased())
+        }
+    }
     
     var body: some View {
         ScrollView {
@@ -39,19 +53,34 @@ struct ApplicationsManagementView: View {
                 }
                 .padding(.horizontal)
                 
-                // MARK: - Installed (Downloads)
+                // MARK: - Installed Applications
                 if !viewModel.installedSoftware.isEmpty {
                     VStack(alignment: .leading, spacing: 16) {
-                        Text("Installed")
-                            .font(.title2)
-                            .fontWeight(.semibold)
-                            .foregroundStyle(.white)
-                            .padding(.horizontal)
+                        HStack {
+                            Text("Installed")
+                                .font(.title2)
+                                .fontWeight(.semibold)
+                                .foregroundStyle(.white)
+                            
+                            Text("\(viewModel.installedSoftware.count)")
+                                .font(.caption)
+                                .foregroundStyle(.white.opacity(0.6))
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(Color.green.opacity(0.3))
+                                .clipShape(Capsule())
+                        }
+                        .padding(.horizontal)
                         
                         ScrollView(.horizontal, showsIndicators: false) {
                             HStack(spacing: 16) {
                                 ForEach(viewModel.installedSoftware) { software in
-                                    InstalledAppCard(software: software)
+                                    Button {
+                                        handleInstalledSoftwareTap(software)
+                                    } label: {
+                                        InstalledAppCard(software: software)
+                                    }
+                                    .buttonStyle(.plain)
                                 }
                             }
                             .padding(.horizontal)
@@ -59,24 +88,34 @@ struct ApplicationsManagementView: View {
                     }
                 }
                 
-                // MARK: - All Applications
+                // MARK: - Available to Install
                 VStack(alignment: .leading, spacing: 16) {
-                    Text("All Applications")
-                        .font(.title2)
-                        .fontWeight(.semibold)
-                        .foregroundStyle(.white)
-                        .padding(.horizontal)
+                    HStack {
+                        Text("Available to Install")
+                            .font(.title2)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(.white)
+                        
+                        Text("\(availableToInstall.count)")
+                            .font(.caption)
+                            .foregroundStyle(.white.opacity(0.6))
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(Color.blue.opacity(0.3))
+                            .clipShape(Capsule())
+                    }
+                    .padding(.horizontal)
                     
-                    if viewModel.isLoading { // You might want a specific loading state for capabilities
+                    if viewModel.isLoading {
                         ProgressView()
                             .padding()
-                    } else if viewModel.filteredCapabilities.isEmpty {
-                        Text("No applications found.")
+                    } else if availableToInstall.isEmpty {
+                        Text("All applications are installed!")
                             .foregroundStyle(.gray)
                             .padding(.horizontal)
                     } else {
                         LazyVGrid(columns: [GridItem(.adaptive(minimum: 160), spacing: 16)], spacing: 16) {
-                            ForEach(viewModel.filteredCapabilities) { cap in
+                            ForEach(availableToInstall) { cap in
                                 Button {
                                     selectedCapability = cap
                                 } label: {
@@ -95,6 +134,16 @@ struct ApplicationsManagementView: View {
         .sheet(item: $selectedCapability) { cap in
             CapabilityDetailView(viewModel: viewModel, capability: cap)
         }
+        .overlay {
+            if showPHPDetail {
+                PHPDetailView(session: viewModel.session, onDismiss: {
+                    showPHPDetail = false
+                })
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
+                    .zIndex(100)
+            }
+        }
+        .animation(.easeInOut(duration: 0.25), value: showPHPDetail)
         .overlay(alignment: .bottomTrailing) {
             if viewModel.showInstallOverlay {
                 InstallationStatusOverlay(viewModel: viewModel)
@@ -102,8 +151,23 @@ struct ApplicationsManagementView: View {
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
+
+    }
+    
+    // MARK: - Helpers
+    
+    private func handleInstalledSoftwareTap(_ software: InstalledSoftware) {
+        switch software.name.lowercased() {
+        case "php":
+            showPHPDetail = true
+        // Future: Add cases for nginx, mysql, python, etc.
+        default:
+            // For now, only PHP has a detail view
+            break
+        }
     }
 }
+
 
 // MARK: - Subviews
 

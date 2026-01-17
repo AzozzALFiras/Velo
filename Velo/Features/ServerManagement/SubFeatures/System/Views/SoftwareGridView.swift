@@ -12,6 +12,7 @@ struct SoftwareGridView: View {
     
     let softwareList: [InstalledSoftware]
     var onAddTap: () -> Void
+    var onSoftwareTap: ((InstalledSoftware) -> Void)?
     
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -32,7 +33,12 @@ struct SoftwareGridView: View {
             
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 140), spacing: 12)], spacing: 12) {
                 ForEach(softwareList) { sw in
-                    ModernAppCard(software: sw)
+                    Button {
+                        onSoftwareTap?(sw)
+                    } label: {
+                        ModernAppCard(software: sw)
+                    }
+                    .buttonStyle(.plain)
                 }
             }
         }
@@ -48,6 +54,7 @@ struct SoftwareGridView: View {
         )
     }
 }
+
 
 private struct ModernAppCard: View {
     let software: InstalledSoftware

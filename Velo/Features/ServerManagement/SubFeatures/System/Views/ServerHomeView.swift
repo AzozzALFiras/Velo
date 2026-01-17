@@ -14,6 +14,10 @@ struct ServerHomeView: View {
     @ObservedObject var viewModel: ServerManagementViewModel
     var onNavigateToApps: () -> Void
     
+    // State for navigation
+    @State private var showPHPDetail = false
+    @State private var selectedSoftware: InstalledSoftware? = nil
+    
     var body: some View {
         ZStack {
             ScrollView {
@@ -64,8 +68,14 @@ struct ServerHomeView: View {
                     
                     // Bottom
                     HStack(alignment: .top, spacing: 24) {
-                        SoftwareGridView(softwareList: viewModel.installedSoftware, onAddTap: onNavigateToApps)
-                            .frame(width: 340)
+                        SoftwareGridView(
+                            softwareList: viewModel.installedSoftware,
+                            onAddTap: onNavigateToApps,
+                            onSoftwareTap: { software in
+                                handleSoftwareTap(software)
+                            }
+                        )
+                        .frame(width: 340)
                         
                         TrafficChartView(history: viewModel.trafficHistory)
                             .frame(maxWidth: .infinity)
@@ -112,8 +122,36 @@ struct ServerHomeView: View {
             }
             .ignoresSafeArea()
         )
+        .overlay {
+            if showPHPDetail {
+                PHPDetailView(session: viewModel.session, onDismiss: {
+                    showPHPDetail = false
+                })
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
+                    .zIndex(100)
+            }
+        }
+        .animation(.easeInOut(duration: 0.25), value: showPHPDetail)
+    }
+    
+    // MARK: - Helpers
+    
+    private func handleSoftwareTap(_ software: InstalledSoftware) {
+        selectedSoftware = software
+        
+        // Determine which detail view to show based on software name
+        switch software.name.lowercased() {
+        case "php":
+            showPHPDetail = true
+        // Future: Add cases for nginx, mysql, python, etc.
+        default:
+            // For now, show PHP detail as fallback (can be changed later)
+            showPHPDetail = true
+        }
     }
 }
+
+
 
 // MARK: - Legacy / Unused
 // Deleted SystemInfoHeader and UsageCard as they are replaced by new components.
