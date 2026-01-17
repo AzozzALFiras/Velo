@@ -71,13 +71,13 @@ final class PHPService: ObservableObject, RuntimeService {
     
     func getComposerStatus(via session: TerminalViewModel) async -> SoftwareStatus {
         let result = await baseService.execute("which composer 2>/dev/null", via: session, timeout: 5)
-        if result.output.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines).isEmpty {
+        let path = result.output.trimmingCharacters(in: .whitespacesAndNewlines)
+        if path.isEmpty {
             return .notInstalled
         }
         
-        // Check version if needed, or just return installed
-        let versionRes = await baseService.execute("composer --version 2>/dev/null | head -n 1 | awk '{print $2}'", via: session, timeout: 5)
-        let version = versionRes.output.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+        let versionRes = await baseService.execute("\(path) --version 2>/dev/null | head -n 1 | awk '{print $2}'", via: session, timeout: 5)
+        let version = versionRes.output.trimmingCharacters(in: .whitespacesAndNewlines)
         return .installed(version: version.isEmpty ? "installed" : version)
     }
 

@@ -51,8 +51,7 @@ final class MySQLService: ObservableObject, DatabaseServerService {
             svcName = await detector.getServiceName(via: session)
         }
         
-        let result = await baseService.execute("systemctl is-active \(svcName) 2>/dev/null", via: session, timeout: 10)
-        return result.output.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines) == "active"
+        return await LinuxServiceHelper.isActive(serviceName: svcName, via: session)
     }
 
     func getStatus(via session: TerminalViewModel) async -> SoftwareStatus {
@@ -70,7 +69,7 @@ final class MySQLService: ObservableObject, DatabaseServerService {
 
     func fetchDatabases(via session: TerminalViewModel) async -> [Database] {
         let result = await baseService.execute("mysql -e 'SHOW DATABASES' 2>/dev/null || sudo mysql -e 'SHOW DATABASES' 2>/dev/null", via: session, timeout: 15)
-        let output = result.output.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+        let output = result.output.trimmingCharacters(in: .whitespacesAndNewlines)
 
         guard !output.isEmpty && !output.contains("error") && !output.contains("denied") else {
             return []

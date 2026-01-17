@@ -45,6 +45,9 @@ final class ServerOverviewViewModel: ObservableObject {
     @Published var diskUsed: String = "0"
     @Published var diskAvailable: String = "0"
 
+    // Resource / Hardware Stats
+    @Published var currentStats = ServerStats()
+    
     // Software Status
     @Published var serverStatus = ServerStatus()
     @Published var installedSoftware: [InstalledSoftware] = []
@@ -103,6 +106,7 @@ final class ServerOverviewViewModel: ObservableObject {
         isLoadingStats = true
 
         let stats = await statsService.fetchAllStats(via: session)
+        currentStats = stats
 
         hostname = stats.hostname.isEmpty ? "Unknown" : stats.hostname
         ipAddress = stats.ipAddress.isEmpty ? "Unknown" : stats.ipAddress

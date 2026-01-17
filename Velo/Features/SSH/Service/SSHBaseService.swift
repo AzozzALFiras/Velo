@@ -147,7 +147,7 @@ actor SSHBaseService: TerminalOutputDelegate {
         }
         
         // 3. Wait for continuation or timeout
-        return await withCheckedContinuation { continuation in
+        return await withCheckedContinuation { [status] continuation in
             Task {
                 await status.setContinuation(continuation)
                 
@@ -162,6 +162,24 @@ actor SSHBaseService: TerminalOutputDelegate {
         }
     }
     
+    /// Write a file to the remote server using base64 for safety via a session
+    func writeFile(at path: String, content: String, useSudo: Bool = true, via session: TerminalViewModel) async -> Bool {
+        guard let data = content.data(using: .utf8) else { return false }
+        let base64 = data.base64EncodedString()
+        let sudoPrefix = useSudo ? "sudo " : ""
+        let cmd = "echo '\(base64)' | base64 --decode | \(sudoPrefix)tee '\(path)' > /dev/null && echo 'WRITTEN'"
+        
+        let result = await execute(cmd, via: session, timeout: 15)
+        return result.output.contains("WRITTEN")
+    }
+    
+    /// Read a file from the remote server
+    func readFile(at path: String, via session: TerminalViewModel) async -> String? {
+        let cmd = "sudo cat '\(path)' 2>/dev/null"
+        let result = await execute(cmd, via: session, timeout: 15)
+        return result.exitCode == 0 ? result.output : nil
+    }
+
     private func finishCommandTimeout(_ sessionId: UUID, command: String, startTime: Date) async -> SSHCommandResult {
         guard let active = activeCommands[sessionId] else {
             return SSHCommandResult(command: command, output: "", exitCode: 1, executionTime: Date().timeIntervalSince(startTime))
@@ -216,15 +234,24 @@ actor SSHBaseService: TerminalOutputDelegate {
                 await status.setHasEndMarker(true)
                 activeCommands.removeValue(forKey: sessionId)
                 
-                let (finalClean, exitCode) = extractWithExitCode(currentAll, sm: active.sm, em: active.em, originalCommand: active.cleanCommand)
-                let result = SSHCommandResult(
-                    command: active.cleanCommand,
-                    output: finalClean,
-                    exitCode: exitCode,
-                    executionTime: Date().timeIntervalSince(active.startTime)
-                )
+                let originalCommand = active.cleanCommand
+                let sm = active.sm
+                let em = active.em
+                let startTime = active.startTime
                 
-                await status.resumeIfNeeded(with: result)
+                // Perform heavy extraction off-actor to keep the queue moving
+                Task.detached(priority: .userInitiated) {
+                    let (finalClean, exitCode) = self.extractWithExitCode(currentAll, sm: sm, em: em, originalCommand: originalCommand)
+                    let result = SSHCommandResult(
+                        command: originalCommand,
+                        output: finalClean,
+                        exitCode: exitCode,
+                        executionTime: Date().timeIntervalSince(startTime)
+                    )
+                    
+                    await status.resumeIfNeeded(with: result)
+                }
+                
                 print("🔧 [SSHBase] ✅ Event-driven completion for: \(active.cleanCommand.prefix(20))")
                 break
             }
@@ -253,7 +280,7 @@ actor SSHBaseService: TerminalOutputDelegate {
         }
     }
     
-    private func extractWithExitCode(_ text: String, sm: String, em: String, originalCommand: String) -> (String, Int) {
+    nonisolated private func extractWithExitCode(_ text: String, sm: String, em: String, originalCommand: String) -> (String, Int) {
         // First strip ANSI codes from the whole blob to make marker matching reliable
         let cleanText = stripAnsiCodes(text)
         
@@ -269,7 +296,7 @@ actor SSHBaseService: TerminalOutputDelegate {
         return parseFinalOutput(content, originalCommand: originalCommand)
     }
 
-    private func parseFinalOutput(_ content: String, originalCommand: String) -> (String, Int) {
+    nonisolated private func parseFinalOutput(_ content: String, originalCommand: String) -> (String, Int) {
         var lines = content.components(separatedBy: CharacterSet.newlines)
             .map { $0.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
@@ -291,11 +318,11 @@ actor SSHBaseService: TerminalOutputDelegate {
         return (cleanedLines.joined(separator: "\n").trimmingCharacters(in: CharacterSet.whitespacesAndNewlines), exitCode)
     }
 
-    private func extract(_ text: String, sm: String, em: String, originalCommand: String) -> String {
+    nonisolated private func extract(_ text: String, sm: String, em: String, originalCommand: String) -> String {
         return extractWithExitCode(text, sm: sm, em: em, originalCommand: originalCommand).0
     }
 
-    private func stripAnsiCodes(_ text: String) -> String {
+    nonisolated private func stripAnsiCodes(_ text: String) -> String {
         var clean = text
         // 1. Manually strip literal bracketed paste and other private mode sequences
         // Handle both with and without ESC prefix, and literal representations

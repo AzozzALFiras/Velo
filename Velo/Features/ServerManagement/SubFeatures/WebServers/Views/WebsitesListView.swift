@@ -999,36 +999,3 @@ struct FilePickerSheet: View {
         loadFiles()
     }
 }
-
-// MARK: - Action Button
-
-private struct ActionButton: View {
-    let title: String
-    let icon: String
-    let color: Color
-    let action: () -> Void
-    
-    @State private var isHovered = false
-    
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 6) {
-                Image(systemName: icon)
-                    .font(.system(size: 12))
-                Text(title)
-                    .font(.system(size: 12, weight: .medium))
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(color.opacity(isHovered ? 0.2 : 0.1))
-            .foregroundStyle(color)
-            .clipShape(RoundedRectangle(cornerRadius: 6))
-        }
-        .buttonStyle(.plain)
-        .onHover { hovering in
-            withAnimation(.easeInOut(duration: 0.1)) {
-                isHovered = hovering
-            }
-        }
-    }
-}

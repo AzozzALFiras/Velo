@@ -31,39 +31,77 @@ final class ServerServiceAggregator: ObservableObject {
 
     // MARK: - Server Status (All Software)
 
-    /// Fetch complete server status - all software checked
+    /// Fetch complete server status using an optimized batch command
     func fetchServerStatus(via session: TerminalViewModel) async -> ServerStatus {
-        var status = ServerStatus()
-
-        // Web Servers
-        async let nginxStatus = nginx.getStatus(via: session)
-        async let apacheStatus = apache.getStatus(via: session)
-
-        status.nginx = await nginxStatus
-        status.apache = await apacheStatus
-
-        // Databases
-        async let mysqlStatus = mysql.getStatus(via: session)
-        async let pgStatus = postgresql.getStatus(via: session)
-
-        status.mysql = await mysqlStatus
-        status.postgresql = await pgStatus
-
-        // Runtimes
-        status.php = await php.getStatus(via: session)
-        status.nodejs = await node.getStatus(via: session)
-        status.python = await python.getStatus(via: session)
+        let services = ["nginx", "apache2", "httpd", "mysql", "postgresql", "php", "redis"]
+        var checkCmd = ""
+        for svc in services {
+            checkCmd += "echo \"SVC_\(svc.uppercased())\" && systemctl is-active \(svc) 2>/dev/null || echo \"inactive\"\n"
+            checkCmd += "echo \"VER_\(svc.uppercased())\" && \(svc) --version 2>/dev/null | head -n 1 || echo \"not installed\"\n"
+        }
         
-        // Tools
-        status.git = await git.getStatus(via: session)
-
+        let result = await SSHBaseService.shared.execute(checkCmd, via: session, timeout: 20)
+        return parseBatchStatus(result.output)
+    }
+    
+    private func parseBatchStatus(_ output: String) -> ServerStatus {
+        var status = ServerStatus()
+        let lines = output.components(separatedBy: .newlines).map { $0.trimmingCharacters(in: .whitespaces) }
+        
+        var statuses: [String: String] = [:]
+        var versions: [String: String] = [:]
+        
+        var i = 0
+        while i < lines.count {
+            let line = lines[i]
+            if line.hasPrefix("SVC_") {
+                let svcKey = line.replacingOccurrences(of: "SVC_", with: "").lowercased()
+                if i + 1 < lines.count {
+                    statuses[svcKey] = lines[i+1]
+                }
+            } else if line.hasPrefix("VER_") {
+                let svcKey = line.replacingOccurrences(of: "VER_", with: "").lowercased()
+                if i + 1 < lines.count {
+                    versions[svcKey] = lines[i+1]
+                }
+            }
+            i += 1
+        }
+        
+        func mapToStatus(svc: String) -> SoftwareStatus {
+            let v = versions[svc] ?? ""
+            let s = statuses[svc] ?? ""
+            
+            if v.contains("not installed") || v.isEmpty {
+                return .notInstalled
+            }
+            
+            // Extract a cleaner version number (e.g., from "nginx version: nginx/1.18.0")
+            let versionParts = v.split(separator: " ")
+            let cleanV = versionParts.first { $0.contains("/") || $0.contains(".") }?.description ?? "installed"
+            
+            if s == "active" {
+                return .running(version: cleanV)
+            } else {
+                return .stopped(version: cleanV)
+            }
+        }
+        
+        status.nginx = mapToStatus(svc: "nginx")
+        status.apache = mapToStatus(svc: "apache2")
+        if status.apache == .notInstalled { status.apache = mapToStatus(svc: "httpd") }
+        status.mysql = mapToStatus(svc: "mysql")
+        status.postgresql = mapToStatus(svc: "postgresql")
+        status.php = mapToStatus(svc: "php")
+        status.redis = mapToStatus(svc: "redis")
+        
         return status
     }
 
     // MARK: - System Stats
 
     /// Fetch all system stats
-    func fetchSystemStats(via session: TerminalViewModel) async -> SystemStats {
+    func fetchSystemStats(via session: TerminalViewModel) async -> ServerStats {
         await systemStats.fetchAllStats(via: session)
     }
 

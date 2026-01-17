@@ -20,7 +20,7 @@ final class SystemStatsService: ObservableObject {
     // MARK: - Batch Statistics
 
     /// Fetch all system stats in a single optimized batch command
-    func fetchAllStats(via session: TerminalViewModel) async -> SystemStats {
+    func fetchAllStats(via session: TerminalViewModel) async -> ServerStats {
         let batchCommand = """
         echo "HOSTNAME" && hostname && \
         echo "IP" && hostname -I 2>/dev/null | awk '{print $1}' && \
@@ -36,16 +36,16 @@ final class SystemStatsService: ObservableObject {
         return parseStatsBatch(result.output)
     }
 
-    /// Fetch quick stats (CPU, RAM, Disk only) for live updates
+    /// Fetch quick stats (CPU, RAM, Disk only) for live updates using light-weight /proc reads
     func fetchQuickStats(via session: TerminalViewModel) async -> (cpu: Double, ram: Double, disk: Double) {
         let quickCommand = """
-        echo "CPU" && top -bn1 | grep "Cpu(s)" | awk '{print $2 + $4}' && \
-        echo "MEM" && free -m | grep Mem | awk '{print $3,$2}' && \
+        echo "CPU" && cat /proc/stat | head -n 1 && \
+        echo "MEM" && cat /proc/meminfo | grep -E 'MemTotal|MemAvailable' && \
         echo "DISK" && df -h / | tail -n 1 | awk '{print $5}'
         """
 
         let result = await baseService.execute(quickCommand, via: session, timeout: 10)
-        return parseQuickStats(result.output)
+        return parseQuickStatsOptimized(result.output)
     }
 
     // MARK: - Individual Statistics
@@ -174,8 +174,8 @@ final class SystemStatsService: ObservableObject {
 
     // MARK: - Parsing Helpers
 
-    private func parseStatsBatch(_ output: String) -> SystemStats {
-        var stats = SystemStats()
+    private func parseStatsBatch(_ output: String) -> ServerStats {
+        var stats = ServerStats()
         let lines = output.components(separatedBy: CharacterSet.newlines).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
 
         var currentHeader = ""
@@ -222,10 +222,11 @@ final class SystemStatsService: ObservableObject {
             }
         }
 
+        stats.isOnline = true
         return stats
     }
 
-    private func parseQuickStats(_ output: String) -> (cpu: Double, ram: Double, disk: Double) {
+    private func parseQuickStatsOptimized(_ output: String) -> (cpu: Double, ram: Double, disk: Double) {
         var cpu: Double = 0
         var ram: Double = 0
         var disk: Double = 0
@@ -241,13 +242,28 @@ final class SystemStatsService: ObservableObject {
 
             switch currentHeader {
             case "CPU":
-                if let value = Double(line) {
-                    cpu = min(value / 100.0, 1.0)
+                // Parse /proc/stat line (cpu  user nice system idle ...)
+                let parts = line.split(separator: " ").compactMap { Double($0) }
+                if parts.count >= 4 {
+                    let user = parts[0]
+                    let nice = parts[1]
+                    let system = parts[2]
+                    let idle = parts[3]
+                    let total = user + nice + system + idle
+                    if total > 0 {
+                        cpu = (user + nice + system) / total
+                    }
                 }
             case "MEM":
-                let parts = line.split(separator: " ").compactMap { Double($0) }
-                if parts.count >= 2 && parts[1] > 0 {
-                    ram = parts[0] / parts[1]
+                // Parse MemTotal and MemAvailable
+                if line.contains("MemTotal") {
+                    let total = Double(line.components(separatedBy: CharacterSet.decimalDigits.inverted).filter { !$0.isEmpty }.first ?? "0") ?? 0
+                    _lastTotalMem = total
+                } else if line.contains("MemAvailable") {
+                    let available = Double(line.components(separatedBy: CharacterSet.decimalDigits.inverted).filter { !$0.isEmpty }.first ?? "0") ?? 0
+                    if _lastTotalMem > 0 {
+                        ram = (_lastTotalMem - available) / _lastTotalMem
+                    }
                 }
             case "DISK":
                 let percentStr = line.replacingOccurrences(of: "%", with: "")
@@ -258,6 +274,10 @@ final class SystemStatsService: ObservableObject {
 
         return (cpu, ram, disk)
     }
+    
+    // Internal state to track total memory between lines in batch
+    private var _lastTotalMem: Double = 0
+
 
     private func parseOSInfo(_ output: String) -> OSInfo {
         var info = OSInfo()
@@ -303,63 +323,3 @@ final class SystemStatsService: ObservableObject {
     }
 }
 
-// MARK: - Supporting Types
-
-struct SystemStats {
-    var hostname: String = ""
-    var ipAddress: String = ""
-    var osName: String = ""
-    var uptime: String = ""
-    var cpuUsage: Double = 0
-    var loadAverage: Double = 0
-    var ramUsage: Double = 0
-    var ramTotalMB: Int = 0
-    var ramUsedMB: Int = 0
-    var diskUsage: Double = 0
-    var diskTotal: String = ""
-    var diskUsed: String = ""
-    var diskAvailable: String = ""
-}
-
-struct MemoryStats {
-    let totalMB: Int
-    let usedMB: Int
-    let freeMB: Int
-    let availableMB: Int
-    let usagePercent: Double
-}
-
-struct DiskStats {
-    let totalFormatted: String
-    let usedFormatted: String
-    let availableFormatted: String
-    let usagePercent: Double
-}
-
-struct OSInfo {
-    var prettyName: String = ""
-    var id: String = ""
-    var versionId: String = ""
-    var kernelVersion: String = ""
-}
-
-struct NetworkStats {
-    let rxBytes: Int64
-    let rxPackets: Int64
-    let txBytes: Int64
-    let txPackets: Int64
-
-    var rxKB: Double { Double(rxBytes) / 1024.0 }
-    var txKB: Double { Double(txBytes) / 1024.0 }
-    var rxMB: Double { Double(rxBytes) / (1024.0 * 1024.0) }
-    var txMB: Double { Double(txBytes) / (1024.0 * 1024.0) }
-}
-
-struct ServerProcessItem: Identifiable {
-    let id = UUID()
-    let user: String
-    let pid: Int
-    let cpuPercent: Double
-    let memPercent: Double
-    let command: String
-}

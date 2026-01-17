@@ -34,8 +34,7 @@ final class PostgreSQLService: ObservableObject, DatabaseServerService {
     }
 
     func isRunning(via session: TerminalViewModel) async -> Bool {
-        let result = await baseService.execute("systemctl is-active postgresql 2>/dev/null", via: session, timeout: 10)
-        return result.output.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines) == "active"
+        await LinuxServiceHelper.isActive(serviceName: serviceName, via: session)
     }
 
     func getStatus(via session: TerminalViewModel) async -> SoftwareStatus {

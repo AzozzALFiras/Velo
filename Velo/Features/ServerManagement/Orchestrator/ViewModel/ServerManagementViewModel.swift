@@ -19,6 +19,7 @@ final class ServerManagementViewModel: ObservableObject {
     @Published var databasesVM: DatabasesViewModel
     @Published var servicesVM: ServiceManagementViewModel
     @Published var installerVM: ServerInstallerViewModel
+    @Published var filesVM: FilesViewModel
     
     // MARK: - Dependencies
     weak var session: TerminalViewModel? {
@@ -29,6 +30,7 @@ final class ServerManagementViewModel: ObservableObject {
             databasesVM.session = session
             servicesVM.session = session
             installerVM.session = session
+            filesVM.session = session
         }
     }
     
@@ -36,15 +38,7 @@ final class ServerManagementViewModel: ObservableObject {
     
     // Overview / Stats
     var stats: ServerStats {
-        ServerStats(
-            cpuUsage: Double(overviewVM.cpuUsage) / 100.0,
-            ramUsage: Double(overviewVM.ramUsage) / 100.0,
-            diskUsage: Double(overviewVM.diskUsage) / 100.0,
-            uptime: 0,
-            isOnline: true,
-            osName: overviewVM.osName,
-            ipAddress: overviewVM.ipAddress
-        )
+        overviewVM.currentStats
     }
     
     var overviewCounts: OverviewCounts {
@@ -87,11 +81,11 @@ final class ServerManagementViewModel: ObservableObject {
     @Published var isLoading = false
     @Published var errorMessage: String? = nil
     
-    // Files (To be modularized later)
-    @Published var files: [ServerFileItem] = []
-    @Published var currentPath: String = "/"
-    @Published var pathStack: [String] = ["/"]
-    @Published var activeUploads: [FileUploadTask] = []
+    // Files (Delegated to FilesViewModel)
+    var files: [ServerFileItem] { filesVM.files }
+    var currentPath: String { filesVM.currentPath }
+    var pathStack: [String] { filesVM.pathStack }
+    var activeUploads: [FileUploadTask] { filesVM.activeUploads }
     
     // Capabilities / Installation Wrappers
     var availableCapabilities: [Capability] { installerVM.availableCapabilities }
@@ -118,6 +112,7 @@ final class ServerManagementViewModel: ObservableObject {
         self.databasesVM = DatabasesViewModel(session: session)
         self.servicesVM = ServiceManagementViewModel(session: session)
         self.installerVM = ServerInstallerViewModel(session: session)
+        self.filesVM = FilesViewModel(session: session)
         
         setupBindings()
     }
@@ -129,6 +124,7 @@ final class ServerManagementViewModel: ObservableObject {
         databasesVM.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }.store(in: &subscribers)
         servicesVM.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }.store(in: &subscribers)
         installerVM.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }.store(in: &subscribers)
+        filesVM.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }.store(in: &subscribers)
         
         // Handle post-install refresh
         installerVM.onInstallationComplete = { [weak self] success in
@@ -282,60 +278,42 @@ final class ServerManagementViewModel: ObservableObject {
         }
     }
     
-    // MARK: - Files (Skeleton)
+    // MARK: - Files (Delegated)
     func fetchFilesForPicker(path: String) async -> [ServerFileItem] {
-        let result = await SSHBaseService.shared.execute("ls -1F '\(path)' 2>/dev/null", via: session ?? TerminalViewModel())
-        let lines = result.output.components(separatedBy: CharacterSet.newlines)
-        return lines.compactMap { line -> ServerFileItem? in
-            let name = line.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
-            guard !name.isEmpty else { return nil }
-            let isDir = name.hasSuffix("/")
-            let cleanName = isDir ? String(name.dropLast()) : name
-            return ServerFileItem(name: cleanName, path: "\(path)/\(cleanName)", isDirectory: isDir, sizeBytes: 0, permissions: "755", modificationDate: Date(), owner: "root")
-        }
+        await filesVM.loadFiles() // Simplified: uses internal state
+        return filesVM.files
     }
     
     func navigateBack() {
-        guard pathStack.count > 1 else { return }
-        pathStack.removeLast()
-        currentPath = pathStack.last ?? "/"
-        Task { await loadFiles() }
+        filesVM.navigateBack()
     }
     
     func jumpToPath(_ path: String) {
-        currentPath = path
-        pathStack = [path]
-        Task { await loadFiles() }
+        filesVM.jumpToPath(path)
     }
     
     func navigateTo(folder: ServerFileItem) {
-        guard folder.isDirectory else { return }
-        currentPath = folder.path
-        pathStack.append(currentPath)
-        Task { await loadFiles() }
+        filesVM.navigateTo(folder: folder)
     }
     
     func loadFiles() async {
-        files = await fetchFilesForPicker(path: currentPath)
+        await filesVM.loadFiles()
     }
     
     func deleteFile(_ file: ServerFileItem) async -> Bool {
-        // Implementation placeholder
-        return true
+        await filesVM.deleteFile(file)
     }
     
     func renameFile(_ file: ServerFileItem, to: String) async -> Bool {
-        // Implementation placeholder
-        return true
+        await filesVM.renameFile(file, to: to)
     }
     
     func updatePermissions(_ file: ServerFileItem, to: String) async -> Bool {
-        // Implementation placeholder
+        // Still a placeholder but could be in filesVM
         return true
     }
     
     func updateOwner(_ file: ServerFileItem, to: String) async -> Bool {
-        // Implementation placeholder
         return true
     }
     
@@ -344,23 +322,6 @@ final class ServerManagementViewModel: ObservableObject {
     }
     
     func startMockUpload(fileName: String) {
-        let task = FileUploadTask(fileName: fileName, progress: 0.1)
-        activeUploads.append(task)
-        
-        // Mock progress
-        Task {
-            for i in 1...10 {
-                try? await Task.sleep(nanoseconds: 500_000_000)
-                if let index = activeUploads.firstIndex(where: { $0.id == task.id }) {
-                    activeUploads[index].progress = Double(i) / 10.0
-                    if i == 10 {
-                        activeUploads[index].isCompleted = true
-                    }
-                }
-            }
-            // Cleanup after delay
-            try? await Task.sleep(nanoseconds: 2_000_000_000)
-            activeUploads.removeAll { $0.id == task.id }
-        }
+        filesVM.startMockUpload(fileName: fileName)
     }
 }

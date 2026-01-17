@@ -32,11 +32,4 @@ final class AppLogger {
         print("\(prefix) [\(timestamp)] \(message)")
     }
     
-    enum LogLevel {
-        case info
-        case warning
-        case error
-        case cmd
-        case result
-    }
 }

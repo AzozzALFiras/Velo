@@ -8,25 +8,6 @@
 import SwiftUI
 import Combine
 
-// MARK: - Insight Tab Enum
-
-enum InsightTab: String, CaseIterable, Identifiable {
-    case suggestions = "Suggestions"
-    case chat = "Chat"
-    case history = "History"
-    case errors = "Errors"
-    
-    var id: String { rawValue }
-    
-    var icon: String {
-        switch self {
-        case .suggestions: return "lightbulb"
-        case .chat: return "bubble.left.and.bubble.right"
-        case .history: return "clock"
-        case .errors: return "exclamationmark.triangle"
-        }
-    }
-}
 
 // MARK: - Terminal ViewModel
 

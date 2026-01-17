@@ -10,10 +10,6 @@ import Foundation
 struct ApachePathResolver {
     private let baseService = SSHBaseService.shared
 
-    enum OSType {
-        case debian
-        case rhel
-    }
 
     // Default paths for different distributions
     private let debianPaths = ApachePaths(

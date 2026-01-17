@@ -36,8 +36,7 @@ final class NginxService: ObservableObject, WebServerService {
     }
 
     func isRunning(via session: TerminalViewModel) async -> Bool {
-        let result = await baseService.execute("systemctl is-active nginx 2>/dev/null", via: session, timeout: 10)
-        return result.output.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines) == "active"
+        await LinuxServiceHelper.isActive(serviceName: serviceName, via: session)
     }
 
     func getStatus(via session: TerminalViewModel) async -> SoftwareStatus {
@@ -102,36 +101,27 @@ final class NginxService: ObservableObject, WebServerService {
         // Build Nginx config
         let config = buildSiteConfig(domain: safeDomain, path: safePath, port: port, phpSocket: phpSocketPath)
 
-        // Write config file
-        if let data = config.data(using: .utf8) {
-            let base64 = data.base64EncodedString()
-            let configPath = await pathResolver.getSitesAvailablePath(via: session)
+        // Write config file using unified helper
+        let configPath = await pathResolver.getSitesAvailablePath(via: session)
+        let success = await baseService.writeFile(at: "\(configPath)/\(safeDomain)", content: config, useSudo: true, via: session)
+        
+        guard success else { return false }
 
-            let writeResult = await baseService.execute(
-                "echo '\(base64)' | base64 --decode | sudo tee '\(configPath)/\(safeDomain)' > /dev/null && echo 'WRITTEN'",
-                via: session, timeout: 15
-            )
+        // Enable site
+        let enableResult = await enableSite(domain: safeDomain, via: session)
+        guard enableResult else { return false }
 
-            guard writeResult.output.contains("WRITTEN") else { return false }
-
-            // Enable site
-            let enableResult = await enableSite(domain: safeDomain, via: session)
-            guard enableResult else { return false }
-
-            // Validate config
-            let validation = await validateConfig(via: session)
-            if !validation.isValid {
-                // Rollback
-                await disableSite(domain: safeDomain, via: session)
-                _ = await baseService.execute("sudo rm -f '\(configPath)/\(safeDomain)'", via: session, timeout: 10)
-                return false
-            }
-
-            // Reload nginx
-            return await reload(via: session)
+        // Validate config
+        let validation = await validateConfig(via: session)
+        if !validation.isValid {
+            // Rollback
+            await disableSite(domain: safeDomain, via: session)
+            _ = await baseService.execute("sudo rm -f '\(configPath)/\(safeDomain)'", via: session, timeout: 10)
+            return false
         }
 
-        return false
+        // Reload nginx
+        return await reload(via: session)
     }
 
     func deleteSite(domain: String, deleteFiles: Bool, via session: TerminalViewModel) async -> Bool {

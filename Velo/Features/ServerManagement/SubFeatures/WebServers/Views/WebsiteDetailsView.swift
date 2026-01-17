@@ -263,27 +263,6 @@ private struct InfoRow: View {
     }
 }
 
-private struct ActionButton: View {
-    let title: String
-    let icon: String
-    let color: Color
-    let action: () -> Void
-    
-    var body: some View {
-        Button(action: action) {
-            HStack {
-                Image(systemName: icon)
-                Text(title)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 10)
-            .background(color.opacity(0.1))
-            .foregroundStyle(color)
-            .clipShape(RoundedRectangle(cornerRadius: 8))
-        }
-        .buttonStyle(.plain)
-    }
-}
 
 private struct PrimaryButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {

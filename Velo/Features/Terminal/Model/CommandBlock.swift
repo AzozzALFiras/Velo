@@ -8,33 +8,6 @@
 
 import SwiftUI
 
-// MARK: - Block Status
-
-/// Represents the execution status of a command block
-enum BlockStatus: String, Codable, Sendable {
-    case idle
-    case running
-    case success
-    case error
-    
-    var icon: String {
-        switch self {
-        case .idle: return "circle"
-        case .running: return "circle.dotted"
-        case .success: return "checkmark.circle.fill"
-        case .error: return "xmark.circle.fill"
-        }
-    }
-    
-    var color: Color {
-        switch self {
-        case .idle: return ColorTokens.textTertiary
-        case .running: return ColorTokens.warning
-        case .success: return ColorTokens.success
-        case .error: return ColorTokens.error
-        }
-    }
-}
 
 // MARK: - Command Block Model
 
@@ -185,43 +158,3 @@ final class CommandBlock: Identifiable, @unchecked Sendable {
     }
 }
 
-// MARK: - Block Action
-
-/// Actions that can be performed on a command block
-enum BlockAction: String, CaseIterable {
-    case retry = "Retry"
-    case copy = "Copy"
-    case copyOutput = "Copy Output"
-    case explain = "Explain"
-    case fix = "Fix"
-    case delete = "Delete"
-    case pin = "Pin"
-    
-    var icon: String {
-        switch self {
-        case .retry: return "arrow.clockwise"
-        case .copy: return "doc.on.doc"
-        case .copyOutput: return "doc.on.clipboard"
-        case .explain: return "questionmark.circle"
-        case .fix: return "wrench.and.screwdriver"
-        case .delete: return "trash"
-        case .pin: return "pin"
-        }
-    }
-    
-    var isDestructive: Bool {
-        self == .delete
-    }
-    
-    /// Actions shown based on block status
-    static func actions(for status: BlockStatus) -> [BlockAction] {
-        switch status {
-        case .idle, .running:
-            return [.copy]
-        case .success:
-            return [.retry, .copy, .copyOutput, .explain]
-        case .error:
-            return [.retry, .fix, .explain, .copy, .copyOutput]
-        }
-    }
-}
