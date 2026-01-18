@@ -1,0 +1,6 @@
+{
+    "theme.delete.confirm": "Are you sure you want to delete '%@'? This action cannot be undone.",
+    "theme.system.rounded": "System Rounded",
+    "theme.system.default": "System Default",
+    "theme.font.size": "%d pt"
+}

@@ -133,7 +133,7 @@ final class LocalizationManager: ObservableObject {
     
     /// Load all segmented JSON files for a specific language
     private func loadFiles(for langCode: String) -> [String: String]? {
-        let fileNames = ["common", "workspace", "settings", "terminal", "intelligence", "ssh", "git", "docker", "editor"]
+        let fileNames = ["common", "workspace", "settings", "terminal", "intelligence", "ssh", "git", "docker", "editor", "server", "apps", "files", "theme"]
         var mergedTranslations: [String: String] = [:]
         var foundAny = false
         

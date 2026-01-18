@@ -55,7 +55,7 @@ struct CapabilityDetailView: View {
                 
                 // MARK: - Versions
                 VStack(alignment: .leading, spacing: 16) {
-                    Text("Available Versions")
+                    Text("apps.detail.available_versions".localized)
                         .font(.title2)
                         .fontWeight(.semibold)
                         .foregroundStyle(.white)
@@ -69,7 +69,7 @@ struct CapabilityDetailView: View {
                             VersionRow(version: version, capability: capability, viewModel: viewModel)
                         }
                     } else {
-                        Text("No versions available.")
+                        Text("apps.detail.no_versions".localized)
                             .foregroundStyle(.gray)
                             .padding(.horizontal)
                     }
@@ -93,7 +93,7 @@ struct CapabilityDetailView: View {
         }
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
-                Button("Close") {
+                Button("apps.detail.close".localized) {
                     dismiss()
                 }
             }
@@ -115,7 +115,7 @@ struct VersionRow: View {
                         .foregroundStyle(.white)
                     
                     if version.stability == "stable" {
-                        Text("Stable")
+                        Text("apps.detail.stable".localized)
                             .font(.caption2)
                             .fontWeight(.bold)
                             .padding(.horizontal, 6)
@@ -126,18 +126,18 @@ struct VersionRow: View {
                     }
                     
                     if version.isDefault {
-                        Text("Default")
+                        Text("apps.detail.default".localized)
                             .font(.caption2)
                             .fontWeight(.bold)
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
-                            .background(Color.purple.opacity(0.2))
-                            .foregroundStyle(.purple)
+                            .background(Color.blue.opacity(0.2))
+                            .foregroundStyle(.blue)
                             .clipShape(Capsule())
                     }
                 }
                 
-                Text("Released: \(formatDate(version.releaseDate))")
+                Text("apps.detail.released".localized(formatDate(version.releaseDate)))
                     .font(.caption)
                     .foregroundStyle(.gray)
             }
@@ -149,7 +149,7 @@ struct VersionRow: View {
                     await viewModel.installCapability(capability, version: version.version)
                 }
             } label: {
-                Text("Install")
+                Text("apps.detail.install".localized)
                     .fontWeight(.semibold)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 8)

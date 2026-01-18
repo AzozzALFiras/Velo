@@ -29,7 +29,7 @@ struct PHPSidebarView: View {
                 }
                 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("PHP \(viewModel.activeVersion)")
+                    Text("php.version".localized(viewModel.activeVersion))
                         .font(.headline)
                         .foregroundStyle(.white)
                     
@@ -38,7 +38,7 @@ struct PHPSidebarView: View {
                             .fill(viewModel.isRunning ? Color.green : Color.red)
                             .frame(width: 8, height: 8)
                         
-                        Text(viewModel.isRunning ? "Running" : "Stopped")
+                        Text(viewModel.isRunning ? "php.status.running".localized : "php.status.stopped".localized)
                             .font(.caption)
                             .foregroundStyle(.gray)
                     }
@@ -136,7 +136,7 @@ struct PHPSidebarView: View {
                             .background(Color.green.opacity(0.15))
                             .clipShape(Capsule())
                     } else {
-                        Button("Switch") {
+                        Button("php.version.switch".localized) {
                             Task {
                                 await viewModel.switchVersion(to: version)
                             }

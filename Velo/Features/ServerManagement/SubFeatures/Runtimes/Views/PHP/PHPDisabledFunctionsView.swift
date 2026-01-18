@@ -6,13 +6,13 @@ struct PHPDisabledFunctionsView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
-                Text("\(viewModel.disabledFunctions.count) functions disabled")
+                Text("php.disabled.count".localized(viewModel.disabledFunctions.count))
                     .font(.subheadline)
                     .foregroundStyle(.gray)
                 
                 Spacer()
                 
-                Text("Click function to enable it")
+                Text("php.disabled.hint".localized)
                     .font(.caption)
                     .foregroundStyle(.orange.opacity(0.8))
             }
@@ -25,10 +25,10 @@ struct PHPDisabledFunctionsView: View {
                     Image(systemName: "checkmark.circle.fill")
                         .font(.system(size: 40))
                         .foregroundStyle(.green)
-                    Text("No disabled functions")
+                    Text("php.disabled.none.title".localized)
                         .font(.headline)
                         .foregroundStyle(.white)
-                    Text("All PHP functions are enabled")
+                    Text("php.disabled.none.desc".localized)
                         .font(.caption)
                         .foregroundStyle(.gray)
                 }

@@ -52,50 +52,57 @@ struct ServerManagementView: View {
                         .foregroundStyle(.white)
                 }
                 
-                Text("Server Admin")
+                Text("server.admin".localized)
                     .font(.system(size: 15, weight: .bold))
                     .foregroundStyle(.white)
                 
                 Spacer()
             }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 24)
+            .padding(20)
             
             // Navigation
-            VStack(spacing: 4) {
-                ForEach(ServerManagementTab.allCases) { tab in
-                    HStack(spacing: 12) {
-                        Image(systemName: tab.icon)
-                            .font(.system(size: 15))
-                            .foregroundStyle(session.activeServerManagementTab == tab ? Color.white : ColorTokens.textSecondary)
-                            .frame(width: 20)
-                        
-                        Text(tab.title)
-                            .font(.system(size: 14, weight: session.activeServerManagementTab == tab ? .semibold : .regular))
-                            .foregroundStyle(session.activeServerManagementTab == tab ? Color.white : ColorTokens.textSecondary)
-                        
-                        Spacer()
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(session.activeServerManagementTab == tab ? Color.white.opacity(0.12) : Color.white.opacity(0.01))
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                    .contentShape(Rectangle()) // Essential for hit testing
-                    .onTapGesture {
-                        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                            session.activeServerManagementTab = tab
+            ScrollView {
+                VStack(spacing: 4) {
+                    ForEach(ServerManagementTab.allCases, id: \.self) { tab in
+                        Button(action: {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                                session.activeServerManagementTab = tab
+                            }
+                        }) {
+                            HStack(spacing: 12) {
+                                Image(systemName: tab.icon)
+                                    .font(.system(size: 14))
+                                    .frame(width: 20)
+                                    .foregroundStyle(session.activeServerManagementTab == tab ? .white : ColorTokens.textSecondary)
+                                
+                                Text(tab.title)
+                                    .font(.system(size: 13, weight: session.activeServerManagementTab == tab ? .semibold : .regular))
+                                    .foregroundStyle(session.activeServerManagementTab == tab ? .white : ColorTokens.textSecondary)
+                                
+                                Spacer()
+                                
+                                if session.activeServerManagementTab == tab {
+                                    Circle()
+                                        .fill(Color.white)
+                                        .frame(width: 4, height: 4)
+                                }
+                            }
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 10)
+                            .background(session.activeServerManagementTab == tab ? Color.white.opacity(0.1) : Color.clear)
+                            .cornerRadius(8)
                         }
+                        .buttonStyle(.plain)
                     }
                 }
+                .padding(.horizontal, 12)
             }
-            .padding(.horizontal, 12)
             
             Spacer()
             
             // Bottom User/Connection Info
             VStack(alignment: .leading, spacing: 6) {
-                Text("Connected as")
+                Text("server.connected_as".localized)
                     .font(.caption)
                     .foregroundStyle(ColorTokens.textTertiary)
                 
@@ -103,7 +110,7 @@ struct ServerManagementView: View {
                     Circle()
                         .fill(Color.green)
                         .frame(width: 6, height: 6)
-                    Text("root@192.168.1.42")
+                    Text(session.activeConnectionDisplayString)
                         .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(ColorTokens.textSecondary)
                 }

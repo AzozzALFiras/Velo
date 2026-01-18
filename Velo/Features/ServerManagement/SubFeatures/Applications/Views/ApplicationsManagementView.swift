@@ -31,7 +31,7 @@ struct ApplicationsManagementView: View {
                 
                 // MARK: - Search & Header
                 VStack(alignment: .leading, spacing: 16) {
-                    Text("Applications")
+                    Text("apps.title".localized)
                         .font(.largeTitle)
                         .fontWeight(.bold)
                         .foregroundStyle(.white)
@@ -43,9 +43,9 @@ struct ApplicationsManagementView: View {
                             .textFieldStyle(.plain)
                             .foregroundStyle(.white)
                     }
-                    .padding()
-                    .background(Color.white.opacity(0.05))
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .padding(12)
+                    .background(Color.white.opacity(0.1))
+                    .cornerRadius(12)
                     .overlay(
                         RoundedRectangle(cornerRadius: 12)
                             .stroke(Color.white.opacity(0.1), lineWidth: 1)
@@ -57,33 +57,29 @@ struct ApplicationsManagementView: View {
                 if !viewModel.installedSoftware.isEmpty {
                     VStack(alignment: .leading, spacing: 16) {
                         HStack {
-                            Text("Installed")
+                            Text("apps.installed".localized)
                                 .font(.title2)
                                 .fontWeight(.semibold)
                                 .foregroundStyle(.white)
                             
                             Text("\(viewModel.installedSoftware.count)")
                                 .font(.caption)
-                                .foregroundStyle(.white.opacity(0.6))
                                 .padding(.horizontal, 8)
                                 .padding(.vertical, 4)
-                                .background(Color.green.opacity(0.3))
+                                .background(Color.white.opacity(0.1))
                                 .clipShape(Capsule())
+                                .foregroundStyle(.white)
                         }
-                        .padding(.horizontal)
                         
                         ScrollView(.horizontal, showsIndicators: false) {
                             HStack(spacing: 16) {
                                 ForEach(viewModel.installedSoftware) { software in
-                                    Button {
-                                        handleInstalledSoftwareTap(software)
-                                    } label: {
-                                        InstalledAppCard(software: software)
-                                    }
-                                    .buttonStyle(.plain)
+                                    InstalledAppCard(software: software)
+                                        .onTapGesture {
+                                            handleInstalledSoftwareTap(software)
+                                        }
                                 }
                             }
-                            .padding(.horizontal)
                         }
                     }
                 }
@@ -91,18 +87,18 @@ struct ApplicationsManagementView: View {
                 // MARK: - Available to Install
                 VStack(alignment: .leading, spacing: 16) {
                     HStack {
-                        Text("Available to Install")
+                        Text("apps.available".localized)
                             .font(.title2)
                             .fontWeight(.semibold)
                             .foregroundStyle(.white)
                         
                         Text("\(availableToInstall.count)")
                             .font(.caption)
-                            .foregroundStyle(.white.opacity(0.6))
                             .padding(.horizontal, 8)
                             .padding(.vertical, 4)
-                            .background(Color.blue.opacity(0.3))
+                            .background(Color.white.opacity(0.1))
                             .clipShape(Capsule())
+                            .foregroundStyle(.white)
                     }
                     .padding(.horizontal)
                     
@@ -110,21 +106,18 @@ struct ApplicationsManagementView: View {
                         ProgressView()
                             .padding()
                     } else if availableToInstall.isEmpty {
-                        Text("All applications are installed!")
+                        Text("apps.all_installed".localized)
                             .foregroundStyle(.gray)
                             .padding(.horizontal)
                     } else {
                         LazyVGrid(columns: [GridItem(.adaptive(minimum: 160), spacing: 16)], spacing: 16) {
                             ForEach(availableToInstall) { cap in
-                                Button {
-                                    selectedCapability = cap
-                                } label: {
-                                    CapabilityCard(capability: cap)
-                                }
-                                .buttonStyle(.plain)
+                                CapabilityCard(capability: cap)
+                                    .onTapGesture {
+                                        selectedCapability = cap
+                                    }
                             }
                         }
-                        .padding(.horizontal)
                     }
                 }
             }

@@ -129,4 +129,30 @@ final class PHPDetailViewModel: ObservableObject {
             await loadPHPInfo()
         }
     }
+    // MARK: - Helper Actions
+    
+    /// Generic helper to perform async actions with loading state and error handling
+    /// - Parameters:
+    ///   - actionName: Name of action for logging (optional)
+    ///   - action: Async closure that returns success bool and optional error message
+    func performAsyncAction(
+        _ actionName: String? = nil,
+        action: () async -> (success: Bool, message: String?)
+    ) async {
+        isPerformingAction = true
+        errorMessage = nil
+        successMessage = nil
+        
+        let result = await action()
+        
+        if result.success {
+            if let msg = result.message {
+                successMessage = msg
+            }
+        } else {
+            errorMessage = result.message ?? "An error occurred"
+        }
+        
+        isPerformingAction = false
+    }
 }

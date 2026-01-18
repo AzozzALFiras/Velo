@@ -1,0 +1,14 @@
+{
+    "server.admin": "Server Admin",
+    "server.connected_as": "Connected as",
+    "web.ssl.title": "SSL Certificate",
+    "web.ssl.cert_details": "Certificate Details",
+    "web.ssl.renew": "Renew",
+    "web.ssl.remove": "Remove SSL",
+    "web.ssl.configure": "Configure SSL",
+    "web.details.save": "Save Changes",
+    "web.details.domain": "Domain",
+    "web.details.path": "Server Path",
+    "web.details.done": "Done",
+    "web.logs.empty": "No logs available"
+}

@@ -24,72 +24,40 @@ extension PHPDetailViewModel {
     func startService() async {
         guard let session = session else { return }
         
-        isPerformingAction = true
-        errorMessage = nil
-        
-        let success = await PHPService.shared.start(via: session)
-        
-        if success {
-            isRunning = true
-            successMessage = "PHP-FPM started successfully"
-        } else {
-            errorMessage = "Failed to start PHP-FPM"
+        await performAsyncAction("Start PHP-FPM") {
+            let success = await PHPService.shared.start(via: session)
+            if success { isRunning = true }
+            return (success, success ? "php.msg.started".localized : "php.err.start".localized)
         }
-        
-        isPerformingAction = false
     }
     
     func stopService() async {
         guard let session = session else { return }
         
-        isPerformingAction = true
-        errorMessage = nil
-        
-        let success = await PHPService.shared.stop(via: session)
-        
-        if success {
-            isRunning = false
-            successMessage = "PHP-FPM stopped successfully"
-        } else {
-            errorMessage = "Failed to stop PHP-FPM"
+        await performAsyncAction("Stop PHP-FPM") {
+            let success = await PHPService.shared.stop(via: session)
+            if success { isRunning = false }
+            return (success, success ? "php.msg.stopped".localized : "php.err.stop".localized)
         }
-        
-        isPerformingAction = false
     }
     
     func restartService() async {
         guard let session = session else { return }
         
-        isPerformingAction = true
-        errorMessage = nil
-        
-        let success = await PHPService.shared.restart(via: session)
-        
-        if success {
-            isRunning = true
-            successMessage = "PHP-FPM restarted successfully"
-        } else {
-            errorMessage = "Failed to restart PHP-FPM"
+        await performAsyncAction("Restart PHP-FPM") {
+            let success = await PHPService.shared.restart(via: session)
+            if success { isRunning = true }
+            return (success, success ? "php.msg.restarted".localized : "php.err.restart".localized)
         }
-        
-        isPerformingAction = false
     }
     
     func reloadService() async {
         guard let session = session else { return }
         
-        isPerformingAction = true
-        errorMessage = nil
-        
-        let success = await PHPService.shared.reload(via: session)
-        
-        if success {
-            successMessage = "PHP-FPM configuration reloaded"
-        } else {
-            errorMessage = "Failed to reload PHP-FPM"
+        await performAsyncAction("Reload PHP-FPM") {
+            let success = await PHPService.shared.reload(via: session)
+            return (success, success ? "php.msg.reloaded".localized : "php.err.reload".localized)
         }
-        
-        isPerformingAction = false
     }
     
     // MARK: - FPM Version-Specific Actions

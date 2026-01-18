@@ -1,18 +1,14 @@
 {
-  "git.sourceControl": "Source Control",
-  "git.syncChanges": "Sync Changes",
   "git.clean": "Clean",
   "git.sync": "Sync",
-  "git.staged": "Staged",
-  "git.modified": "Modified",
+  "git.changes.count": "%d changes",
+  "git.title": "Source Control",
+  "git.staged": "Staged Changes",
+  "git.unstaged": "Changes",
   "git.untracked": "Untracked",
-  "git.commitMessage": "Commit message...",
-  "git.suggest": "Suggest",
-  "git.commitTo": "Commit to %@",
-  "git.noChanges": "No changes",
-  "git.pull": "Pull",
-  "git.push": "Push",
-  "git.fetch": "Fetch",
-  "git.branch": "Branch",
-  "git.stash": "Stash"
+  "git.ahead": "Ahead",
+  "git.behind": "Behind",
+  "git.commitPlaceholder": "Enter commit message...",
+  "git.suggest": "Suggest Message",
+  "git.commitTo": "Commit to {}"
 }

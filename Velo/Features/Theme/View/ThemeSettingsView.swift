@@ -436,7 +436,7 @@ struct FontSchemeEditor: View {
                     Spacer()
                     Slider(value: $fontScheme.monoFontSize, in: 10...18, step: 1)
                         .frame(width: 150)
-                    Text("\(Int(fontScheme.monoFontSize))pt")
+                    Text("theme.font.size".localized(Int(fontScheme.monoFontSize)))
                         .font(VeloDesign.Typography.monoSmall)
                         .foregroundColor(VeloDesign.Colors.textMuted)
                         .frame(width: 40, alignment: .trailing)
@@ -451,8 +451,8 @@ struct FontSchemeEditor: View {
                         .foregroundColor(VeloDesign.Colors.textSecondary)
                     Spacer()
                     Picker("", selection: $fontScheme.headlineFontName) {
-                        Text("System Rounded").tag("System Rounded")
-                        Text("System Default").tag("System Default")
+                        Text("theme.system.rounded".localized).tag("System Rounded")
+                        Text("theme.system.default".localized).tag("System Default")
                     }
                     .labelsHidden()
                     .frame(width: 200)
@@ -465,7 +465,7 @@ struct FontSchemeEditor: View {
                     Spacer()
                     Slider(value: $fontScheme.headlineFontSize, in: 14...24, step: 1)
                         .frame(width: 150)
-                    Text("\(Int(fontScheme.headlineFontSize))pt")
+                    Text("theme.font.size".localized(Int(fontScheme.headlineFontSize)))
                         .font(VeloDesign.Typography.monoSmall)
                         .foregroundColor(VeloDesign.Colors.textMuted)
                         .frame(width: 40, alignment: .trailing)

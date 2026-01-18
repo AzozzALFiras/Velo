@@ -107,7 +107,7 @@ struct FilesListView: View {
                         HStack(spacing: 8) {
                             Image(systemName: "arrow.up.doc.fill")
                                 .font(.system(size: 12))
-                            Text("Upload")
+                            Text("files.upload".localized)
                                 .font(.system(size: 13, weight: .semibold))
                         }
                         .padding(.horizontal, 16)
@@ -124,11 +124,11 @@ struct FilesListView: View {
                 
                 // Table Header
                 HStack(spacing: 0) {
-                    Text("Name").frame(maxWidth: .infinity, alignment: .leading)
-                    Text("Size").frame(width: 100, alignment: .leading)
-                    Text("Permissions").frame(width: 120, alignment: .leading)
-                    Text("Owner").frame(width: 100, alignment: .leading)
-                    Text("Modified").frame(width: 180, alignment: .leading)
+                    Text("files.col.name".localized).frame(maxWidth: .infinity, alignment: .leading)
+                    Text("files.col.size".localized).frame(width: 100, alignment: .leading)
+                    Text("files.col.permissions".localized).frame(width: 120, alignment: .leading)
+                    Text("files.col.owner".localized).frame(width: 100, alignment: .leading)
+                    Text("files.col.modified".localized).frame(width: 180, alignment: .leading)
                     Text("").frame(width: 40) // Options Column
                 }
                 .font(.system(size: 11, weight: .bold))
@@ -373,15 +373,15 @@ private struct FileRow: View {
         .onHover { isHovered = $0 }
         .contentShape(Rectangle())
         .alert("Delete File?", isPresented: $isShowingDeleteConfirmation) {
-            Button("Cancel", role: .cancel) { }
+            Button("common.cancel".localized, role: .cancel) { }
             Button("Delete", role: .destructive) {
                 onDelete()
             }
         } message: {
             if file.isDirectory {
-                Text("Are you sure you want to delete the folder '\(file.name)' and all its contents?")
+                Text("files.delete.confirm_folder".localized(file.name))
             } else {
-                Text("Are you sure you want to delete '\(file.name)'?")
+                Text("files.delete.confirm_file".localized(file.name))
             }
         }
     }
@@ -416,12 +416,12 @@ private struct RenameDialogView: View {
     
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Rename File")
+            Text("files.rename.title".localized)
                 .font(.system(size: 15, weight: .bold))
                 .foregroundStyle(ColorTokens.textPrimary)
             
             VStack(alignment: .leading, spacing: 8) {
-                Text("Current name")
+                Text("files.rename.current".localized)
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(ColorTokens.textTertiary)
                 
@@ -435,7 +435,7 @@ private struct RenameDialogView: View {
             }
             
             VStack(alignment: .leading, spacing: 8) {
-                Text("New name")
+                Text("files.rename.new".localized)
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(ColorTokens.textTertiary)
                 

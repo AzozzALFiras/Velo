@@ -13,7 +13,7 @@ struct PHPConfigurationView: View {
         VStack(alignment: .leading, spacing: 16) {
             
             if viewModel.selectedSection == .configuration {
-                headerWithEditHint("PHP Configuration")
+                headerWithEditHint("php.config.header.main".localized)
                 if viewModel.isLoadingConfig {
                     loadingView
                 } else {
@@ -27,12 +27,12 @@ struct PHPConfigurationView: View {
                     ["upload_max_filesize", "post_max_size", "max_file_uploads"].contains(config.key)
                 }
                 
-                headerWithEditHint("Upload Limits")
+                headerWithEditHint("php.config.header.uploads".localized)
                 
                 if viewModel.isLoadingConfig {
                     loadingView
                 } else if uploadConfigs.isEmpty {
-                    emptyState("No upload limit configurations found.")
+                    emptyState("php.config.empty.uploads".localized)
                 } else {
                     ForEach(uploadConfigs) { config in
                         editableConfigRow(config)
@@ -44,12 +44,12 @@ struct PHPConfigurationView: View {
                     ["max_execution_time", "max_input_time"].contains(config.key)
                 }
                 
-                headerWithEditHint("Timeouts")
+                headerWithEditHint("php.config.header.timeouts".localized)
                 
                 if viewModel.isLoadingConfig {
                     loadingView
                 } else if timeoutConfigs.isEmpty {
-                    emptyState("No timeout configurations found.")
+                    emptyState("php.config.empty.timeouts".localized)
                 } else {
                     ForEach(timeoutConfigs) { config in
                         editableConfigRow(config)
@@ -69,7 +69,7 @@ struct PHPConfigurationView: View {
             
             Spacer()
             
-            Text("Click value to edit")
+            Text("php.config.hint.edit".localized)
                 .font(.caption)
                 .foregroundStyle(.orange.opacity(0.8))
         }

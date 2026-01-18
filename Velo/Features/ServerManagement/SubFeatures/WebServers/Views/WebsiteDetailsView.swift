@@ -61,7 +61,7 @@ struct WebsiteDetailsView: View {
                 
                 Spacer()
                 
-                Button("Done") { dismiss() }
+                Button("web.details.done".localized) { dismiss() }
                     .buttonStyle(.plain)
                     .foregroundStyle(ColorTokens.accentPrimary)
             }
@@ -158,7 +158,7 @@ struct WebsiteDetailsView: View {
     var settingsTab: some View {
         VStack(spacing: 20) {
             VStack(alignment: .leading, spacing: 8) {
-                Text("Domain")
+                Text("web.details.domain".localized)
                     .font(.caption)
                     .foregroundStyle(ColorTokens.textSecondary)
                 TextField("Domain", text: $domainEdit)
@@ -169,7 +169,7 @@ struct WebsiteDetailsView: View {
             }
             
             VStack(alignment: .leading, spacing: 8) {
-                Text("Server Path")
+                Text("web.details.path".localized)
                     .font(.caption)
                     .foregroundStyle(ColorTokens.textSecondary)
                 TextField("Path", text: $pathEdit)
@@ -179,7 +179,7 @@ struct WebsiteDetailsView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 6))
             }
             
-            Button("Save Changes") {
+            Button("web.details.save".localized) {
                 website.domain = domainEdit
                 website.path = pathEdit
             }
@@ -209,7 +209,7 @@ struct WebsiteDetailsView: View {
                 }
                 
                 if logs.isEmpty {
-                    Text("No logs available")
+                    Text("web.logs.empty".localized)
                         .font(.caption)
                         .foregroundStyle(ColorTokens.textTertiary)
                 }

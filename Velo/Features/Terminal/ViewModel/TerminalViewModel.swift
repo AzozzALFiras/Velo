@@ -40,7 +40,7 @@ final class TerminalViewModel: ObservableObject, Identifiable {
     }
     
     var activeSSHConnectionString: String? {
-        guard isSSHActive else { return nil }
+        guard isSSHActive else { return activeCommand.hasPrefix("ssh ") ? "Connecting..." : nil }
         let cmd = activeCommand.trimmingCharacters(in: .whitespaces)
         let parts = cmd.components(separatedBy: .whitespaces).filter { !$0.isEmpty }
         
@@ -63,6 +63,26 @@ final class TerminalViewModel: ObservableObject, Identifiable {
             }
         }
         return nil
+    }
+    
+    /// Returns the friendly name of the active connection if available, otherwise user@host
+    var activeConnectionDisplayString: String {
+        guard let connectionString = activeSSHConnectionString else { return "Not Connected" }
+        
+        // Parse user/host
+        let parts = connectionString.components(separatedBy: "@")
+        guard parts.count == 2 else { return connectionString }
+        
+        let username = parts[0]
+        let host = parts[1]
+        
+        // Try to find in SSHManager (creating new instance is cheap as it just reads JSON)
+        let manager = SSHManager()
+        if let connection = manager.connections.first(where: { $0.host == host && $0.username == username }) {
+            return connection.displayName // Assuming displayName computes name ?? user@host
+        }
+        
+        return connectionString
     }
     
     // AI & Tabs

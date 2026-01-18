@@ -17,7 +17,7 @@ struct SSLManagementView: View {
             // Header
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("SSL Certificate")
+                    Text("web.ssl.title".localized)
                         .font(.system(size: 20, weight: .bold))
                         .foregroundStyle(ColorTokens.textPrimary)
                     
@@ -203,7 +203,7 @@ struct SSLManagementView: View {
                 Button(action: renewCertificate) {
                     HStack {
                         Image(systemName: "arrow.clockwise")
-                        Text("Renew")
+                        Text("web.ssl.renew".localized)
                     }
                     .frame(maxWidth: .infinity)
                 }
@@ -214,7 +214,7 @@ struct SSLManagementView: View {
                 Button(action: removeCertificate) {
                     HStack {
                         Image(systemName: "trash")
-                        Text("Remove SSL")
+                        Text("web.ssl.remove".localized)
                     }
                     .frame(maxWidth: .infinity)
                 }
@@ -226,7 +226,7 @@ struct SSLManagementView: View {
                 Button(action: { showingEditor = true }) {
                     HStack {
                         Image(systemName: "lock.shield")
-                        Text("Configure SSL")
+                        Text("web.ssl.configure".localized)
                     }
                     .frame(maxWidth: .infinity)
                 }

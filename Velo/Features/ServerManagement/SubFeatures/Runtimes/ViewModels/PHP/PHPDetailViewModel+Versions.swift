@@ -7,22 +7,16 @@ extension PHPDetailViewModel {
     func switchVersion(to version: String) async {
         guard let session = session else { return }
         
-        isPerformingAction = true
-        errorMessage = nil
-        
-        let success = await PHPService.shared.switchVersion(to: version, via: session)
-        
-        if success {
-            activeVersion = version
-            successMessage = "Switched to PHP \(version)"
-            // Reload data for the new version
-            try? await Task.sleep(nanoseconds: 500_000_000) // 0.5s delay
-            await loadData()
-        } else {
-            errorMessage = "Failed to switch PHP version"
+        await performAsyncAction("Switch PHP Version") {
+            let success = await PHPService.shared.switchVersion(to: version, via: session)
+            if success {
+                activeVersion = version
+                // Reload data for the new version
+                try? await Task.sleep(nanoseconds: 500_000_000) // 0.5s delay
+                await loadData()
+            }
+            return (success, success ? "php.msg.switched".localized(version) : "php.err.switch".localized)
         }
-        
-        isPerformingAction = false
     }
     
     /// Install a new PHP version from API
@@ -81,22 +75,18 @@ extension PHPDetailViewModel {
     func setAsDefaultVersion(_ version: String) async {
         guard let session = session else { return }
         
-        isPerformingAction = true
-        errorMessage = nil
-        
-        // Use update-alternatives to set default PHP
-        let command = "update-alternatives --set php /usr/bin/php\(version)"
-        let result = await SSHBaseService.shared.execute(command, via: session, timeout: 10)
-        
-        if result.exitCode == 0 || result.output.isEmpty {
-            activeVersion = version
-            successMessage = "PHP \(version) is now the default version"
-            // Reload to update active version
-            await loadVersionInfo()
-        } else {
-            errorMessage = "Failed to set PHP \(version) as default"
+        await performAsyncAction("Set Default PHP") {
+            // Use update-alternatives to set default PHP
+            let command = "update-alternatives --set php /usr/bin/php\(version)"
+            let result = await SSHBaseService.shared.execute(command, via: session, timeout: 10)
+            let success = result.exitCode == 0 || result.output.isEmpty
+            
+            if success {
+                activeVersion = version
+                // Reload to update active version
+                await loadVersionInfo()
+            }
+            return (success, success ? "php.msg.switched".localized(version) : "php.err.switch".localized)
         }
-        
-        isPerformingAction = false
     }
 }
