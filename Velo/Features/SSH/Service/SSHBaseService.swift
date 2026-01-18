@@ -162,15 +162,94 @@ actor SSHBaseService: TerminalOutputDelegate {
         }
     }
     
-    /// Write a file to the remote server using base64 for safety via a session
+    /// Write a file to the remote server
+    /// Uses `printf` for small files (fast, robust, no parsing states) and Heredoc for large files.
+    /// Write a file to the remote server using Chunked Hex Strategy
+    /// This is the "Bulletproof" method:
+    /// 1. Splits content into tiny chunks (500 bytes).
+    /// 2. Hex-encodes each chunk to bypass shell parsing (!, $, ", ').
+    /// 3. Appends sequentially.
+    /// 4. Completely avoids PTY buffer overflows and History Expansion crashes.
+    /// Write a file to the remote server using Micro-Chunked Hex Strategy
+    /// "Paranoid Mode":
+    /// 1. Splits content into tiny chunks (100 bytes).
+    /// 2. Hex-encodes each chunk.
+    /// 3. Uses `tee -a` for appending.
+    /// 4. Removes `sudo` from `printf` to avoid shell builtin conflicts.
+    /// Write a file to the remote server using "Temp-Staging" Chunked Hex Strategy
+    /// 1. Uploads content to a temporary file (`/tmp/velo_...`) using Micro-Chunks.
+    /// 2. Uses `cat temp | tee dest` to move content to final destination safely.
+    /// 3. Preserves destination permissions and minimizes sudo usage in the loop.
     func writeFile(at path: String, content: String, useSudo: Bool = true, via session: TerminalViewModel) async -> Bool {
-        guard let data = content.data(using: .utf8) else { return false }
-        let base64 = data.base64EncodedString()
-        let sudoPrefix = useSudo ? "sudo " : ""
-        let cmd = "echo '\(base64)' | base64 --decode | \(sudoPrefix)tee '\(path)' > /dev/null && echo 'WRITTEN'"
+        let safePath = path.replacingOccurrences(of: "'", with: "'\\''")
+        let tempPath = "/tmp/velo_upload_\(UUID().uuidString.prefix(8))"
         
-        let result = await execute(cmd, via: session, timeout: 15)
-        return result.output.contains("WRITTEN")
+        // 1. Initialize Temp File (Truncate)
+        // No sudo needed for /tmp usually.
+        let initCmd = "printf '' > '\(tempPath)' && echo 'INIT_OK'"
+        let initResult = await execute(initCmd, via: session, timeout: 10)
+        
+        guard initResult.output.contains("INIT_OK") else {
+            print("❌ [SSHBase] Failed to initialize temp file at \(tempPath). Output: \(initResult.output)")
+            return false
+        }
+        
+        guard let data = content.data(using: .utf8) else { return false }
+        
+        // MICRO-CHUNK SIZE: 200 bytes
+        // Slightly larger than 100 since we rely on temp file simple append which is faster/lighter
+        let chunkSize = 200
+        let totalBytes = data.count
+        var offset = 0
+        var chunkIndex = 0
+        let totalChunks = Int(ceil(Double(totalBytes) / Double(chunkSize)))
+        
+        print("💾 [SSHBase] Staging \(totalBytes) bytes to \(tempPath) (Avg Chunk: \(chunkSize))...")
+        
+        // 2. Upload Loop (To Temp)
+        while offset < totalBytes {
+            let length = min(chunkSize, totalBytes - offset)
+            let chunkData = data.subdata(in: offset..<offset+length)
+            let hexEscaped = chunkData.map { String(format: "\\x%02x", $0) }.joined()
+            
+            // Simple append to temp file. No sudo. No tee.
+            let cmd = "printf %b '\(hexEscaped)' >> '\(tempPath)' && echo 'C_OK'"
+            
+            // Execute
+            let result = await execute(cmd, via: session, timeout: 10)
+            
+            if !result.output.contains("C_OK") {
+                print("❌ [SSHBase] Chunk \(chunkIndex + 1)/\(totalChunks) failed. Offset: \(offset). Output: \(result.output)")
+                // Attempt cleanup
+                _ = await execute("rm -f '\(tempPath)'", via: session, timeout: 5)
+                return false
+            }
+            
+            offset += length
+            chunkIndex += 1
+            
+            // Throttle: 100ms delay to let PTY buffer drain and prevent race conditions
+            try? await Task.sleep(nanoseconds: 100_000_000)
+        }
+        
+        // 3. Finalize: Copy Temp to Dest
+        print("💾 [SSHBase] Upload complete. Installing to \(path)...")
+        
+        // `cat temp | sudo tee dest`
+        // This preserves destination permissions (unlike mv) and handles sudo authentication once.
+        let installCmd = "\(useSudo ? "sudo " : "")cat '\(tempPath)' | \(useSudo ? "sudo " : "")tee '\(safePath)' > /dev/null && echo 'INSTALL_OK'"
+        let installResult = await execute(installCmd, via: session, timeout: 30) // Long timeout for disk I/O
+        
+        // Cleanup Temp
+        _ = await execute("rm -f '\(tempPath)'", via: session, timeout: 5)
+        
+        if installResult.output.contains("INSTALL_OK") {
+            print("✅ [SSHBase] Successfully wrote file to \(path)")
+            return true
+        } else {
+            print("❌ [SSHBase] Install failed. Output: \(installResult.output)")
+            return false
+        }
     }
     
     /// Read a file from the remote server
@@ -186,6 +265,12 @@ actor SSHBaseService: TerminalOutputDelegate {
         }
         
         print("🔧 [SSHBase] ⚠️ Timeout for: \(command.prefix(40))")
+        
+        // CRITICAL: If a command times out, the session is likely stuck (e.g. waiting for input in a heredoc).
+        // We MUST force a reset (Ctrl+C) on the next command to unblock the session.
+        self.forceResetNextCommand = true
+        print("🔧 [SSHBase] 🔄 Scheduled session reset (Ctrl+C) for next command")
+        
         activeCommands.removeValue(forKey: sessionId)
         
         let captured = await active.status.capturedOutput

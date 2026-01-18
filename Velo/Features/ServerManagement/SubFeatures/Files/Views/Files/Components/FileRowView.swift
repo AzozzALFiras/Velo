@@ -31,28 +31,29 @@ struct FileRowView: View {
             Text(file.sizeString)
                 .font(.system(size: 11))
                 .foregroundStyle(ColorTokens.textSecondary)
-                .frame(width: 80, alignment: .trailing)
+                .frame(width: 60, alignment: .trailing)
 
             // Permissions
             permissionsColumn
-                .frame(width: 90, alignment: .leading)
+                .frame(width: 50, alignment: .leading)
+                .padding(.leading, 8)
 
             // Owner
             Text(file.owner)
                 .font(.system(size: 11))
                 .foregroundStyle(ColorTokens.textSecondary)
                 .lineLimit(1)
-                .frame(width: 80, alignment: .leading)
+                .frame(width: 50, alignment: .leading)
 
             // Modified date
             Text(file.shortDateString)
                 .font(.system(size: 11))
                 .foregroundStyle(ColorTokens.textTertiary)
-                .frame(width: 140, alignment: .leading)
+                .frame(width: 60, alignment: .leading)
 
             // Actions
             actionsColumn
-                .frame(width: 44)
+                .frame(width: 40)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
@@ -80,7 +81,7 @@ struct FileRowView: View {
     }
 
     // MARK: - Columns
-
+    
     private var checkboxColumn: some View {
         Button(action: {
             viewModel.toggleSelection(file)
@@ -336,6 +337,58 @@ struct FileGridItemView: View {
                 viewModel.showDeleteConfirmation = true
             }) {
                 Label("files.menu.delete".localized, systemImage: "trash")
+            }
+        }
+    }
+}
+
+// MARK: - File Column Row (for Column View)
+
+struct FileColumnRowView: View {
+    let file: ServerFileItem
+    let isSelected: Bool
+    @ObservedObject var viewModel: FilesDetailViewModel
+
+    @State private var isHovered: Bool = false
+
+    private var fileType: FileTypeCategory {
+        FileTypeCategory.from(fileName: file.name, isDirectory: file.isDirectory)
+    }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            // Icon
+            Image(systemName: fileType.icon)
+                .font(.system(size: 14))
+                .foregroundStyle(isSelected ? Color.white : Color(hex: fileType.color))
+                .frame(width: 18)
+
+            // Name
+            Text(file.name)
+                .font(.system(size: 13, weight: isSelected ? .semibold : .regular))
+                .foregroundStyle(isSelected ? Color.white : ColorTokens.textPrimary)
+                .lineLimit(1)
+
+            Spacer()
+
+            // Chevron for directories
+            if file.isDirectory {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(isSelected ? Color.white.opacity(0.8) : ColorTokens.textTertiary)
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 6)
+                .fill(isSelected ? ColorTokens.accentPrimary : (isHovered ? Color.white.opacity(0.04) : Color.clear))
+        )
+        .onHover { isHovered = $0 }
+        .onTapGesture {
+            viewModel.selectFile(file)
+            if file.isDirectory {
+                viewModel.navigateTo(file: file)
             }
         }
     }

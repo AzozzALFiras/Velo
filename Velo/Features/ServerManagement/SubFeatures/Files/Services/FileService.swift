@@ -310,22 +310,15 @@ final class FileService {
         return .failure(.readFailed(path: path, message: "Unable to read file"))
     }
 
-    /// Writes content to a file
+    /// Writes content to a file using robust Heredoc
     func writeFile(at path: String, content: String, via session: TerminalViewModel) async -> Result<Void, FileServiceError> {
-        let safePath = path.replacingOccurrences(of: "'", with: "'\\''")
-        // Use base64 encoding to safely transfer content
-        guard let contentData = content.data(using: .utf8) else {
-            return .failure(.operationFailed(operation: "write", message: "Invalid content encoding"))
-        }
-        let base64Content = contentData.base64EncodedString()
+        // Use the robust writeFile in SSHBaseService (Heredoc)
+        let success = await sshBase.writeFile(at: path, content: content, useSudo: true, via: session)
 
-        let command = "echo '\(base64Content)' | base64 -d > '\(safePath)' && echo 'SUCCESS'"
-        let result = await sshBase.execute(command, via: session, timeout: 30)
-
-        if result.output.contains("SUCCESS") {
+        if success {
             return .success(())
         }
-        return .failure(.writeFailed(path: path, message: result.output))
+        return .failure(.writeFailed(path: path, message: "Use of Heredoc write failed"))
     }
 
     // MARK: - Search

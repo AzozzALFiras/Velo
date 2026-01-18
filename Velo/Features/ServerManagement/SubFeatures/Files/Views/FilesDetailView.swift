@@ -28,14 +28,6 @@ struct FilesDetailView: View {
             // Main content
             mainContentView
 
-            // Info Panel (optional)
-            if viewModel.showInfoPanel, let info = viewModel.selectedFileInfo {
-                Divider()
-                    .background(ColorTokens.borderSubtle)
-
-                FileInfoPanel(info: info, viewModel: viewModel)
-                    .transition(.move(edge: .trailing))
-            }
         }
         .background(ColorTokens.layer0)
         .task {
@@ -66,6 +58,11 @@ struct FilesDetailView: View {
         .sheet(isPresented: $viewModel.showEditorDialog) {
             if let file = viewModel.fileToEdit {
                 FileEditorView(file: file, viewModel: viewModel)
+            }
+        }
+        .sheet(isPresented: $viewModel.showInfoPanel) {
+            if let info = viewModel.selectedFileInfo {
+                FileInfoSheet(info: info, viewModel: viewModel)
             }
         }
 
@@ -137,8 +134,9 @@ struct FilesDetailView: View {
                     TransfersSectionView(viewModel: viewModel)
                 }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
     private var sectionTitle: String {

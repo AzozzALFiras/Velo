@@ -387,16 +387,12 @@ final class WebsitesViewModel: ObservableObject {
             """
         }
 
-        if let data = content.data(using: .utf8) {
-            let base64 = data.base64EncodedString()
-            
-            // Use printf for maximal compatibility across shells and PTYs
-            let result = await baseService.execute("printf '\(base64)' | base64 --decode > '\(path)/\(fileName)'", via: session, timeout: 20)
-            
-            if result.exitCode != 0 {
-                print("⚠️ [WebsitesVM] Failed to write file: \(result.output)")
-                // Try fallback with -d
-                _ = await baseService.execute("printf '\(base64)' | base64 -d > '\(path)/\(fileName)'", via: session, timeout: 20)
+        if let _ = content.data(using: .utf8) {
+            // Use improved generic write file
+            let success = await baseService.writeFile(at: "\(path)/\(fileName)", content: content, useSudo: true, via: session)
+
+            if !success {
+                print("⚠️ [WebsitesVM] Failed to write file")
             }
             
             // Verify existence

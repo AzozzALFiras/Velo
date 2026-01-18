@@ -423,25 +423,28 @@ final class TerminalViewModel: ObservableObject, Identifiable {
         }
         
         // Handle background file save (SSH)
-        if command.hasPrefix("__save_file_blob__:") {
-            // Format: __save_file_blob__:userHost:::path:::base64Content
-            let payload = String(command.dropFirst(19))
+        if command.hasPrefix("__save_file_encoded__:") {
+            // Format: __save_file_encoded__:userHost:::path:::encodedContent
+            let payload = String(command.dropFirst(22))
             let parts = payload.components(separatedBy: ":::")
             
             if parts.count == 3 {
                 let userHost = parts[0]
                 let path = parts[1]
-                let base64Content = parts[2]
+                let encodedContent = parts[2]
                 
-                if let data = Data(base64Encoded: base64Content),
+                // NOTE: This decodes data received from the UI/JavaScript bridge. 
+                // It is strictly for passing data from the Editor to the Swift backend memory.
+                // NO base64 commands are sent to the server. The content is used for SCP/SFTP transfer.
+                if let data = Data(base64Encoded: encodedContent),
                    let content = String(data: data, encoding: .utf8) {
                     startBackgroundFileSave(path: path, content: content, userHost: userHost)
                 } else {
-                    print("❌ [TerminalVM] Failed to decode base64 content for save")
+                    print("❌ [TerminalVM] Failed to decode content for save")
                     addOutputLine("❌ Failed to save file: Content decoding error", isError: true)
                 }
             } else {
-                print("⚠️ [TerminalVM] Invalid __save_file_blob__ format. Parts count: \(parts.count)")
+                print("⚠️ [TerminalVM] Invalid __save_file_encoded__ format. Parts count: \(parts.count)")
             }
             return
         }

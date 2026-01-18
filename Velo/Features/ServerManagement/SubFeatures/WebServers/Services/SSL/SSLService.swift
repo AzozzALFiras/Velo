@@ -236,22 +236,21 @@ actor SSLService {
         }
         
         // Write certificate file
-        let certBase64 = Data(certificateContent.utf8).base64EncodedString()
-        let writeCertCmd = "echo '\(certBase64)' | base64 -d > '\(certPath)'"
-        let certResult = await baseService.execute(writeCertCmd, via: session, timeout: 10)
-        guard certResult.exitCode == 0 else {
+        let certWritten = await baseService.writeFile(at: certPath, content: certificateContent, useSudo: true, via: session)
+        guard certWritten else {
             print("❌ [SSLService] Failed to write certificate file")
             return nil
         }
         
         // Write private key file
-        let keyBase64 = Data(privateKeyContent.utf8).base64EncodedString()
-        let writeKeyCmd = "echo '\(keyBase64)' | base64 -d > '\(keyPath)' && chmod 600 '\(keyPath)'"
-        let keyResult = await baseService.execute(writeKeyCmd, via: session, timeout: 10)
-        guard keyResult.exitCode == 0 else {
+        let keyWritten = await baseService.writeFile(at: keyPath, content: privateKeyContent, useSudo: true, via: session)
+        guard keyWritten else {
             print("❌ [SSLService] Failed to write private key file")
             return nil
         }
+        
+        // Secure key file
+        _ = await baseService.execute("sudo chmod 600 '\(keyPath)'", via: session, timeout: 5)
         
         print("✅ [SSLService] Custom certificate installed at \(certPath)")
         

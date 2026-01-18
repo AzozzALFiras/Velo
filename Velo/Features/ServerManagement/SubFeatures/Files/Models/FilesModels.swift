@@ -11,10 +11,10 @@ import Foundation
 // MARK: - Files Section Navigation
 
 enum FilesSection: String, CaseIterable, Identifiable {
-    case browser = "Browser"
-    case favorites = "Favorites"
-    case recent = "Recent"
-    case transfers = "Transfers"
+    case browser
+    case favorites
+    case recent
+    case transfers
 
     var id: String { rawValue }
 
@@ -54,25 +54,36 @@ struct QuickAccessLocation: Identifiable, Equatable, Codable {
         self.isSystem = isSystem
     }
 
-    static let defaultLocations: [QuickAccessLocation] = [
-        QuickAccessLocation(name: "Root", path: "/", icon: "externaldrive", isSystem: true),
-        QuickAccessLocation(name: "Home", path: "~", icon: "house", isSystem: true),
-        QuickAccessLocation(name: "Web Root", path: "/var/www", icon: "globe", isSystem: true),
-        QuickAccessLocation(name: "Nginx Sites", path: "/etc/nginx/sites-available", icon: "server.rack", isSystem: true),
-        QuickAccessLocation(name: "Logs", path: "/var/log", icon: "doc.text", isSystem: true),
-        QuickAccessLocation(name: "Temp", path: "/tmp", icon: "clock.arrow.circlepath", isSystem: true)
-    ]
+    static var defaultLocations: [QuickAccessLocation] {
+        [
+            QuickAccessLocation(name: "files.quickAccess.root".localized, path: "/", icon: "externaldrive", isSystem: true),
+            QuickAccessLocation(name: "files.quickAccess.home".localized, path: "~", icon: "house", isSystem: true),
+            QuickAccessLocation(name: "files.quickAccess.webRoot".localized, path: "/var/www", icon: "globe", isSystem: true),
+            QuickAccessLocation(name: "files.quickAccess.nginxSites".localized, path: "/etc/nginx/sites-available", icon: "server.rack", isSystem: true),
+            QuickAccessLocation(name: "files.quickAccess.logs".localized, path: "/var/log", icon: "doc.text", isSystem: true),
+            QuickAccessLocation(name: "files.quickAccess.temp".localized, path: "/tmp", icon: "clock.arrow.circlepath", isSystem: true)
+        ]
+    }
 }
 
 // MARK: - File Sort Options
 
 enum FileSortOption: String, CaseIterable, Identifiable {
-    case name = "Name"
-    case size = "Size"
-    case modified = "Modified"
-    case type = "Type"
+    case name
+    case size
+    case modified
+    case type
 
     var id: String { rawValue }
+
+    var localizedTitle: String {
+        switch self {
+        case .name: return "files.col.name".localized
+        case .size: return "files.col.size".localized
+        case .modified: return "files.col.modified".localized
+        case .type: return "files.info.type".localized
+        }
+    }
 
     var icon: String {
         switch self {
@@ -96,9 +107,17 @@ enum SortDirection {
 // MARK: - File View Mode
 
 enum FileViewMode: String, CaseIterable {
-    case list = "List"
-    case grid = "Grid"
-    case columns = "Columns"
+    case list
+    case grid
+    case columns
+
+    var localizedTitle: String {
+        switch self {
+        case .list: return "files.viewMode.list".localized
+        case .grid: return "files.viewMode.grid".localized
+        case .columns: return "files.viewMode.columns".localized
+        }
+    }
 
     var icon: String {
         switch self {

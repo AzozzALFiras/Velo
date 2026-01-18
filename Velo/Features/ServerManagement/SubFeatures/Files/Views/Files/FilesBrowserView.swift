@@ -25,6 +25,7 @@ struct FilesBrowserView: View {
             fileContent
         }
         .background(ColorTokens.layer0)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
     // MARK: - File Content
@@ -70,6 +71,7 @@ struct FilesBrowserView: View {
                 }
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
     // MARK: - Grid View
@@ -94,34 +96,40 @@ struct FilesBrowserView: View {
     // MARK: - Columns View
 
     private var columnsView: some View {
-        HStack(spacing: 0) {
-            // Parent directory column
-            if viewModel.currentPath != "/" {
+        ScrollView(.horizontal, showsIndicators: true) {
+            HStack(spacing: 0) {
+                // Parent directory column
+                if viewModel.currentPath != "/" {
+                    columnPane(
+                        title: "files.col.parent".localized,
+                        files: [],
+                        isParent: true
+                    )
+                    .frame(width: 220)
+
+                    Divider()
+                        .background(ColorTokens.borderSubtle)
+                }
+
+                // Current directory column
                 columnPane(
-                    title: parentDirectoryName,
-                    files: [],
-                    isParent: true
+                    title: currentDirectoryName,
+                    files: viewModel.filteredAndSortedFiles,
+                    isParent: false
                 )
+                .frame(width: 260)
 
-                Divider()
-                    .background(ColorTokens.borderSubtle)
-            }
+                // Selected item preview (if a file is selected)
+                if let selectedFile = viewModel.selectedFile, !selectedFile.isDirectory {
+                    Divider()
+                        .background(ColorTokens.borderSubtle)
 
-            // Current directory column
-            columnPane(
-                title: currentDirectoryName,
-                files: viewModel.filteredAndSortedFiles,
-                isParent: false
-            )
-
-            // Selected item preview (if a file is selected)
-            if let selectedFile = viewModel.selectedFile, !selectedFile.isDirectory {
-                Divider()
-                    .background(ColorTokens.borderSubtle)
-
-                filePreviewColumn(file: selectedFile)
+                    filePreviewColumn(file: selectedFile)
+                        .frame(width: 300)
+                }
             }
         }
+        .background(ColorTokens.layer0)
     }
 
     private func columnPane(title: String, files: [ServerFileItem], isParent: Bool) -> some View {
@@ -164,16 +172,18 @@ struct FilesBrowserView: View {
             } else {
                 // File list
                 ScrollView {
-                    LazyVStack(spacing: 0) {
+                    VStack(spacing: 2) {
                         ForEach(files) { file in
-                            ColumnFileRow(
+                            FileColumnRowView(
                                 file: file,
                                 isSelected: viewModel.selectedFiles.contains(file.id),
                                 viewModel: viewModel
                             )
                         }
                     }
+                    .padding(8)
                 }
+                .scrollIndicators(.never)
             }
         }
         .frame(width: 220)
@@ -257,38 +267,75 @@ struct FilesBrowserView: View {
             // Checkbox column
             Rectangle()
                 .fill(Color.clear)
-                .frame(width: 36)
+                .frame(width: 32)
 
             // Name
             sortableColumnHeader("files.col.name".localized, option: .name)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .lineLimit(1)
 
             // Size
-            sortableColumnHeader("files.col.size".localized, option: .size)
-                .frame(width: 80, alignment: .trailing)
+            sortableIconHeader("sdcard.fill", option: .size)
+                .frame(width: 60, alignment: .trailing)
+                .help("files.col.size".localized)
 
             // Permissions
-            Text("files.col.permissions".localized)
-                .frame(width: 90, alignment: .leading)
+            HStack(spacing: 4) {
+               Image(systemName: "lock.fill")
+                   .font(.system(size: 10))
+            }
+            .foregroundStyle(ColorTokens.textTertiary)
+            .frame(width: 50, alignment: .leading)
+            .padding(.leading, 8)
+            .help("files.col.permissions".localized)
 
             // Owner
-            Text("files.col.owner".localized)
-                .frame(width: 80, alignment: .leading)
+            HStack(spacing: 4) {
+                Image(systemName: "person.fill")
+                    .font(.system(size: 10))
+            }
+            .foregroundStyle(ColorTokens.textTertiary)
+            .frame(width: 50, alignment: .leading)
+            .help("files.col.owner".localized)
 
             // Modified
-            sortableColumnHeader("files.col.modified".localized, option: .modified)
-                .frame(width: 140, alignment: .leading)
+            sortableIconHeader("calendar", option: .modified)
+                .frame(width: 60, alignment: .leading)
+                .help("files.col.modified".localized)
 
             // Actions
             Rectangle()
                 .fill(Color.clear)
-                .frame(width: 44)
+                .frame(width: 40)
         }
         .font(.system(size: 10, weight: .semibold))
         .foregroundStyle(ColorTokens.textTertiary)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
         .background(ColorTokens.layer1.opacity(0.4))
+        .frame(height: 28)
+    }
+
+    private func sortableIconHeader(_ icon: String, option: FileSortOption) -> some View {
+        Button(action: {
+            if viewModel.sortOption == option {
+                viewModel.sortDirection.toggle()
+            } else {
+                viewModel.sortOption = option
+                viewModel.sortDirection = .ascending
+            }
+        }) {
+            HStack(spacing: 2) {
+                Image(systemName: icon)
+                    .font(.system(size: 10))
+
+                if viewModel.sortOption == option {
+                    Image(systemName: viewModel.sortDirection == .ascending ? "chevron.up" : "chevron.down")
+                        .font(.system(size: 7, weight: .bold))
+                }
+            }
+        }
+        .buttonStyle(.plain)
     }
 
     private func sortableColumnHeader(_ title: String, option: FileSortOption) -> some View {
@@ -498,6 +545,8 @@ struct FilesToolbarView: View {
                 isActive: viewModel.showHiddenFiles
             ) {
                 viewModel.showHiddenFiles.toggle()
+                let message = viewModel.showHiddenFiles ? "files.hiddenShown".localized : "files.hiddenHidden".localized
+                viewModel.showSuccess(message)
             }
         }
         .padding(.horizontal, 12)
@@ -546,52 +595,6 @@ struct BreadcrumbView: View {
 
 // MARK: - Column File Row
 
-private struct ColumnFileRow: View {
-    let file: ServerFileItem
-    let isSelected: Bool
-    @ObservedObject var viewModel: FilesDetailViewModel
-
-    @State private var isHovered = false
-
-    private var fileType: FileTypeCategory {
-        FileTypeCategory.from(fileName: file.name, isDirectory: file.isDirectory)
-    }
-
-    var body: some View {
-        Button(action: {
-            if file.isDirectory {
-                viewModel.navigateTo(file: file)
-            } else {
-                viewModel.selectFile(file)
-            }
-        }) {
-            HStack(spacing: 8) {
-                Image(systemName: fileType.icon)
-                    .font(.system(size: 12))
-                    .foregroundStyle(Color(hex: fileType.color))
-                    .frame(width: 16)
-
-                Text(file.name)
-                    .font(.system(size: 12, weight: isSelected ? .semibold : .regular))
-                    .foregroundStyle(ColorTokens.textPrimary)
-                    .lineLimit(1)
-
-                Spacer()
-
-                if file.isDirectory {
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(ColorTokens.textTertiary)
-                }
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            .background(isSelected ? ColorTokens.accentPrimary.opacity(0.15) : (isHovered ? Color.white.opacity(0.03) : Color.clear))
-        }
-        .buttonStyle(.plain)
-        .onHover { isHovered = $0 }
-    }
-}
 
 // MARK: - Toolbar Icon Button
 
@@ -634,12 +637,12 @@ private struct ToolbarIconButton: View {
     }
 
     private var backgroundColor: Color {
+        if !isEnabled {
+            return Color.clear
+        }
         if isActive {
             return ColorTokens.accentPrimary.opacity(0.15)
         }
-        if isHovered && isEnabled {
-            return ColorTokens.layer2
-        }
-        return Color.clear
+        return isHovered ? Color.white.opacity(0.06) : Color.clear
     }
 }

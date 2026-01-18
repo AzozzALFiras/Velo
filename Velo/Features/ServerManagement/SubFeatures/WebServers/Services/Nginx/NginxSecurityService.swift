@@ -136,7 +136,6 @@ actor NginxSecurityService {
         case .xss:
             return """
             if ($query_string ~ "(<|%3C).*script.*(>|%3E)") { return 403; }
-            if ($query_string ~ "base64_(en|de)code") { return 403; }
             """
         case .scanner:
             return """

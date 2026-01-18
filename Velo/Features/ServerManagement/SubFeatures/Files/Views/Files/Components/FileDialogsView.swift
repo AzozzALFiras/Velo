@@ -763,3 +763,149 @@ struct FileInfoPanel: View {
         return formatter.string(from: date)
     }
 }
+
+// MARK: - File Info Sheet
+
+struct FileInfoSheet: View {
+    let info: ExtendedFileInfo
+    @ObservedObject var viewModel: FilesDetailViewModel
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var calculatedSize: Int64?
+    @State private var isCalculatingSize: Bool = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 24) {
+            // Header
+            HStack {
+                Image(systemName: "info.circle.fill")
+                    .font(.system(size: 20))
+                    .foregroundStyle(ColorTokens.accentPrimary)
+
+                Text("files.info.title".localized)
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundStyle(ColorTokens.textPrimary)
+
+                Spacer()
+
+                Button {
+                    dismiss()
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 20))
+                        .foregroundStyle(ColorTokens.textTertiary)
+                }
+                .buttonStyle(.plain)
+            }
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    // Icon and name card
+                    HStack(spacing: 16) {
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(Color(hex: info.fileType.color).opacity(0.1))
+                                .frame(width: 64, height: 64)
+
+                            Image(systemName: info.fileType.icon)
+                                .font(.system(size: 32))
+                                .foregroundStyle(Color(hex: info.fileType.color))
+                        }
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(info.name)
+                                .font(.system(size: 16, weight: .bold))
+                                .foregroundStyle(ColorTokens.textPrimary)
+                                .lineLimit(2)
+
+                            Text(info.isDirectory ? "Folder" : (info.mimeType ?? "File"))
+                                .font(.system(size: 13))
+                                .foregroundStyle(ColorTokens.textTertiary)
+                        }
+                    }
+                    .padding(16)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(ColorTokens.layer2.opacity(0.5))
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+
+                    // Detailed Grid
+                    VStack(alignment: .leading, spacing: 16) {
+                        infoBlock("files.info.size".localized, value: info.isDirectory ? (calculatedSize.map { ByteCountFormatter.string(fromByteCount: $0, countStyle: .file) } ?? "--") : info.sizeString) {
+                            if info.isDirectory && calculatedSize == nil {
+                                Button("files.info.calculateSize".localized) {
+                                    Task {
+                                        isCalculatingSize = true
+                                        if let file = viewModel.files.first(where: { $0.path == info.path }) {
+                                            calculatedSize = await viewModel.getDirectorySize(for: file)
+                                        }
+                                        isCalculatingSize = false
+                                    }
+                                }
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(ColorTokens.accentPrimary)
+                                .disabled(isCalculatingSize)
+                            }
+                        }
+
+                        infoBlock("files.info.path".localized, value: info.path)
+
+                        HStack(spacing: 16) {
+                            infoBlock("files.info.permissions".localized, value: "\(info.permissions) (\(info.symbolicPermissions))")
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            
+                            infoBlock("files.info.owner".localized, value: "\(info.owner):\(info.group)")
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+
+                        Divider()
+                            .background(ColorTokens.borderSubtle)
+
+                        HStack(spacing: 16) {
+                            infoBlock("files.info.modified".localized, value: formatDate(info.modificationDate))
+                                .frame(maxWidth: .infinity, alignment: .leading)
+
+                            if let accessDate = info.accessDate {
+                                infoBlock("files.info.accessed".localized, value: formatDate(accessDate))
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                        }
+
+                        if info.isSymlink, let target = info.symlinkTarget {
+                            infoBlock("files.info.linkTarget".localized, value: target)
+                        }
+                    }
+                }
+            }
+        }
+        .padding(24)
+        .frame(width: 450, height: 500)
+        .background(ColorTokens.layer1)
+    }
+
+    private func infoBlock(_ label: String, value: String, @ViewBuilder extra: () -> some View = { EmptyView() }) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text(label)
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(ColorTokens.textTertiary)
+                
+                Spacer()
+                
+                extra()
+            }
+
+            Text(value)
+                .font(.system(size: 13))
+                .foregroundStyle(ColorTokens.textSecondary)
+                .textSelection(.enabled)
+                .lineLimit(2)
+        }
+    }
+
+    private func formatDate(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return formatter.string(from: date)
+    }
+}

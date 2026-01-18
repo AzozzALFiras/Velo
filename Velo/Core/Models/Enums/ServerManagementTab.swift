@@ -13,13 +13,13 @@ public enum ServerManagementTab: String, CaseIterable, Identifiable {
     
     public var title: String {
         switch self {
-        case .home: return "Home"
-        case .websites: return "Websites"
-        case .databases: return "Databases"
-        case .files: return "Files"
-        case .applications: return "Applications"
-        case .logs: return "Activity Logs"
-        case .settings: return "Settings"
+        case .home: return "server.tab.home".localized
+        case .websites: return "server.tab.websites".localized
+        case .databases: return "server.tab.databases".localized
+        case .files: return "server.tab.files".localized
+        case .applications: return "server.tab.applications".localized
+        case .logs: return "server.tab.logs".localized
+        case .settings: return "server.tab.settings".localized
         }
     }
     

@@ -106,54 +106,110 @@ final class LocalizationManager: ObservableObject {
     
     /// Load translations from JSON files for current language
     private func loadTranslations() {
-        // 1. Try to load current language
-        if let currentTranslations = loadFiles(for: currentLanguage) {
-            translations = currentTranslations
-            print("[Localization] Loaded \(translations.count) keys for \(currentLanguage)")
-            return
+        // 1. Always load default language (English) as base for key-level fallback
+        var baseTranslations: [String: String] = [:]
+        if let englishTranslations = loadFiles(for: defaultLanguage) {
+            baseTranslations = englishTranslations
         }
         
-        // 2. Fallback to default language (en)
+        // 2. Load current language and merge on top of base
         if currentLanguage != defaultLanguage {
-            print("[Localization] Warning: Falling back to '\(defaultLanguage)'")
-            if let fallbackTranslations = loadFiles(for: defaultLanguage) {
-                translations = fallbackTranslations
-                return
+            if let currentTranslations = loadFiles(for: currentLanguage) {
+                baseTranslations.merge(currentTranslations) { (_, new) in new }
+                print("[Localization] Loaded \(currentTranslations.count) keys for \(currentLanguage) (merged with English base)")
+            } else {
+                print("[Localization] Warning: Could not load translations for \(currentLanguage), using English base")
             }
+        } else {
+            print("[Localization] Loaded \(baseTranslations.count) keys for English")
         }
         
-        // 3. Catastrophic fallback: use minimal hardcoded English keys to avoid empty UI
-        translations = [
-            "app.name": "Velo",
-            "common.error": "Error",
-            "common.ok": "OK"
-        ]
-        print("[Localization] Critical Error: Could not load any translations from bundle")
+        translations = baseTranslations
+        
+        // 3. Final safety check: if still empty, use minimal hardcoded keys
+        if translations.isEmpty {
+            translations = [
+                "app.name": "Velo",
+                "common.error": "Error",
+                "common.ok": "OK"
+            ]
+            print("[Localization] Critical Error: Could not load any translations from bundle")
+        }
     }
     
-    /// Load all segmented JSON files for a specific language
+    /// Load all JSON files for a specific language using standard Bundle APIs
     private func loadFiles(for langCode: String) -> [String: String]? {
-        let fileNames = ["common", "workspace", "settings", "terminal", "intelligence", "ssh", "git", "docker", "editor", "server", "apps", "files", "theme"]
         var mergedTranslations: [String: String] = [:]
         var foundAny = false
         
+        // standard Bundle search
+        // We look for .json files in the language's lproj directory
+        
+        let bundle = Bundle.main
+        
+        // 1. Try finding the .lproj folder URI first
+        // We need to be very aggressive about finding these paths
+        let languagePaths = [
+            bundle.url(forResource: langCode, withExtension: "lproj"),
+            bundle.url(forResource: langCode, withExtension: "lproj", subdirectory: "Localization"),
+            bundle.url(forResource: langCode, withExtension: "lproj", subdirectory: "Resources/Localization"),
+            bundle.resourceURL?.appendingPathComponent("Resources/Localization/\(langCode).lproj"),
+            bundle.resourceURL?.appendingPathComponent("Localization/\(langCode).lproj"),
+            bundle.resourceURL?.appendingPathComponent("\(langCode).lproj")
+        ]
+        
+        var parsedURLs = Set<URL>()
+        
+        for url in languagePaths.compactMap({ $0 }) {
+            // Enumerate files in this URL
+            do {
+                let fileURLs = try FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: nil)
+                for fileURL in fileURLs where fileURL.pathExtension == "json" {
+                    if !parsedURLs.contains(fileURL) {
+                        if let decoded = parseJSON(at: fileURL) {
+                            mergedTranslations.merge(decoded) { (_, new) in new }
+                            foundAny = true
+                            parsedURLs.insert(fileURL)
+                            print("[Localization] Loaded \(fileURL.lastPathComponent) for \(langCode) from \(url.path)")
+                        }
+                    }
+                }
+            } catch {
+                // Ignore errors for invalid paths, just continue
+                continue
+            }
+        }
+        
+        // 2. Fallback: Specific file loading if directory listing fails to catch everything
+        // This is the absolute fail-safe list
+        let fileNames = ["common", "workspace", "settings", "terminal", "intelligence", "ssh", "git", "docker", "editor", "server", "apps", "files", "theme"]
+        
         for name in fileNames {
-            // Try multiple strategies to find the localized JSON files
-            let url = 
-                // Strategy A: Standard Localization (Xcode handles .lproj)
-                Bundle.main.url(forResource: name, withExtension: "json", subdirectory: "Localization", localization: langCode) ??
-                Bundle.main.url(forResource: name, withExtension: "json", subdirectory: nil, localization: langCode) ??
-                // Strategy B: Manual path (if added as folder references)
-                Bundle.main.url(forResource: "\(langCode).lproj/\(name)", withExtension: "json", subdirectory: "Localization") ??
-                Bundle.main.url(forResource: name, withExtension: "json", subdirectory: "Localization/\(langCode).lproj")
+            let directURLs = [
+                bundle.url(forResource: name, withExtension: "json", subdirectory: "\(langCode).lproj"),
+                bundle.url(forResource: name, withExtension: "json", subdirectory: "Localization/\(langCode).lproj"),
+                bundle.url(forResource: name, withExtension: "json", subdirectory: "Resources/Localization/\(langCode).lproj")
+            ]
             
-            if let url = url, let decoded = parseJSON(at: url) {
-                mergedTranslations.merge(decoded) { (_, new) in new }
-                foundAny = true
+            for url in directURLs.compactMap({ $0 }) {
+                if !parsedURLs.contains(url) {
+                     if let decoded = parseJSON(at: url) {
+                         mergedTranslations.merge(decoded) { (_, new) in new }
+                         foundAny = true
+                         parsedURLs.insert(url)
+                         print("[Localization] Explicit load: \(name).json for \(langCode)")
+                     }
+                }
             }
         }
         
         return foundAny ? mergedTranslations : nil
+    }
+
+    // findFileInBundle is no longer needed with the directory scanning approach
+    // but kept as a private helper if needed for specific resources in future
+    private func findFileInBundle(name: String, extension ext: String, langCode: String) -> URL? {
+        return nil 
     }
     
     /// Parse JSON file at URL (supports flat and nested structures if needed, but keeping it flat for now)

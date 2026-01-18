@@ -193,7 +193,7 @@ struct ServerManagementView: View {
                     }
                 }
                 .id(session.activeServerManagementTab)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             }
         }
     }

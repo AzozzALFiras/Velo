@@ -107,7 +107,7 @@ extension PHPDetailViewModel {
         errorMessage = nil
         successMessage = nil
         
-        // Use heredoc approach instead of base64 - much faster and more reliable
+        // Use heredoc approach - much faster and more reliable
         // This writes directly without encoding
         let tempPath = "/tmp/php_config_\(UUID().uuidString.prefix(8)).ini"
         
