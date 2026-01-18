@@ -51,7 +51,49 @@ public struct ServerFileItem: Identifiable, Hashable, Codable {
         formatter.timeStyle = .short
         return formatter.string(from: modificationDate)
     }
-    
+
+    public var shortDateString: String {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .short
+        formatter.timeStyle = .none
+        return formatter.string(from: modificationDate)
+    }
+
+    /// File extension (lowercase, without dot)
+    public var fileExtension: String {
+        (name as NSString).pathExtension.lowercased()
+    }
+
+    /// Whether this file is a text-based file that can be edited
+    public var isTextFile: Bool {
+        guard !isDirectory else { return false }
+
+        let textExtensions = [
+            // Code files
+            "php", "js", "ts", "tsx", "jsx", "py", "rb", "go", "rs", "java", "kt", "cpp", "c", "h", "m", "cs", "swift", "vue", "svelte",
+            // Config files
+            "json", "yaml", "yml", "toml", "xml", "ini", "conf", "cfg", "env", "htaccess", "plist", "properties",
+            // Document files
+            "md", "txt", "rtf", "html", "htm", "css", "scss", "sass", "less",
+            // Script files
+            "sh", "bash", "zsh", "fish", "ps1", "bat", "cmd",
+            // Log files
+            "log",
+            // Data files
+            "csv", "sql"
+        ]
+
+        return textExtensions.contains(fileExtension)
+    }
+
+    /// Maximum file size for editing (1MB)
+    public static let maxEditableSize: Int64 = 1_000_000
+
+    /// Whether this file can be safely edited (text file and within size limit)
+    public var isEditable: Bool {
+        isTextFile && sizeBytes <= Self.maxEditableSize
+    }
+
     public func hash(into hasher: inout Hasher) {
         hasher.combine(id)
     }
