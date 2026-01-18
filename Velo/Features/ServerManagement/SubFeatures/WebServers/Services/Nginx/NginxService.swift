@@ -201,6 +201,11 @@ final class NginxService: ObservableObject, WebServerService {
         return await reload(via: session)
     }
 
+    func reload(via session: TerminalViewModel) async -> Bool {
+        let result = await baseService.execute("sudo systemctl reload nginx", via: session, timeout: 10)
+        return result.exitCode == 0
+    }
+
     func enableSite(domain: String, via session: TerminalViewModel) async -> Bool {
         let availablePath = await pathResolver.getSitesAvailablePath(via: session)
         let enabledPath = await pathResolver.getSitesEnabledPath(via: session)

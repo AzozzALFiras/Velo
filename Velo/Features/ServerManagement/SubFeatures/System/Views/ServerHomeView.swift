@@ -16,6 +16,8 @@ struct ServerHomeView: View {
     
     // State for navigation
     @State private var showPHPDetail = false
+    @State private var showNginxDetail = false
+    @State private var showMySQLDetail = false
     @State private var selectedSoftware: InstalledSoftware? = nil
     
     var body: some View {
@@ -127,11 +129,29 @@ struct ServerHomeView: View {
                 PHPDetailView(session: viewModel.session, onDismiss: {
                     showPHPDetail = false
                 })
-                    .transition(.move(edge: .trailing).combined(with: .opacity))
-                    .zIndex(100)
+                .transition(.move(edge: .trailing).combined(with: .opacity))
+                .zIndex(100)
+            }
+            
+            if showNginxDetail {
+                NginxDetailView(session: viewModel.session, onDismiss: {
+                    showNginxDetail = false
+                })
+                .transition(.move(edge: .trailing).combined(with: .opacity))
+                .zIndex(101)
+            }
+            
+            if showMySQLDetail {
+                MySQLDetailView(session: viewModel.session, onDismiss: {
+                    showMySQLDetail = false
+                })
+                .transition(.move(edge: .trailing).combined(with: .opacity))
+                .zIndex(102)
             }
         }
         .animation(.easeInOut(duration: 0.25), value: showPHPDetail)
+        .animation(.easeInOut(duration: 0.25), value: showNginxDetail)
+        .animation(.easeInOut(duration: 0.25), value: showMySQLDetail)
     }
     
     // MARK: - Helpers
@@ -143,10 +163,13 @@ struct ServerHomeView: View {
         switch software.name.lowercased() {
         case "php":
             showPHPDetail = true
-        // Future: Add cases for nginx, mysql, python, etc.
+        case "nginx":
+            showNginxDetail = true
+        case "mysql", "mariadb":
+            showMySQLDetail = true
         default:
-            // For now, show PHP detail as fallback (can be changed later)
-            showPHPDetail = true
+            // No detail view found
+            print("No detail view for \(software.name)")
         }
     }
 }

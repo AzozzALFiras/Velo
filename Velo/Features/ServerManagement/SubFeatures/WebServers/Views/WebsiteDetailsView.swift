@@ -131,9 +131,9 @@ struct WebsiteDetailsView: View {
     
     var overviewTab: some View {
         VStack(spacing: 16) {
-            InfoRow(label: "Framework", value: website.framework)
-            InfoRow(label: "Port", value: "\(website.port)")
-            InfoRow(label: "Path", value: website.path)
+            WebsiteInfoRow(label: "Framework", value: website.framework)
+            WebsiteInfoRow(label: "Port", value: "\(website.port)")
+            WebsiteInfoRow(label: "Path", value: website.path)
             
             Divider().background(ColorTokens.borderSubtle)
             
@@ -247,7 +247,7 @@ struct WebsiteDetailsView: View {
 
 // MARK: - Components
 
-private struct InfoRow: View {
+private struct WebsiteInfoRow: View {
     let label: String
     let value: String
     

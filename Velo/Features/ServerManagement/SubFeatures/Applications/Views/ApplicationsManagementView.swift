@@ -11,6 +11,7 @@ struct ApplicationsManagementView: View {
     @ObservedObject var viewModel: ServerManagementViewModel
     @State private var selectedCapability: Capability?
     @State private var showPHPDetail = false
+    @State private var showNginxDetail = false
     
     /// Slugs of installed software (lowercased for matching)
     private var installedSlugs: Set<String> {
@@ -135,8 +136,17 @@ struct ApplicationsManagementView: View {
                     .transition(.move(edge: .trailing).combined(with: .opacity))
                     .zIndex(100)
             }
+            
+            if showNginxDetail {
+                NginxDetailView(session: viewModel.session, onDismiss: {
+                    showNginxDetail = false
+                })
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
+                    .zIndex(100)
+            }
         }
         .animation(.easeInOut(duration: 0.25), value: showPHPDetail)
+        .animation(.easeInOut(duration: 0.25), value: showNginxDetail)
         .overlay(alignment: .bottomTrailing) {
             if viewModel.showInstallOverlay {
                 InstallationStatusOverlay(viewModel: viewModel)
@@ -153,9 +163,10 @@ struct ApplicationsManagementView: View {
         switch software.name.lowercased() {
         case "php":
             showPHPDetail = true
-        // Future: Add cases for nginx, mysql, python, etc.
+        case "nginx":
+            showNginxDetail = true
+        // Future: Add cases for mysql, python, etc.
         default:
-            // For now, only PHP has a detail view
             break
         }
     }
