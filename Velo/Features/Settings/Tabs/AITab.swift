@@ -21,7 +21,8 @@ struct AITab: View {
     @State private var deepseekValidation: ValidationService.ValidationResult?
 
     // Cloud AI Service for Keychain operations
-    @StateObject private var aiService = CloudAIService()
+    // Cloud AI Service for Keychain operations
+    private let aiService = CloudAIService.shared
 
     var body: some View {
         VStack(alignment: .leading, spacing: VeloDesign.Spacing.xl) {

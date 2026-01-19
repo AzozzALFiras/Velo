@@ -102,7 +102,7 @@ final class TerminalViewModel: ObservableObject, Identifiable {
     @Published var id: UUID = UUID()
     @Published var title: String = "Terminal"
     @Published var activeInsightTab: InsightTab = .suggestions
-    @Published var aiService = CloudAIService()
+    @Published var aiService = CloudAIService.shared
     
     // Parsed items from terminal output (folders/files from ls)
     @Published var parsedDirectoryItems: [String] = []
@@ -690,11 +690,17 @@ final class TerminalViewModel: ObservableObject, Identifiable {
             .sink { [weak self] lines in
                 guard let self = self else { return }
                 self.outputLines = lines
+                
+                // Max buffer size optimization
+                if self.outputLines.count > 2000 {
+                    self.outputLines = Array(self.outputLines.suffix(2000))
+                }
+                
                 self.parseDirectoryItemsFromOutput(lines)
 
                 // Update the active block if it's running
                 if let lastBlock = self.blocks.last, lastBlock.isRunning {
-                     lastBlock.output = lines
+                     lastBlock.output = self.outputLines // Update with potentially trimmed lines
                 }
 
                 // Process recent output for prompt detection
@@ -785,59 +791,58 @@ final class TerminalViewModel: ObservableObject, Identifiable {
     }
     
     // MARK: - Parse Directory Items from Output
+    // MARK: - Static Regexes (Compiled Once)
+    private static let ansiRegex = try? NSRegularExpression(pattern: "[\\u001B\\u009B][[\\]()#;?]*((?:[a-zA-Z\\d]*(?:;[-a-zA-Z\\d\\/#&.:=?%@~_]*)*)?\\u0007|(?:(?:\\d{1,4}(?:;\\d{0,4})*)?[\\dA-PR-TZcf-ntqry=><~]))", options: [])
+    private static let pathRegex = try? NSRegularExpression(pattern: "(?::|\\s)([\\/~][^\\s#$]*)[#$]", options: [])
+    
     private func parseDirectoryItemsFromOutput(_ lines: [OutputLine]) {
-        // Scan last 30 lines for directory listings and prompt-based CWD tracking
+        // OPTIMIZATION: process fewer lines. Prompts are usually at the very end.
+        // Scanning 30 lines is extensive but okay if regex is fast.
         let recentLines = lines.suffix(30)
         var items: Set<String> = []
         var detectedDirChange = false
         var detectedRemoteCWD: String? = nil
         
-        // Typical SSH prompt patterns:
-        // root@host:~#
-        // user@host:/var/log$
-        // [user@host ~]$
-        // Regex to extract path between : and # or $ (or inside [])
-        // Regex to extract path: looks for something starting with / or ~ after a colon or space,
-        // and ending before a # or $ prompt.
-        let pathRegex = try? NSRegularExpression(pattern: "(?::|\\s)([\\/~][^\\s#$]*)[#$]", options: [])
-        
         for line in recentLines {
             var text = line.text
             
-            // First, clean ANSI/OSC sequences from the line before regex matching
-            let ansiPattern = "[\\u001B\\u009B][[\\]()#;?]*((?:[a-zA-Z\\d]*(?:;[-a-zA-Z\\d\\/#&.:=?%@~_]*)*)?\\u0007|(?:(?:\\d{1,4}(?:;\\d{0,4})*)?[\\dA-PR-TZcf-ntqry=><~]))"
-            text = text.replacingOccurrences(of: ansiPattern, with: "", options: .regularExpression)
-            text = text.replacingOccurrences(of: "\\r", with: "")
-            text = text.replacingOccurrences(of: "\\u{07}", with: "")
+            // Fast skip for empty/short lines
+            if text.count < 3 { continue }
+            
+            // Strip ANSI using static regex
+            if let regex = Self.ansiRegex {
+                text = regex.stringByReplacingMatches(in: text, options: [], range: NSRange(text.startIndex..., in: text), withTemplate: "")
+            }
+            
+            // Clean common noise
+            text = text.replacingOccurrences(of: "\r", with: "")
+            text = text.replacingOccurrences(of: "\u{07}", with: "")
             
             // Handle mid-string prompts (e.g. from multiple commands) by looking at the last part
             let cleanedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
             
             // 1. Try to detect remote CWD from prompt
-            if let match = pathRegex?.firstMatch(in: cleanedText, options: [], range: NSRange(cleanedText.startIndex..., in: cleanedText)) {
-                if let range = Range(match.range(at: 1), in: cleanedText) {
-                    var path = String(cleanedText[range]).trimmingCharacters(in: .whitespaces)
+            // OPTIMIZATION: Only run path regex if line looks like a prompt (ends in # or $)
+            if cleanedText.hasSuffix("#") || cleanedText.hasSuffix("$") {
+                if let regex = Self.pathRegex,
+                   let match = regex.firstMatch(in: cleanedText, options: [], range: NSRange(cleanedText.startIndex..., in: cleanedText)) {
                     
-                    // Additional cleanup - remove any embedded user@host: that might remain
-                    path = path.replacingOccurrences(of: "^[a-zA-Z0-9._-]+@[a-zA-Z0-9.-]+:", with: "", options: .regularExpression)
-                     
-                    if !path.isEmpty && (path.hasPrefix("/") || path.hasPrefix("~")) {
-                        print("📍 [TerminalVM] Detected remote CWD: '\(path)' from cleaned line: '\(cleanedText)'")
-                        detectedRemoteCWD = path
+                    if let range = Range(match.range(at: 1), in: cleanedText) {
+                        var path = String(cleanedText[range]).trimmingCharacters(in: .whitespaces)
                         
-                        // Sync shadow session and fetch new metadata
-                        Task {
-                            await self.metadataService?.syncDirectory(to: path)
-                            let items = await self.metadataService?.listDirectory(path: path) ?? []
-                            await MainActor.run {
-                                self.parsedDirectoryItems = items
-                                // Refresh autocomplete context
-                                self.autocompleteService.updateContext(
-                                    workingDirectory: path,
-                                    remoteItems: items,
-                                    isSSH: true
-                                )
-                            }
+                        // Additional cleanup - remove any embedded user@host: that might remain
+                        // Simple string manipulation is faster than regex for this specific prefix check if possible,
+                        // but sticking to regex for robustness, assuming it's rare.
+                        if let range = path.range(of: ":", options: .backwards) {
+                             // potential user@host:path -> take path
+                             let suffix = String(path[range.upperBound...])
+                             if suffix.hasPrefix("/") || suffix.hasPrefix("~") {
+                                 path = suffix
+                             }
+                        }
+                        
+                        if !path.isEmpty && (path.hasPrefix("/") || path.hasPrefix("~")) {
+                            detectedRemoteCWD = path
                         }
                     }
                 }
@@ -850,22 +855,22 @@ final class TerminalViewModel: ObservableObject, Identifiable {
                 continue
             }
             
-            // Skip very short lines
-            guard text.count >= 3 else { continue }
-            
+            // Parse directory items logic (files/folders)
             // Skip ANSI escape codes and bracketed paste markers
             if text.contains("[?2004") { continue }
             if text.contains("root@") && (text.hasSuffix("#") || text.hasSuffix("$")) { continue }
             
             // Split into words by whitespace
             let words = text.components(separatedBy: CharacterSet.whitespaces)
-                .map { $0.trimmingCharacters(in: .whitespaces) }
-                .filter { $0.count >= 2 && $0.count <= 60 }
             
             for word in words {
-                // Remove ANSI codes fully
-                let ansiPattern = "[\\u001B\\u009B][[\\]()#;?]*((?:[a-zA-Z\\d]*(?:;[-a-zA-Z\\d\\/#&.:=?%@~_]*)*)?\\u0007|(?:(?:\\d{1,4}(?:;\\d{0,4})*)?[\\dA-PR-TZcf-ntqry=><~]))"
-                var cleaned = word.replacingOccurrences(of: ansiPattern, with: "", options: .regularExpression)
+                // Fast size check
+                if word.count < 2 || word.count > 60 { continue }
+                
+                var cleaned = word
+                if let regex = Self.ansiRegex {
+                    cleaned = regex.stringByReplacingMatches(in: cleaned, options: [], range: NSRange(cleaned.startIndex..., in: cleaned), withTemplate: "")
+                }
                 
                 // Preserve trailing / for directories!
                 let hasTrailingSlash = cleaned.hasSuffix("/")
@@ -897,9 +902,25 @@ final class TerminalViewModel: ObservableObject, Identifiable {
             }
         }
         
-        // Update state
+        // Update state and trigger actions ONLY on change
         if let newRemoteCWD = detectedRemoteCWD, newRemoteCWD != remoteWorkingDirectory {
+            print("📍 [TerminalVM] Detected remote CWD change: '\(newRemoteCWD)' (was: \(remoteWorkingDirectory ?? "nil"))")
             remoteWorkingDirectory = newRemoteCWD
+            
+            // Sync shadow session and fetch new metadata - ONLY ONCE per change
+            Task {
+                await self.metadataService?.syncDirectory(to: newRemoteCWD)
+                let items = await self.metadataService?.listDirectory(path: newRemoteCWD) ?? []
+                await MainActor.run {
+                    self.parsedDirectoryItems = items
+                    // Refresh autocomplete context
+                    self.autocompleteService.updateContext(
+                        workingDirectory: newRemoteCWD,
+                        remoteItems: items,
+                        isSSH: true
+                    )
+                }
+            }
         }
         
         // Update parsed items

@@ -292,6 +292,7 @@ actor SSHBaseService: TerminalOutputDelegate {
         }
     }
     
+    // Corrected handleIncomingOutput
     private func handleIncomingOutput(_ sender: TerminalEngine, text: String) async {
         for (sessionId, active) in activeCommands {
             // Precise routing: Only process output if it comes from the engine that started this command
@@ -304,42 +305,52 @@ actor SSHBaseService: TerminalOutputDelegate {
             let status = active.status
             await status.appendOutput(text)
             
+            // OPTIMIZATION: Don't read the whole string and split by lines on every packet.
+            // Just check if we saw the End Marker recently.
+            // We can check the whole string for the substring first (fast), then verify line position.
             let currentAll = await status.capturedOutput
+            let em = active.em
             
-            // Event-driven completion: Check for the end marker
-            // IMPORTANT: We must ensure this is the REAL marker, not an echo of the command
-            // A real marker will typically be on its own line and NOT preceded by "echo " or "printf "
-            let markerLines = currentAll.components(separatedBy: .newlines)
-            let hasRealEndMarker = markerLines.contains { line in
-                let trimmed = line.trimmingCharacters(in: .whitespaces)
-                return trimmed == active.em
-            }
+            var commandFinished = false
             
-            if hasRealEndMarker {
-                await status.setHasEndMarker(true)
-                activeCommands.removeValue(forKey: sessionId)
-                
-                let originalCommand = active.cleanCommand
-                let sm = active.sm
-                let em = active.em
-                let startTime = active.startTime
-                
-                // Perform heavy extraction off-actor to keep the queue moving
-                Task.detached(priority: .userInitiated) {
-                    let (finalClean, exitCode) = self.extractWithExitCode(currentAll, sm: sm, em: em, originalCommand: originalCommand)
-                    let result = SSHCommandResult(
-                        command: originalCommand,
-                        output: finalClean,
-                        exitCode: exitCode,
-                        executionTime: Date().timeIntervalSince(startTime)
-                    )
-                    
-                    await status.resumeIfNeeded(with: result)
+            if currentAll.contains(em) {
+                // Event-driven completion: Check for the end marker
+                // A real marker will typically be on its own line and NOT preceded by "echo " or "printf "
+                let markerLines = currentAll.components(separatedBy: .newlines)
+                let hasRealEndMarker = markerLines.contains { line in
+                    let trimmed = line.trimmingCharacters(in: .whitespaces)
+                    return trimmed == em
                 }
                 
-                print("🔧 [SSHBase] ✅ Event-driven completion for: \(active.cleanCommand.prefix(20))")
-                break
+                if hasRealEndMarker {
+                    commandFinished = true
+                    await status.setHasEndMarker(true)
+                    activeCommands.removeValue(forKey: sessionId)
+                    
+                    let originalCommand = active.cleanCommand
+                    let sm = active.sm
+                    let startTime = active.startTime
+                    
+                    // Perform heavy extraction off-actor to keep the queue moving
+                    Task.detached(priority: .userInitiated) {
+                        let (finalClean, exitCode) = self.extractWithExitCode(currentAll, sm: sm, em: em, originalCommand: originalCommand)
+                        let result = SSHCommandResult(
+                            command: originalCommand,
+                            output: finalClean,
+                            exitCode: exitCode,
+                            executionTime: Date().timeIntervalSince(startTime)
+                        )
+                        
+                        await status.resumeIfNeeded(with: result)
+                    }
+                    
+                    print("🔧 [SSHBase] ✅ Event-driven completion for: \(active.cleanCommand.prefix(20))")
+                    break
+                }
             }
+            
+            // If we finished, we don't need to check for passwords
+            if commandFinished { continue }
             
             let lowerAll = currentAll.lowercased()
             let isPasswordPrompt = lowerAll.contains("password:") || 

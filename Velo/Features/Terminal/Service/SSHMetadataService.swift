@@ -44,6 +44,41 @@ final class SSHMetadataService: ObservableObject {
         
         print("🕵️ [SSHMetadata] Starting shadow connection to: \(connectionString)")
         
+        // Prepare password for injection
+        var passwordToInject: String?
+        // Extract user/host
+        // connectionString is likely "ssh user@host" or just "user@host"
+        let parts = connectionString.components(separatedBy: .whitespaces).filter { $0.contains("@") }
+        if let userHost = parts.first {
+            let split = userHost.components(separatedBy: "@")
+            if split.count == 2 {
+                let user = split[0]
+                let host = split[1]
+                if let conn = sshManager.connections.first(where: { $0.host == host && $0.username == user }) {
+                    passwordToInject = sshManager.getPassword(for: conn)
+                    // Explicitly load password if we found a connection but no password in memory yet
+                    // (SSHManager usually handles this, assuming it's ready)
+                }
+            }
+        }
+        
+        var passwordInjected = false
+        
+        // Bind to output for password injection
+        shadowSession.terminalEngine.$outputLines
+            .sink { [weak self] lines in
+                guard let self = self, let line = lines.last else { return }
+                guard let pwd = passwordToInject, !passwordInjected else { return }
+                
+                let text = line.text.lowercased()
+                if text.contains("password:") || text.contains("passphrase:") || text.contains("password for") {
+                    print("🕵️ [SSHMetadata] 🔐 Injecting password for shadow session...")
+                    self.shadowSession.terminalEngine.sendInput("\(pwd)\n")
+                    passwordInjected = true
+                }
+            }
+            .store(in: &cancellables)
+        
         connectionTask = Task {
             // 1. Start the SSH command in the shadow session
             // We strip 'ssh' from the input since we're constructing our own command with -tt
@@ -60,7 +95,8 @@ final class SSHMetadataService: ObservableObject {
             shadowSession.executeCommand()
             
             // 2. Wait a bit for connection to establish and run a handshake
-            try? await Task.sleep(nanoseconds: 2_000_000_000) // 2s wait
+            // Increased delay to allow main session to stabilize and reduce CPU contention
+            try? await Task.sleep(nanoseconds: 3_000_000_000) // 3s wait
             
             // 3. Verify connection by running a simple echo
             if await verifyConnection() {
@@ -70,7 +106,7 @@ final class SSHMetadataService: ObservableObject {
                 // 4. Initial sync
                 await refreshCurrentDirectory()
             } else {
-                print("🕵️ [SSHMetadata] Shadow connection failed or timed out")
+                print("🕵️ [SSHMetadata] Shadow connection failed or timed out. Aborting shadow session.")
                 self.isConnected = false
                 disconnect()
             }
@@ -81,14 +117,16 @@ final class SSHMetadataService: ObservableObject {
         connectionTask?.cancel()
         connectionTask = nil
         
-        if isConnected {
-            // Send exit to be polite
-            Task {
-                await SSHBaseService.shared.execute("exit", via: shadowSession, timeout: 2)
-                shadowSession.terminalEngine.terminate() // Force kill if needed
+        // Ensure we stop the engine
+        Task {
+            // Attempt graceful exit first
+            if isConnected {
+                _ = await SSHBaseService.shared.execute("exit", via: shadowSession, timeout: 2)
             }
-        } else {
-            shadowSession.terminalEngine.terminate()
+            // Always terminate
+            await MainActor.run {
+                shadowSession.terminalEngine.terminate()
+            }
         }
         
         isConnected = false

@@ -32,6 +32,9 @@ struct AIChatMessage: Identifiable, Codable, Equatable {
 
 // MARK: - Service
 class CloudAIService: ObservableObject {
+    // Singleton
+    static let shared = CloudAIService()
+
     @MainActor @Published var messages: [AIChatMessage] = []
     @MainActor @Published var isThinking = false
     @MainActor @Published var errorMessage: String?
@@ -43,7 +46,7 @@ class CloudAIService: ObservableObject {
     private let urlSession = URLSession.shared
     private let keychainService = KeychainService.shared
 
-    init() {
+    private init() {
         Task {
             await loadModels()
         }

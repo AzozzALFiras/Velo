@@ -64,7 +64,7 @@ struct WorkspaceRoot: View {
     // Command Bar
     @State private var showCommandBar = false
     @StateObject private var sshManager = SSHManager()
-    @StateObject private var aiService = CloudAIService()
+    @ObservedObject private var aiService = CloudAIService.shared
     @State private var dockerManager = DockerManager()
     
     // MARK: - Initialization

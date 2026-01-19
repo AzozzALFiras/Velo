@@ -13,6 +13,11 @@ struct VeloApp: App {
     @StateObject private var themeManager = ThemeManager()
     @StateObject private var sshManager = SSHManager()
     
+    init() {
+        // Disable state restoration EARLY to prevent CPU loop
+        UserDefaults.standard.set(true, forKey: "ApplePersistenceIgnoreState")
+    }
+    
     var body: some Scene {
         WindowGroup {
             ContentView()
@@ -79,6 +84,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             window.titleVisibility = .hidden
             window.backgroundColor = NSColor(VeloDesign.Colors.deepSpace)
             window.isMovableByWindowBackground = false  // Disabled - was causing drag issues
+            window.isRestorable = false // CRITICAL: Prevent state restoration attempts
             
             // Add vibrancy
             window.contentView?.wantsLayer = true
@@ -91,6 +97,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 print("🔑 [Migration] Keys migrated from UserDefaults: \(results.count)")
             }
         }
+    }
+    
+    // Explicitly disable state restoration
+    func application(_ app: NSApplication, shouldRestoreApplicationState persistentState: NSCoder) -> Bool {
+        return false
     }
     
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
