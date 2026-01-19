@@ -131,9 +131,9 @@ final class ServerServiceAggregator: ObservableObject {
     func createWebsite(domain: String, path: String, port: Int, phpVersion: String?, via session: TerminalViewModel) async -> Bool {
         // Prefer Nginx if installed, otherwise Apache
         if await nginx.isInstalled(via: session) {
-            return await nginx.createSite(domain: domain, path: path, port: port, phpVersion: phpVersion, via: session)
+            return (try? await nginx.createSite(domain: domain, path: path, port: port, phpVersion: phpVersion, via: session)) ?? false
         } else if await apache.isInstalled(via: session) {
-            return await apache.createSite(domain: domain, path: path, port: port, phpVersion: phpVersion, via: session)
+            return (try? await apache.createSite(domain: domain, path: path, port: port, phpVersion: phpVersion, via: session)) ?? false
         }
         return false
     }

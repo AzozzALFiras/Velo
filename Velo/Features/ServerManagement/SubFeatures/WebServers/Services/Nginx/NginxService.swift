@@ -130,7 +130,7 @@ final class NginxService: ObservableObject, WebServerService {
         return allSites
     }
 
-    func createSite(domain: String, path: String, port: Int, phpVersion: String?, via session: TerminalViewModel) async -> Bool {
+    func createSite(domain: String, path: String, port: Int, phpVersion: String?, runtimeVersion: String? = nil, framework: String = "Static HTML", via session: TerminalViewModel) async throws -> Bool {
         let safeDomain = domain.lowercased().trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
         var safePath = path.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
 
@@ -145,34 +145,81 @@ final class NginxService: ObservableObject, WebServerService {
 
         // Detect PHP-FPM socket if PHP is specified
         var phpSocketPath: String? = nil
-        if let php = phpVersion {
-            phpSocketPath = await detectPHPFPMSocket(version: php, via: session)
+        // Use specific runtime version if available, otherwise fall back to generic phpVersion
+        if framework.lowercased().contains("php") {
+             let versionToUse = runtimeVersion ?? phpVersion
+             if let v = versionToUse {
+                 phpSocketPath = await detectPHPFPMSocket(version: v, via: session)
+             }
         }
 
+        // Detect Proxy Port (Node/Python)
+        var proxyPort: Int? = nil
+        
         // Build Nginx config
-        let config = buildSiteConfig(domain: safeDomain, path: safePath, port: port, phpSocket: phpSocketPath)
+        let config = buildSiteConfig(domain: safeDomain, path: safePath, port: port, phpSocket: phpSocketPath, proxyPort: proxyPort)
 
         // Write config file using unified helper
         let configPath = await pathResolver.getSitesAvailablePath(via: session)
-        let success = await baseService.writeFile(at: "\(configPath)/\(safeDomain)", content: config, useSudo: true, via: session)
+        let filePath = "\(configPath)/\(safeDomain)"
         
-        guard success else { return false }
+        // Check for existing file to determine if this is an update
+        let checkExists = await baseService.execute("test -f '\(filePath)' && echo 'YES'", via: session)
+        let isUpdate = checkExists.output.contains("YES")
+        
+        if isUpdate {
+            // Create backup
+            _ = await baseService.execute("sudo cp '\(filePath)' '\(filePath).bak'", via: session)
+        }
+        
+        // Write new config
+        let success = await baseService.writeFile(at: filePath, content: config, useSudo: true, via: session)
+        
+        guard success else {
+            if isUpdate {
+                // Restore backup if write failed
+                 _ = await baseService.execute("sudo mv '\(filePath).bak' '\(filePath)'", via: session)
+            }
+            throw ValidationError.fileWriteFailed
+        }
 
         // Enable site
         let enableResult = await enableSite(domain: safeDomain, via: session)
-        guard enableResult else { return false }
+        guard enableResult else {
+             if isUpdate {
+                 _ = await baseService.execute("sudo mv '\(filePath).bak' '\(filePath)'", via: session)
+             } else {
+                 _ = await baseService.execute("sudo rm -f '\(filePath)'", via: session, timeout: 10)
+             }
+             throw ValidationError.symlinkFailed
+        }
 
         // Validate config
         let validation = await validateConfig(via: session)
         if !validation.isValid {
             // Rollback
-            await disableSite(domain: safeDomain, via: session)
-            _ = await baseService.execute("sudo rm -f '\(configPath)/\(safeDomain)'", via: session, timeout: 10)
-            return false
+            print("❌ Validation failed during create/update: \(validation.message)")
+            
+            if isUpdate {
+                // Restore backup
+                _ = await baseService.execute("sudo mv '\(filePath).bak' '\(filePath)'", via: session)
+                // Re-enable/reload to ensure state consistency
+                _ = await enableSite(domain: safeDomain, via: session)
+                _ = await reload(via: session)
+            } else {
+                // Was new, just delete
+                await disableSite(domain: safeDomain, via: session)
+                _ = await baseService.execute("sudo rm -f '\(filePath)'", via: session, timeout: 10)
+            }
+            throw ValidationError.nginxValidationFailed(message: validation.message)
+        } else {
+            // Success
+            if isUpdate {
+                // Remove backup
+                _ = await baseService.execute("sudo rm -f '\(filePath).bak'", via: session)
+            }
+            return await reload(via: session)
         }
-
-        // Reload nginx
-        return await reload(via: session)
     }
 
     func deleteSite(domain: String, deleteFiles: Bool, via session: TerminalViewModel) async -> Bool {
@@ -350,18 +397,23 @@ final class NginxService: ObservableObject, WebServerService {
         return website
     }
 
-    private func buildSiteConfig(domain: String, path: String, port: Int, phpSocket: String?) -> String {
+    private func buildSiteConfig(domain: String, path: String, port: Int, phpSocket: String?, proxyPort: Int? = nil) -> String {
         var config = """
         server {
-            listen 80;
-            listen [::]:80;
+            listen \(port);
+            listen [::]:\(port);
 
             server_name \(domain) www.\(domain);
             root \(path);
             index index.html index.htm index.php;
+            
+            # Security headers
+            add_header X-Frame-Options "SAMEORIGIN";
+            add_header X-XSS-Protection "1; mode=block";
+            add_header X-Content-Type-Options "nosniff";
 
             location / {
-                try_files $uri $uri/ =404;
+                try_files $uri $uri/ /index.php?$query_string;
             }
         """
 
@@ -370,14 +422,39 @@ final class NginxService: ObservableObject, WebServerService {
 
 
             location ~ \\.php$ {
-                include snippets/fastcgi-php.conf;
+                try_files $uri =404;
+                fastcgi_split_path_info ^(.+\\.php)(/.+)$;
                 fastcgi_pass unix:\(socketPath);
+                fastcgi_index index.php;
+                include fastcgi_params;
+                fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+                fastcgi_param PATH_INFO $fastcgi_path_info;
             }
 
             location ~ /\\.ht {
                 deny all;
             }
         """
+        }
+        
+        // Basic Proxy setup for Node/Python
+        if let internalPort = proxyPort {
+             config = """
+             server {
+                 listen \(port);
+                 listen [::]:\(port);
+                 server_name \(domain) www.\(domain);
+
+                 location / {
+                     proxy_pass http://127.0.0.1:\(internalPort);
+                     proxy_http_version 1.1;
+                     proxy_set_header Upgrade $http_upgrade;
+                     proxy_set_header Connection 'upgrade';
+                     proxy_set_header Host $host;
+                     proxy_cache_bypass $http_upgrade;
+                 }
+             }
+             """
         }
 
         config += "\n}"

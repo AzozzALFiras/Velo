@@ -9,6 +9,30 @@
 import Foundation
 import Combine
 
+/// Errors thrown during validation or creation of server resources
+enum ValidationError: Error, LocalizedError {
+    case fileWriteFailed
+    case symlinkFailed
+    case nginxValidationFailed(message: String)
+    case apacheValidationFailed(message: String)
+    case unknown(message: String)
+
+    var errorDescription: String? {
+        switch self {
+        case .fileWriteFailed:
+            return "Failed to write configuration file to server."
+        case .symlinkFailed:
+            return "Failed to enable site (symlink creation failed)."
+        case .nginxValidationFailed(let message):
+            return "Nginx configuration invalid: \(message)"
+        case .apacheValidationFailed(let message):
+            return "Apache configuration invalid: \(message)"
+        case .unknown(let message):
+            return "Unknown error: \(message)"
+        }
+    }
+}
+
 /// Base protocol that all server module services must conform to
 protocol ServerModuleService {
     /// The SSH base service used for command execution
@@ -57,7 +81,8 @@ protocol WebServerService: ControllableService {
     func fetchSites(via session: TerminalViewModel) async -> [Website]
 
     /// Create a new site configuration
-    func createSite(domain: String, path: String, port: Int, phpVersion: String?, via session: TerminalViewModel) async -> Bool
+    /// Create a new site configuration
+    func createSite(domain: String, path: String, port: Int, phpVersion: String?, runtimeVersion: String?, framework: String, via session: TerminalViewModel) async throws -> Bool
 
     /// Delete a site configuration
     func deleteSite(domain: String, deleteFiles: Bool, via session: TerminalViewModel) async -> Bool

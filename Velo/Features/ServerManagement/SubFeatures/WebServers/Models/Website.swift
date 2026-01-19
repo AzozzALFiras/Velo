@@ -9,6 +9,7 @@ public struct Website: Identifiable, Codable {
     public var status: WebsiteStatus
     public var port: Int
     public var framework: String // e.g., "Node.js", "PHP", "Static"
+    public var runtimeVersion: String? // e.g., "8.1", "18.0", "3.10"
     public var sslCertificate: SSLCertificate?
     public var webServer: WebServerType = .nginx
     
@@ -28,7 +29,9 @@ public struct Website: Identifiable, Codable {
         path: String,
         status: WebsiteStatus,
         port: Int,
+
         framework: String,
+        runtimeVersion: String? = nil,
         sslCertificate: SSLCertificate? = nil,
         webServer: WebServerType = .nginx
     ) {
@@ -38,6 +41,7 @@ public struct Website: Identifiable, Codable {
         self.status = status
         self.port = port
         self.framework = framework
+        self.runtimeVersion = runtimeVersion
         self.sslCertificate = sslCertificate
         self.webServer = webServer
     }

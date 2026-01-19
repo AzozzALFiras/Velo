@@ -145,7 +145,7 @@ final class ApacheService: ObservableObject, WebServerService {
         return allSites
     }
 
-    func createSite(domain: String, path: String, port: Int, phpVersion: String?, via session: TerminalViewModel) async -> Bool {
+    func createSite(domain: String, path: String, port: Int, phpVersion: String?, runtimeVersion: String? = nil, framework: String = "Static HTML", via session: TerminalViewModel) async throws -> Bool {
         let safeDomain = domain.lowercased().trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
         var safePath = path.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
 
@@ -158,30 +158,79 @@ final class ApacheService: ObservableObject, WebServerService {
             safePath = "/\(safePath)"
         }
 
+        // Detect PHP-FPM socket if PHP is specified
+        var phpSocketPath: String? = nil
+        if framework.lowercased().contains("php") {
+             let versionToUse = runtimeVersion ?? phpVersion
+             if let v = versionToUse {
+                 // We need to implement detectPHPFPMSocket in ApacheService or use a shared helper
+                 phpSocketPath = await detectPHPFPMSocket(version: v, via: session)
+             }
+        }
+
         // Build Apache VirtualHost config
-        let config = buildSiteConfig(domain: safeDomain, path: safePath, port: port)
+        let config = buildSiteConfig(domain: safeDomain, path: safePath, port: port, phpSocket: phpSocketPath)
 
         // Write config file using unified helper
         let configPath = await pathResolver.getSitesAvailablePath(via: session)
-        let success = await baseService.writeFile(at: "\(configPath)/\(safeDomain).conf", content: config, useSudo: true, via: session)
+        let filePath = "\(configPath)/\(safeDomain).conf"
         
-        guard success else { return false }
+        // Check for existing file to determine if this is an update
+        let checkExists = await baseService.execute("test -f '\(filePath)' && echo 'YES'", via: session)
+        let isUpdate = checkExists.output.contains("YES")
+        
+        if isUpdate {
+             // Create backup
+             _ = await baseService.execute("sudo cp '\(filePath)' '\(filePath).bak'", via: session)
+        }
+        
+        let success = await baseService.writeFile(at: filePath, content: config, useSudo: true, via: session)
+        
+        guard success else { 
+            if isUpdate {
+                // Restore backup if write failed
+                 _ = await baseService.execute("sudo mv '\(filePath).bak' '\(filePath)'", via: session)
+            }
+            throw ValidationError.fileWriteFailed
+        }
 
         // Enable site
         let enableResult = await enableSite(domain: safeDomain, via: session)
-        guard enableResult else { return false }
+        guard enableResult else { 
+             if isUpdate {
+                 _ = await baseService.execute("sudo mv '\(filePath).bak' '\(filePath)'", via: session)
+             } else {
+                 _ = await baseService.execute("sudo rm -f '\(filePath)'", via: session, timeout: 10)
+             }
+             throw ValidationError.symlinkFailed
+        }
 
         // Validate config
         let validation = await validateConfig(via: session)
         if !validation.isValid {
             // Rollback
-            await disableSite(domain: safeDomain, via: session)
-            _ = await baseService.execute("sudo rm -f '\(configPath)/\(safeDomain).conf'", via: session, timeout: 10)
-            return false
+            print("❌ Validation failed during create/update: \(validation.message)")
+            
+            if isUpdate {
+                // Restore backup
+                _ = await baseService.execute("sudo mv '\(filePath).bak' '\(filePath)'", via: session)
+                 // Re-enable to ensure state consistency
+                _ = await enableSite(domain: safeDomain, via: session)
+                _ = await reload(via: session)
+            } else {
+                // Was new, just delete
+                await disableSite(domain: safeDomain, via: session)
+                _ = await baseService.execute("sudo rm -f '\(filePath)'", via: session, timeout: 10)
+            }
+            throw ValidationError.apacheValidationFailed(message: validation.message)
+        } else {
+             // Success
+            if isUpdate {
+                // Remove backup
+                _ = await baseService.execute("sudo rm -f '\(filePath).bak'", via: session)
+            }
+            return await reload(via: session)
         }
-
-        // Reload Apache
-        return await reload(via: session)
     }
 
     func deleteSite(domain: String, deleteFiles: Bool, via session: TerminalViewModel) async -> Bool {
@@ -376,8 +425,8 @@ final class ApacheService: ObservableObject, WebServerService {
         return website
     }
 
-    private func buildSiteConfig(domain: String, path: String, port: Int) -> String {
-        return """
+    private func buildSiteConfig(domain: String, path: String, port: Int, phpSocket: String?) -> String {
+        var config = """
         <VirtualHost *:\(port)>
             ServerName \(domain)
             ServerAlias www.\(domain)
@@ -391,7 +440,44 @@ final class ApacheService: ObservableObject, WebServerService {
 
             ErrorLog ${APACHE_LOG_DIR}/\(domain)_error.log
             CustomLog ${APACHE_LOG_DIR}/\(domain)_access.log combined
-        </VirtualHost>
         """
+        
+        if let socketPath = phpSocket {
+            config += """
+
+            
+            <FilesMatch \\.php$>
+                SetHandler "proxy:unix:\(socketPath)|fcgi://localhost"
+            </FilesMatch>
+            """
+        }
+        
+        config += "\n</VirtualHost>"
+        return config
+    }
+
+    private func detectPHPFPMSocket(version: String, via session: TerminalViewModel) async -> String? {
+        let possibleSockets = [
+            "/var/run/php/php\(version)-fpm.sock",
+            "/run/php/php\(version)-fpm.sock",
+            "/var/run/php-fpm/php\(version)-fpm.sock",
+            "/run/php-fpm.sock"
+        ]
+
+        for socketPath in possibleSockets {
+            let checkResult = await baseService.execute("test -S '\(socketPath)' && echo 'EXISTS'", via: session, timeout: 5)
+            if checkResult.output.contains("EXISTS") {
+                return socketPath
+            }
+        }
+        
+        // Fallback: search for any PHP-FPM socket
+        let findResult = await baseService.execute("find /var/run/php /run/php -name '*.sock' 2>/dev/null | head -1", via: session, timeout: 10)
+        let foundSocket = findResult.output.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+        if !foundSocket.isEmpty && foundSocket.hasPrefix("/") {
+            return foundSocket
+        }
+
+        return "/var/run/php/php\(version)-fpm.sock"
     }
 }

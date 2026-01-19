@@ -34,6 +34,8 @@ final class WebsitesViewModel: ObservableObject {
     @Published var hasApache = false
     @Published var hasPHP = false
     @Published var availablePHPVersions: [String] = []
+    @Published var availablePythonVersions: [String] = []
+    @Published var availableNodeVersions: [String] = []
 
     // MARK: - Init
 
@@ -61,6 +63,19 @@ final class WebsitesViewModel: ObservableObject {
 
         if hasPHP {
             availablePHPVersions = await phpService.getInstalledVersions(via: session)
+        }
+        
+        // Populate specific versions (basic check for now, can be enhanced to list all installed versions if using version manager)
+        if await NodeService.shared.isInstalled(via: session) {
+            if let ver = await NodeService.shared.getVersion(via: session) {
+                availableNodeVersions = [ver] // Currently single version support
+            }
+        }
+        
+        if await PythonService.shared.isInstalled(via: session) {
+            if let ver = await PythonService.shared.getVersion(via: session) {
+                availablePythonVersions = [ver] // Currently single version support
+            }
         }
 
         // Fetch sites from installed web servers
@@ -109,7 +124,7 @@ final class WebsitesViewModel: ObservableObject {
         path: String,
         framework: String,
         port: Int,
-        phpVersion: String? = nil,
+        runtimeVersion: String? = nil,
         shouldGenerateSSL: Bool = false,
         sslEmail: String? = nil
     ) async -> Bool {
@@ -149,17 +164,38 @@ final class WebsitesViewModel: ObservableObject {
         await createDefaultIndexFile(at: safePath, domain: domain, framework: framework, session: session)
 
         // Create web server config
-        let effectivePHPVersion = framework.lowercased().contains("php") ? (phpVersion ?? availablePHPVersions.first) : nil
+        let effectiveVersion = runtimeVersion // Use the explicit version selected by user
+        let effectivePHPVersion = framework.lowercased().contains("php") ? (effectiveVersion ?? availablePHPVersions.first) : nil
 
         if hasNginx {
-            success = await nginxService.createSite(domain: domain, path: safePath, port: port, phpVersion: effectivePHPVersion, via: session)
-            if success {
-                webServerUsed = "Nginx"
+            do {
+                success = try await nginxService.createSite(domain: domain, path: safePath, port: port, phpVersion: effectivePHPVersion, runtimeVersion: effectiveVersion, framework: framework, via: session)
+                if success {
+                    webServerUsed = "Nginx"
+                }
+            } catch let error as ValidationError {
+                errorMessage = error.localizedDescription
+                isCreating = false
+                return false
+            } catch {
+                errorMessage = "An unexpected error occurred: \(error.localizedDescription)"
+                isCreating = false
+                return false
             }
         } else if hasApache {
-            success = await apacheService.createSite(domain: domain, path: safePath, port: port, phpVersion: effectivePHPVersion, via: session)
-            if success {
-                webServerUsed = "Apache"
+            do {
+                success = try await apacheService.createSite(domain: domain, path: safePath, port: port, phpVersion: effectivePHPVersion, runtimeVersion: effectiveVersion, framework: framework, via: session)
+                if success {
+                    webServerUsed = "Apache"
+                }
+            } catch let error as ValidationError {
+                errorMessage = error.localizedDescription
+                isCreating = false
+                return false
+            } catch {
+                errorMessage = "An unexpected error occurred: \(error.localizedDescription)"
+                isCreating = false
+                return false
             }
         }
 
@@ -175,6 +211,7 @@ final class WebsitesViewModel: ObservableObject {
                 status: .running,
                 port: port,
                 framework: framework,
+                runtimeVersion: runtimeVersion,
                 webServer: webServerUsed == "Nginx" ? .nginx : .apache
             )
             websites.insert(newSite, at: 0)
@@ -294,6 +331,88 @@ final class WebsitesViewModel: ObservableObject {
         if let index = websites.firstIndex(where: { $0.id == website.id }) {
             websites[index] = website
         }
+    }
+
+    /// Update website configuration on the server (e.g. change version/framework)
+    func updateWebsiteConfiguration(
+        website: Website,
+        newFramework: String,
+        newRuntimeVersion: String?,
+        newPort: Int
+    ) async -> Bool {
+        guard let session = session else { return false }
+        
+        isCreating = true
+        errorMessage = nil
+        
+        let useNginx = website.webServer == .nginx
+        var success = false
+        
+        // Use existing path
+        let path = website.path
+        
+        // Determine PHP version if applicable
+        let effectiveVersion = newRuntimeVersion
+        let effectivePHPVersion = newFramework.lowercased().contains("php") ? (effectiveVersion ?? availablePHPVersions.first) : nil
+        
+        if useNginx {
+            do {
+                success = try await nginxService.createSite(
+                    domain: website.domain,
+                    path: path,
+                    port: newPort,
+                    phpVersion: effectivePHPVersion,
+                    runtimeVersion: effectiveVersion,
+                    framework: newFramework,
+                    via: session
+                )
+            } catch let error as ValidationError {
+                errorMessage = error.localizedDescription
+                isCreating = false
+                return false
+            } catch {
+                errorMessage = "An unexpected error occurred: \(error.localizedDescription)"
+                isCreating = false
+                return false
+            }
+        } else {
+            do {
+                success = try await apacheService.createSite(
+                    domain: website.domain,
+                    path: path,
+                    port: newPort,
+                    phpVersion: effectivePHPVersion,
+                    runtimeVersion: effectiveVersion,
+                    framework: newFramework,
+                    via: session
+                )
+            } catch let error as ValidationError {
+                errorMessage = error.localizedDescription
+                isCreating = false
+                return false
+            } catch {
+                errorMessage = "An unexpected error occurred: \(error.localizedDescription)"
+                isCreating = false
+                return false
+            }
+        }
+        
+        if success {
+            // Update local model
+            if let index = websites.firstIndex(where: { $0.id == website.id }) {
+                var updated = websites[index]
+                updated.framework = newFramework
+                updated.runtimeVersion = newRuntimeVersion
+                updated.port = newPort
+                websites[index] = updated
+            }
+            print("✅ [WebsitesVM] Website configuration updated: \(website.domain)")
+        } else {
+            errorMessage = "Failed to update website configuration"
+        }
+        
+        isCreating = false
+        return success
     }
 
     // MARK: - PHP Version Management

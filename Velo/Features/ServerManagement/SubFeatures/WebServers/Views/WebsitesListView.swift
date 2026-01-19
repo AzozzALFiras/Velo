@@ -696,6 +696,7 @@ struct WebsiteEditorView: View {
     @State private var domain: String = ""
     @State private var path: String = "/var/www"
     @State private var framework: String = "Static HTML"
+    @State private var selectedVersion: String = "" // New state for version
     @State private var port: String = "80"
     
     @State private var isAutoPath: Bool = true
@@ -759,6 +760,7 @@ struct WebsiteEditorView: View {
         _domain = State(initialValue: website?.domain ?? "")
         _path = State(initialValue: website?.path ?? "/var/www")
         _framework = State(initialValue: website?.framework ?? (viewModel.serverStatus.php.isInstalled ? "PHP" : "Static HTML"))
+        _selectedVersion = State(initialValue: website?.runtimeVersion ?? "")
         _port = State(initialValue: String(website?.port ?? 80))
         
         // If editing existing (has domain), disable auto-path by default
@@ -861,7 +863,19 @@ struct WebsiteEditorView: View {
                         
                         Menu {
                             ForEach(availableFrameworks, id: \.self) { fw in
-                                Button(fw) { framework = fw }
+                                Button(fw) {
+                                    framework = fw
+                                    // Reset version when framework changes
+                                    if fw.contains("PHP") {
+                                        selectedVersion = viewModel.websitesVM.availablePHPVersions.first ?? ""
+                                    } else if fw.contains("Node") {
+                                        selectedVersion = viewModel.websitesVM.availableNodeVersions.first ?? ""
+                                    } else if fw.contains("Python") {
+                                        selectedVersion = viewModel.websitesVM.availablePythonVersions.first ?? ""
+                                    } else {
+                                        selectedVersion = ""
+                                    }
+                                }
                             }
                         } label: {
                             HStack {
@@ -878,6 +892,51 @@ struct WebsiteEditorView: View {
                             .overlay(RoundedRectangle(cornerRadius: 6).stroke(ColorTokens.borderSubtle, lineWidth: 1))
                         }
                         .menuStyle(.borderlessButton)
+                    }
+                    
+                    // Version Picker (Only if applicable)
+                    if !selectedVersion.isEmpty || framework.contains("PHP") || framework.contains("Node") || framework.contains("Python") {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Version")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(ColorTokens.textSecondary)
+                            
+                            Menu {
+                                if framework.contains("PHP") {
+                                    ForEach(viewModel.websitesVM.availablePHPVersions, id: \.self) { ver in
+                                        Button(ver) { selectedVersion = ver }
+                                    }
+                                } else if framework.contains("Node") {
+                                    ForEach(viewModel.websitesVM.availableNodeVersions, id: \.self) { ver in
+                                        Button(ver) { selectedVersion = ver }
+                                    }
+                                } else if framework.contains("Python") {
+                                    ForEach(viewModel.websitesVM.availablePythonVersions, id: \.self) { ver in
+                                        Button(ver) { selectedVersion = ver }
+                                    }
+                                }
+                            } label: {
+                                HStack {
+                                    Text(selectedVersion.isEmpty ? "Default" : selectedVersion)
+                                        .foregroundStyle(ColorTokens.textPrimary)
+                                    Spacer()
+                                    Image(systemName: "chevron.up.chevron.down")
+                                        .font(.system(size: 10))
+                                        .foregroundStyle(ColorTokens.textTertiary)
+                                }
+                                .padding(10)
+                                .background(ColorTokens.layer2)
+                                .clipShape(RoundedRectangle(cornerRadius: 6))
+                                .overlay(RoundedRectangle(cornerRadius: 6).stroke(ColorTokens.borderSubtle, lineWidth: 1))
+                            }
+                            .menuStyle(.borderlessButton)
+                            .disabled(
+                                (framework.contains("PHP") && viewModel.websitesVM.availablePHPVersions.isEmpty) ||
+                                (framework.contains("Node") && viewModel.websitesVM.availableNodeVersions.isEmpty) ||
+                                (framework.contains("Python") && viewModel.websitesVM.availablePythonVersions.isEmpty)
+                            )
+                        }
+                        .frame(maxWidth: 100)
                     }
                     
                     VeloEditorField(label: "Port", placeholder: "80", text: $port)
@@ -1004,24 +1063,25 @@ struct WebsiteEditorView: View {
         Task {
             do {
                 if !isNewWebsite, let existingSite = website {
-                    // Edit mode - just update local for now (or implement updateRealWebsite)
-                    // Currently user only asked for CREATE logic changes
-                    let updated = Website(
-                        id: existingSite.id,
-                        domain: domain,
-                        path: path,
-                        status: existingSite.status,
-                        port: Int(port) ?? 80,
-                        framework: framework
+                    // Edit mode - REAL update
+                    let success = await viewModel.websitesVM.updateWebsiteConfiguration(
+                        website: existingSite,
+                        newFramework: framework,
+                        newRuntimeVersion: selectedVersion.isEmpty ? nil : selectedVersion,
+                        newPort: Int(port) ?? 80
                     )
-                    // Pass back to parent to handle (which calls viewModel.updateWebsite)
-                    // But wait, the closure in WebsitesListView is now dummy?
-                    // Ah, I should call viewModel.updateWebsite here if I want consistency
-                    // But let's stick to ViewModel calls
+                    
                     await MainActor.run {
-                        viewModel.updateWebsite(updated)
-                        isSaving = false
-                        dismiss()
+                        if success {
+                            isSaving = false
+                            dismiss()
+                        } else {
+                             // Error message is set in viewModel.websitesVM.errorMessage
+                             if let err = viewModel.websitesVM.errorMessage {
+                                 errorMessage = err
+                             }
+                             isSaving = false
+                        }
                     }
                 } else {
                     // Create mode - REAL creation
