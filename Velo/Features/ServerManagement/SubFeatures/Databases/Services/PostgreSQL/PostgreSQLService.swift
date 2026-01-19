@@ -215,13 +215,11 @@ final class PostgreSQLService: ObservableObject, DatabaseServerService {
         let systemDbs = ["postgres", "template0", "template1", "datname"]
         if systemDbs.contains(trimmed) { return false }
 
-        // Skip invalid patterns
-        let invalidPatterns = ["@", "#", "$", ":", "root", "vmi", "bash", "inactive", "grep", "echo"]
-        for pattern in invalidPatterns {
-            if trimmed.lowercased().contains(pattern.lowercased()) { return false }
-        }
+        // Skip exact invalid names (not substrings)
+        let invalidNames = ["root", "test"]
+        if invalidNames.contains(where: { $0.caseInsensitiveCompare(trimmed) == .orderedSame }) { return false }
 
-        // Must be valid identifier
+        // Skip invalid characters, but allow alphanumeric, underscore, hyphen
         let allowedChars = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "_-"))
         return trimmed.unicodeScalars.allSatisfy { allowedChars.contains($0) }
     }

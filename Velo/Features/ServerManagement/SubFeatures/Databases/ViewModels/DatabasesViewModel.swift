@@ -17,6 +17,8 @@ final class DatabasesViewModel: ObservableObject {
     weak var session: TerminalViewModel?
     private let mysqlService = MySQLService.shared
     private let postgresService = PostgreSQLService.shared
+    private let redisService = RedisService.shared
+    private let mongoService = MongoService.shared
 
     // MARK: - Published State
 
@@ -28,6 +30,8 @@ final class DatabasesViewModel: ObservableObject {
     // Server capabilities
     @Published var hasMySQL = false
     @Published var hasPostgreSQL = false
+    @Published var hasRedis = false
+    @Published var hasMongoDB = false
     @Published var isMariaDB = false
 
     // MARK: - Init
@@ -48,9 +52,13 @@ final class DatabasesViewModel: ObservableObject {
         // Check what's installed
         async let mysqlCheck = mysqlService.isInstalled(via: session)
         async let pgCheck = postgresService.isInstalled(via: session)
+        async let redisCheck = redisService.isInstalled(via: session)
+        async let mongoCheck = mongoService.isInstalled(via: session)
 
         hasMySQL = await mysqlCheck
         hasPostgreSQL = await pgCheck
+        hasRedis = await redisCheck
+        hasMongoDB = await mongoCheck
 
         // Fetch databases from installed servers
         var allDatabases: [Database] = []
@@ -63,6 +71,16 @@ final class DatabasesViewModel: ObservableObject {
         if hasPostgreSQL {
             let pgDbs = await postgresService.fetchDatabases(via: session)
             allDatabases.append(contentsOf: pgDbs)
+        }
+        
+        if hasRedis {
+            let redisDbs = await redisService.fetchDatabases(via: session)
+            allDatabases.append(contentsOf: redisDbs)
+        }
+        
+        if hasMongoDB {
+            let mongoDbs = await mongoService.fetchDatabases(via: session)
+            allDatabases.append(contentsOf: mongoDbs)
         }
 
         databases = allDatabases

@@ -37,35 +37,79 @@ struct DatabasesListView: View {
     
     var body: some View {
         Group {
-            // Check if any database is installed
-            if viewModel.serverStatus.hasDatabase {
-                databasesContent
-            } else {
-                DatabaseSetupView(viewModel: viewModel)
+            // Main Content
+            VStack(spacing: 0) {
+                // Header
+                headerView
+                
+                // Tabs & Content
+                VStack(spacing: 20) {
+                    // Controls: Search & Tabs
+                    VStack(spacing: 12) {
+                        // Type Tabs (Top)
+                        HStack(spacing: 0) {
+                            TypeTab(title: "All", isSelected: selectedType == nil) {
+                                selectedType = nil
+                            }
+                            
+                            ForEach(DatabaseType.allCases, id: \.self) { type in
+                                TypeTab(title: type.rawValue, isSelected: selectedType == type) {
+                                    selectedType = selectedType == type ? nil : type
+                                }
+                            }
+                            Spacer()
+                        }
+                        .padding(.bottom, 4)
+                        .overlay(Divider(), alignment: .bottom)
+                        
+                        // Search Bar
+                        HStack(spacing: 8) {
+                            Image(systemName: "magnifyingglass")
+                                .foregroundStyle(ColorTokens.textTertiary)
+                            TextField("Search databases...", text: $searchText)
+                                .textFieldStyle(PlainTextFieldStyle())
+                        }
+                        .padding(8)
+                        .background(ColorTokens.layer1)
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8)
+                                .strokeBorder(ColorTokens.borderSubtle, lineWidth: 1)
+                        )
+                    }
+                    .padding(.horizontal, 20)
+                    
+                    // Content Area
+                    contentArea
+                }
             }
         }
         .background(ColorTokens.layer0)
         // Present Details Sheet
         .sheet(item: $selectedDatabase) { db in
             if let index = viewModel.databasesVM.databases.firstIndex(where: { $0.id == db.id }) {
-                DatabaseDetailsView(database: $viewModel.databasesVM.databases[index])
+                DatabaseDetailsView(
+                    database: $viewModel.databasesVM.databases[index],
+                    session: viewModel.session
+                )
             }
         }
-        // Present Editor Sheet
+        // Present Edit Sheet
+        .sheet(item: $editingDatabase) { db in
+            DatabaseEditorView(viewModel: viewModel, database: db) { newDb in
+                viewModel.updateDatabase(newDb)
+            }
+        }
+        // Present Add Sheet
         .sheet(isPresented: $showingEditor) {
-            DatabaseEditorView(viewModel: viewModel, database: editingDatabase) { newDb in
-                if let existing = editingDatabase {
-                    viewModel.updateDatabase(newDb)
-                } else {
-                    // Create real database via SSH
-                    Task {
-                        _ = await viewModel.createRealDatabase(
-                            name: newDb.name,
-                            type: newDb.type,
-                            username: newDb.username,
-                            password: newDb.password
-                        )
-                    }
+            DatabaseEditorView(viewModel: viewModel, database: nil) { newDb in
+                Task {
+                    _ = await viewModel.createRealDatabase(
+                        name: newDb.name,
+                        type: newDb.type,
+                        username: newDb.username,
+                        password: newDb.password
+                    )
                 }
             }
         }
@@ -110,107 +154,115 @@ struct DatabasesListView: View {
         }
     }
     
-    // MARK: - Databases Content
-    @ViewBuilder
-    private var databasesContent: some View {
-        VStack(spacing: 0) {
-            // Header with Add Button
-            HStack {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Databases")
-                        .font(.system(size: 24, weight: .bold))
-                        .foregroundStyle(ColorTokens.textPrimary)
-                    Text("\(viewModel.databasesVM.databases.count) databases managed on this server")
-                        .font(.system(size: 13))
-                        .foregroundStyle(ColorTokens.textSecondary)
-                }
-                
-                Spacer()
-                
-                Button(action: {
-                    editingDatabase = nil
-                    showingEditor = true
-                }) {
-                    HStack(spacing: 8) {
-                        Image(systemName: "plus")
-                        Text("Add Database")
-                    }
-                    .font(.system(size: 13, weight: .bold))
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
-                    .background(ColorTokens.accentPrimary)
-                    .foregroundStyle(.white)
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                }
-                .buttonStyle(.plain)
+    // MARK: - Header
+    private var headerView: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Databases")
+                    .font(.system(size: 24, weight: .bold))
+                    .foregroundStyle(ColorTokens.textPrimary)
+                Text("\(viewModel.databasesVM.databases.count) databases managed on this server")
+                    .font(.system(size: 13))
+                    .foregroundStyle(ColorTokens.textSecondary)
             }
-            .padding(.horizontal, 32)
-            .padding(.top, 32)
-            .padding(.bottom, 20)
-
-            ScrollView {
-                VStack(spacing: 20) {
-                    // Controls: Search & Tabs
-                    VStack(spacing: 12) {
-                        // Type Tabs (Top)
-                        HStack(spacing: 0) {
-                            TypeTab(title: "All", isSelected: selectedType == nil) {
-                                selectedType = nil
-                            }
-                            
-                            ForEach(DatabaseType.allCases, id: \.self) { type in
-                                TypeTab(title: type.rawValue, isSelected: selectedType == type) {
-                                    selectedType = selectedType == type ? nil : type
-                                }
-                            }
-                            Spacer()
-                        }
-                        .padding(.bottom, 4)
-                        .overlay(Divider(), alignment: .bottom)
-                        
-                        // Search Bar
-                        HStack(spacing: 8) {
-                            Image(systemName: "magnifyingglass")
-                                .foregroundStyle(ColorTokens.textTertiary)
-                            TextField("Search databases...", text: $searchText)
-                                .textFieldStyle(PlainTextFieldStyle())
-                        }
-                        .padding(8)
-                        .background(ColorTokens.layer1)
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 8)
-                                .strokeBorder(ColorTokens.borderSubtle, lineWidth: 1)
-                        )
-                    }
-                    .padding(.horizontal, 20)
-                    
-                    // List
-                    VStack(spacing: 16) {
-                        ForEach(filteredDatabases) { db in
-                            DatabaseRow(database: db, onBackup: {
-                                Task {
-                                    if let backupPath = await viewModel.backupDatabase(db) {
-                                        // Show success message (could add a toast here)
-                                        print("Backup saved to: \(backupPath)")
-                                    }
-                                }
-                            }, onEdit: {
-                                editingDatabase = db
-                                showingEditor = true
-                            }, onDelete: {
-                                databaseToDelete = db
-                                showingDeleteAlert = true
-                            }, onOpenDetails: {
-                                selectedDatabase = db
-                            })
-                        }
-                    }
-                    .padding(.horizontal, 20)
-                    .padding(.bottom, 20)
+            
+            Spacer()
+            
+            Button(action: {
+                editingDatabase = nil
+                showingEditor = true
+            }) {
+                HStack(spacing: 8) {
+                    Image(systemName: "plus")
+                    Text("Add Database")
                 }
+                .font(.system(size: 13, weight: .bold))
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                .background(ColorTokens.accentPrimary)
+                .foregroundStyle(.white)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+            }
+            .buttonStyle(.plain)
+            .disabled(!canAddDatabase) // Disable if current type not installed
+        }
+        .padding(.horizontal, 32)
+        .padding(.top, 32)
+        .padding(.bottom, 20)
+    }
+    
+    // MARK: - Content Area
+    @ViewBuilder
+    private var contentArea: some View {
+        if let type = selectedType {
+            // Specific Tab Selected
+            if isInstalled(type) {
+                // Installed -> Show List
+                databaseList
+            } else {
+                // Not Installed -> Show Install View for this type
+                DatabaseSetupView(viewModel: viewModel, targetType: type)
+            }
+        } else {
+            // All Tab
+            if viewModel.serverStatus.hasDatabase {
+               databaseList
+            } else {
+               // No databases installed at all
+               DatabaseSetupView(viewModel: viewModel, targetType: nil)
             }
         }
+    }
+    
+    private var databaseList: some View {
+        ScrollView {
+            VStack(spacing: 16) {
+                if filteredDatabases.isEmpty {
+                    Text("No databases found")
+                        .foregroundStyle(ColorTokens.textSecondary)
+                        .padding(.top, 40)
+                } else {
+                    ForEach(filteredDatabases) { db in
+                        DatabaseRow(database: db, onBackup: {
+                            Task {
+                                if let backupPath = await viewModel.backupDatabase(db) {
+                                    print("Backup saved to: \(backupPath)")
+                                }
+                            }
+                        }, onEdit: {
+                            editingDatabase = db
+                            // Do NOT set showingEditor = true, as that triggers the Add sheet.
+                            // The Edit sheet is triggered by editingDatabase being non-nil.
+                        }, onDelete: {
+                            databaseToDelete = db
+                            showingDeleteAlert = true
+                        }, onOpenDetails: {
+                            selectedDatabase = db
+                        })
+                    }
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.bottom, 20)
+        }
+    }
+    
+    // MARK: - Helpers
+    private func isInstalled(_ type: DatabaseType) -> Bool {
+        switch type {
+        case .mysql: return viewModel.databasesVM.hasMySQL
+        case .postgres: return viewModel.databasesVM.hasPostgreSQL
+        case .redis: return viewModel.databasesVM.hasRedis
+        case .mongo: return viewModel.databasesVM.hasMongoDB
+        }
+    }
+    
+    private var canAddDatabase: Bool {
+        if let type = selectedType {
+            return isInstalled(type)
+        }
+        // If All, allow add if at least one is installed
+        return viewModel.serverStatus.hasDatabase // or check individual flags
     }
 }
 
@@ -218,6 +270,7 @@ struct DatabasesListView: View {
 
 struct DatabaseSetupView: View {
     @ObservedObject var viewModel: ServerManagementViewModel
+    var targetType: DatabaseType? // If specific tab selected
     
     var body: some View {
         VStack(spacing: 32) {
@@ -230,47 +283,47 @@ struct DatabaseSetupView: View {
             
             // Title
             VStack(spacing: 8) {
-                Text("No Database Installed")
+                Text(targetType == nil ? "No Database Installed" : "\(targetType!.rawValue) Not Installed")
                     .font(.system(size: 24, weight: .bold))
                     .foregroundStyle(ColorTokens.textPrimary)
                 
-                Text("Install a database to store your application data")
+                Text(targetType == nil ? "Install a database to store your application data" : "Install \(targetType!.rawValue) to start using it")
                     .font(.system(size: 14))
                     .foregroundStyle(ColorTokens.textSecondary)
             }
             
             // Database Options
             HStack(spacing: 20) {
-                DatabaseOptionCard(
-                    name: "MySQL",
-                    description: "Popular relational database",
-                    color: .blue
-                ) {
-                    viewModel.installCapabilityBySlug("mysql")
+                if targetType == nil || targetType == .mysql {
+                    DatabaseOptionCard(
+                        name: "MySQL",
+                        description: "Popular relational database",
+                        color: .blue
+                    ) { viewModel.installCapabilityBySlug("mysql") }
                 }
                 
-                DatabaseOptionCard(
-                    name: "MariaDB",
-                    description: "MySQL-compatible fork",
-                    color: .orange
-                ) {
-                    viewModel.installCapabilityBySlug("mariadb")
+                if targetType == nil || targetType == .postgres {
+                    DatabaseOptionCard(
+                        name: "PostgreSQL",
+                        description: "Advanced open source DB",
+                        color: .indigo
+                    ) { viewModel.installCapabilityBySlug("postgresql") }
                 }
                 
-                DatabaseOptionCard(
-                    name: "PostgreSQL",
-                    description: "Advanced open source DB",
-                    color: .indigo
-                ) {
-                    viewModel.installCapabilityBySlug("postgresql")
+                if targetType == nil || targetType == .redis {
+                    DatabaseOptionCard(
+                        name: "Redis",
+                        description: "In-memory data store",
+                        color: .red
+                    ) { viewModel.installCapabilityBySlug("redis") }
                 }
                 
-                DatabaseOptionCard(
-                    name: "Redis",
-                    description: "In-memory data store",
-                    color: .red
-                ) {
-                    viewModel.installCapabilityBySlug("redis")
+                if targetType == nil || targetType == .mongo {
+                    DatabaseOptionCard(
+                        name: "MongoDB",
+                        description: "NoSQL database",
+                        color: .green
+                    ) { viewModel.installCapabilityBySlug("mongodb") }
                 }
             }
             
@@ -360,16 +413,12 @@ struct DatabaseEditorView: View {
     // Computed available types based on installed databases
     var availableTypes: [DatabaseType] {
         var types: [DatabaseType] = []
-        if viewModel.serverStatus.mysql.isInstalled || viewModel.serverStatus.mariadb.isInstalled {
-            types.append(.mysql)
-        }
-        if viewModel.serverStatus.postgresql.isInstalled {
-            types.append(.postgres)
-        }
-        if viewModel.serverStatus.redis.isInstalled {
-            types.append(.redis)
-        }
-        // Default to mysql if nothing installed (will show error on save)
+        if viewModel.databasesVM.hasMySQL { types.append(.mysql) }
+        if viewModel.databasesVM.hasPostgreSQL { types.append(.postgres) }
+        if viewModel.databasesVM.hasRedis { types.append(.redis) }
+        if viewModel.databasesVM.hasMongoDB { types.append(.mongo) }
+        
+        // Default to all if nothing (should not happen due to Add button disabled logic, but safe fallback)
         if types.isEmpty {
             types = DatabaseType.allCases
         }

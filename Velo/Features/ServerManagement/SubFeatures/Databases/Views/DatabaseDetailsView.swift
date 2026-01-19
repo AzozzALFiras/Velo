@@ -7,11 +7,15 @@
 //
 
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct DatabaseDetailsView: View {
     
     @Binding var database: Database
     @Environment(\.dismiss) var dismiss
+    
+    // ViewModel
+    @StateObject private var viewModel: DatabaseDetailsViewModel
     
     @State private var activeTab = "Tables"
     
@@ -19,10 +23,11 @@ struct DatabaseDetailsView: View {
     @State private var errorMessage: String? = nil
     @State private var showingErrorAlert = false
     
-    // Mock Data
-    @State private var tables = [
-        "users", "orders", "products", "transactions", "logs", "settings"
-    ]
+    // Init to inject dependencies
+    init(database: Binding<Database>, session: TerminalViewModel?) {
+        _database = database
+        _viewModel = StateObject(wrappedValue: DatabaseDetailsViewModel(database: database.wrappedValue, session: session))
+    }
     
     var body: some View {
         VStack(spacing: 0) {
@@ -31,8 +36,8 @@ struct DatabaseDetailsView: View {
             HStack(spacing: 16) {
                 ZStack {
                     Circle()
-                        .fill(ColorTokens.layer2)
-                        .frame(width: 48, height: 48)
+                    .fill(ColorTokens.layer2)
+                    .frame(width: 48, height: 48)
                     
                     Image(systemName: database.type.icon)
                         .font(.title2)
@@ -61,6 +66,11 @@ struct DatabaseDetailsView: View {
                 }
                 
                 Spacer()
+                
+                if viewModel.isLoading {
+                    ProgressView()
+                        .scaleEffect(0.7)
+                }
                 
                 Button("Done") { dismiss() }
                     .buttonStyle(.plain)
@@ -117,51 +127,129 @@ struct DatabaseDetailsView: View {
                 Text(error)
             }
         }
+        .task {
+            // Reload data when view appears
+            await viewModel.loadData()
+        }
     }
     
     // MARK: - Tabs
     
     var tablesTab: some View {
         VStack(spacing: 12) {
-            ForEach(tables, id: \.self) { table in
-                HStack {
-                    Image(systemName: "tablecells")
-                        .foregroundStyle(ColorTokens.textTertiary)
-                    Text(table)
-                        .foregroundStyle(ColorTokens.textPrimary)
-                    Spacer()
-                    Text("\(Int.random(in: 10...5000)) rows")
-                        .font(.caption)
-                        .foregroundStyle(ColorTokens.textSecondary)
+            if viewModel.tables.isEmpty && !viewModel.isLoading {
+                Text("No tables found")
+                    .foregroundStyle(ColorTokens.textSecondary)
+                    .padding()
+            } else {
+                ForEach(viewModel.tables) { table in
+                    HStack {
+                        Image(systemName: "tablecells")
+                            .foregroundStyle(ColorTokens.textTertiary)
+                        Text(table.name)
+                            .foregroundStyle(ColorTokens.textPrimary)
+                            .lineLimit(1)
+                        Spacer()
+                        
+                        Text(table.sizeString)
+                            .font(.caption)
+                            .foregroundStyle(ColorTokens.textSecondary)
+                            .padding(.trailing, 8)
+                        
+                        Text("\(table.rows) rows")
+                            .font(.caption)
+                            .foregroundStyle(ColorTokens.textSecondary)
+                    }
+                    .padding(12)
+                    .background(ColorTokens.layer1)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
                 }
-                .padding(12)
-                .background(ColorTokens.layer1)
-                .clipShape(RoundedRectangle(cornerRadius: 8))
             }
         }
     }
     
     var usersTab: some View {
         VStack(spacing: 12) {
-            UserRow(user: "admin", access: "Read/Write")
-            UserRow(user: "readonly_service", access: "Read Only")
-            UserRow(user: "backup_agent", access: "Backup")
+            if viewModel.users.isEmpty && !viewModel.isLoading {
+                Text("No users found")
+                    .foregroundStyle(ColorTokens.textSecondary)
+                    .padding()
+            } else {
+                ForEach(viewModel.users) { user in
+                    UserRow(user: user.username, host: user.host, access: user.privileges)
+                }
+            }
         }
     }
     
+    // Operations Feedback
+    @State private var operationAlert: AlertItem?
+
     var operationsTab: some View {
         VStack(spacing: 16) {
-            OperationCard(title: "Optimize Database", description: "Performs table optimization and cleanup.", icon: "wand.and.stars", color: .purple) {}
-            OperationCard(title: "Repair Database", description: "Attempts to repair corrupt tables.", icon: "hammer.fill", color: .orange) {}
-            OperationCard(title: "Export SQL Dump", description: "Download a full SQL dump of this database.", icon: "arrow.down.doc.fill", color: .blue) {}
+            OperationCard(title: "Optimize Database", description: "Performs table optimization and cleanup.", icon: "wand.and.stars", color: .purple) {
+                Task {
+                    let success = await viewModel.optimizeDatabase()
+                    operationAlert = AlertItem(
+                        title: success ? "Optimization Complete" : "Optimization Failed",
+                        message: success ? "Database tables have been optimized." : "Could not optimize the database."
+                    )
+                }
+            }
+            
+            OperationCard(title: "Repair Database", description: "Attempts to repair corrupt tables.", icon: "hammer.fill", color: .orange) {
+                Task {
+                    let success = await viewModel.repairDatabase()
+                    operationAlert = AlertItem(
+                        title: success ? "Repair Complete" : "Repair Failed",
+                        message: success ? "Database repair process finished." : "Could not repair the database."
+                    )
+                }
+            }
+            
+            OperationCard(title: "Export SQL Dump", description: "Download a full SQL dump of this database.", icon: "arrow.down.doc.fill", color: .blue) {
+                Task {
+                    // 1. Generate Remote Dump
+                    guard let remotePath = await viewModel.exportDatabase() else {
+                        operationAlert = AlertItem(title: "Export Failed", message: "Could not create SQL dump on server.")
+                        return
+                    }
+                    
+                    // 2. Ask user for save location
+                    await MainActor.run {
+                        let panel = NSSavePanel()
+                        panel.nameFieldStringValue = (remotePath as NSString).lastPathComponent
+                        panel.allowedContentTypes = [.init(filenameExtension: "sql")!]
+                        panel.prompt = "Download"
+                        panel.title = "Save Database Dump"
+                        
+                        panel.begin { response in
+                            if response == .OK, let url = panel.url {
+                                // 3. Start Download & Cleanup
+                                Task {
+                                    await viewModel.downloadAndCleanup(remotePath: remotePath, to: url)
+                                    // Alert is handled by Terminal success toast mostly, but we can show completion alert if desired.
+                                    // For now relying on standard Velo download feedback.
+                                }
+                            } else {
+                                // User cancelled - clean up the remote file
+                                Task {
+                                     await viewModel.deleteRemoteFile(remotePath)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
             
             Divider().padding(.vertical, 8)
             
             Button(action: {
                 SecurityManager.shared.securelyPerformAction(reason: "Delete database \(database.name)") {
-                    // Action: Delete Database (Service call would go here)
-                    print("Database \(database.name) deleted via details.")
-                    dismiss()
+                    Task {
+                        _ = await viewModel.deleteDatabase()
+                        dismiss()
+                    }
                 } onError: { error in
                     self.errorMessage = error
                     self.showingErrorAlert = true
@@ -179,23 +267,41 @@ struct DatabaseDetailsView: View {
             }
             .buttonStyle(.plain)
         }
+        .alert(item: $operationAlert) { alert in
+            Alert(title: Text(alert.title), message: Text(alert.message), dismissButton: .default(Text("OK")))
+        }
     }
+}
+
+struct AlertItem: Identifiable {
+    var id = UUID()
+    var title: String
+    var message: String
 }
 
 // MARK: - Components
 
 private struct UserRow: View {
     let user: String
+    let host: String
     let access: String
     
     var body: some View {
         HStack {
             Image(systemName: "person.fill")
                 .foregroundStyle(ColorTokens.textTertiary)
-            Text(user)
-                .fontWeight(.medium)
-                .foregroundStyle(ColorTokens.textPrimary)
+            
+            VStack(alignment: .leading, spacing: 2) {
+                Text(user)
+                    .fontWeight(.medium)
+                    .foregroundStyle(ColorTokens.textPrimary)
+                Text("@" + host)
+                    .font(.caption)
+                    .foregroundStyle(ColorTokens.textTertiary)
+            }
+            
             Spacer()
+            
             Text(access)
                 .font(.caption)
                 .padding(.horizontal, 8)
@@ -224,8 +330,8 @@ private struct OperationCard: View {
             HStack(spacing: 16) {
                 ZStack {
                     Circle()
-                        .fill(color.opacity(0.1))
-                        .frame(width: 40, height: 40)
+                    .fill(color.opacity(0.1))
+                    .frame(width: 40, height: 40)
                     Image(systemName: icon)
                         .foregroundStyle(color)
                 }

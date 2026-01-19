@@ -46,4 +46,31 @@ struct MySQLStatusInfo {
     var slowQueries: String = "0"
     var openTables: String = "0"
     var qps: String = "0.0"
+    
+    // Compatibility wrappers
+    var activeConnections: Int {
+        get { Int(threadsConnected) ?? 0 }
+        set { threadsConnected = "\(newValue)" }
+    }
+    
+    var threads: Int {
+        get { Int(threadsConnected) ?? 0 }
+        set { threadsConnected = "\(newValue)" }
+    }
+    
+    var userQueries: String {
+        get { questions }
+        set { questions = newValue }
+    }
+}
+
+struct DatabaseTable: Identifiable, Equatable {
+    let id = UUID()
+    let name: String
+    let rows: Int
+    let sizeBytes: Int64
+    
+    var sizeString: String {
+        ByteCountFormatter.string(fromByteCount: sizeBytes, countStyle: .file)
+    }
 }

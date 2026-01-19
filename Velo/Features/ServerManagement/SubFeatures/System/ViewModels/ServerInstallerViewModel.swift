@@ -267,6 +267,7 @@ final class ServerInstallerViewModel: ObservableObject {
         case "mariadb": return "mariadb"
         case "postgresql": return "postgresql"
         case "redis": return "redis-server"
+        case "mongodb": return "mongod"
         case "php-fpm": return "php-fpm" // simplified
         default: return slug
         }
