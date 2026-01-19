@@ -58,7 +58,7 @@ struct MySQLConfigurationView: View {
 }
 
 private struct MySQLConfigRow: View {
-    let config: MySQLConfigValue
+    let config: SharedConfigValue
     
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {

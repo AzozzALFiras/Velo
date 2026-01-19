@@ -24,7 +24,7 @@ extension MySQLDetailViewModel {
         let result = await baseService.execute("sudo cat '\(configPath)'", via: session)
         let content = result.output
         
-        var newValues: [MySQLConfigValue] = []
+        var newValues: [SharedConfigValue] = []
         
         for (key, name, desc) in directives {
             // Regex to match "key = value" or "key=value"
@@ -33,14 +33,14 @@ extension MySQLDetailViewModel {
                 let match = content[range]
                 if let equalIndex = match.firstIndex(of: "=") {
                     let value = String(match[content.index(after: equalIndex)...]).trimmingCharacters(in: .whitespaces)
-                    newValues.append(MySQLConfigValue(key: key, value: value, description: desc, displayName: name, section: nil))
+                    newValues.append(SharedConfigValue(key: key, value: value, displayName: name, description: desc, type: nil, section: nil))
                 }
             } else if content.contains("\(key)") {
                 // Secondary check for simple grep if regex misses due to multiline or strange format
                 let grepResult = await baseService.execute("grep -i '^\(key)' '\(configPath)' | head -1 | awk -F= '{print $2}'", via: session)
                 let val = grepResult.output.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !val.isEmpty {
-                    newValues.append(MySQLConfigValue(key: key, value: val, description: desc, displayName: name, section: nil))
+                    newValues.append(SharedConfigValue(key: key, value: val, displayName: name, description: desc, type: nil, section: nil))
                 }
             }
         }

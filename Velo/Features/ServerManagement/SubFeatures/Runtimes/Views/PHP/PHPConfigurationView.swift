@@ -85,7 +85,7 @@ struct PHPConfigurationView: View {
             .foregroundStyle(.gray)
     }
     
-    private func editableConfigRow(_ config: PHPConfigValue) -> some View {
+    private func editableConfigRow(_ config: SharedConfigValue) -> some View {
         HStack {
             VStack(alignment: .leading, spacing: 4) {
                 Text(config.displayName)

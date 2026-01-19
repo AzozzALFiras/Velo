@@ -24,7 +24,7 @@ final class MySQLDetailViewModel: ObservableObject {
     @Published var selectedSection: MySQLDetailSection = .service
     
     // Configuration Values
-    @Published var configValues: [MySQLConfigValue] = []
+    @Published var configValues: [SharedConfigValue] = []
     @Published var isLoadingConfig: Bool = false
     
     // Config File Content

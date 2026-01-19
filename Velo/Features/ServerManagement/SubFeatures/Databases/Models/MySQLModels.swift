@@ -1,26 +1,6 @@
 import Foundation
 
-enum MySQLDetailSection: String, CaseIterable, Identifiable {
-    case service = "Service"
-    case configuration = "Configuration"
-    case databases = "Databases"
-    case users = "Users"
-    case status = "Status"
-    case logs = "Logs"
-    
-    var id: String { rawValue }
-    
-    var icon: String {
-        switch self {
-        case .service: return "gearshape"
-        case .configuration: return "slider.horizontal.3"
-        case .databases: return "server.rack"
-        case .users: return "person.2"
-        case .status: return "chart.bar.xaxis"
-        case .logs: return "list.bullet.rectangle"
-        }
-    }
-}
+// MySQLDetailSection moved to Enums/MySQLDetailSection.swift
 
 struct DatabaseUser: Identifiable, Equatable {
     let id: String // usually "user@host"
@@ -29,14 +9,7 @@ struct DatabaseUser: Identifiable, Equatable {
     let privileges: String
 }
 
-struct MySQLConfigValue: Identifiable, Equatable {
-    let id = UUID()
-    let key: String
-    var value: String
-    let description: String
-    let displayName: String
-    let section: String?
-}
+// MySQLConfigValue replaced by SharedConfigValue in Models/Shared/SharedConfigValue.swift
 
 struct MySQLStatusInfo {
     var version: String = ""

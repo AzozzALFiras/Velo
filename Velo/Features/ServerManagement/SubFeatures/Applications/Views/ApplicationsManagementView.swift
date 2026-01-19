@@ -12,6 +12,8 @@ struct ApplicationsManagementView: View {
     @State private var selectedCapability: Capability?
     @State private var showPHPDetail = false
     @State private var showNginxDetail = false
+    @State private var showPythonDetail = false
+    @State private var showNodeDetail = false
     
     /// Slugs of installed software (lowercased for matching)
     private var installedSlugs: Set<String> {
@@ -144,9 +146,43 @@ struct ApplicationsManagementView: View {
                     .transition(.move(edge: .trailing).combined(with: .opacity))
                     .zIndex(100)
             }
+            
+            if showPythonDetail {
+                PythonDetailView(session: viewModel.session)
+                    .overlay(alignment: .topTrailing) {
+                        Button { showPythonDetail = false } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.title)
+                                .foregroundStyle(.gray)
+                                .padding()
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .background(Color(NSColor.windowBackgroundColor))
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
+                    .zIndex(100)
+            }
+            
+            if showNodeDetail {
+                NodeDetailView(session: viewModel.session)
+                    .overlay(alignment: .topTrailing) {
+                        Button { showNodeDetail = false } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.title)
+                                .foregroundStyle(.gray)
+                                .padding()
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .background(Color(NSColor.windowBackgroundColor))
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
+                    .zIndex(100)
+            }
         }
         .animation(.easeInOut(duration: 0.25), value: showPHPDetail)
         .animation(.easeInOut(duration: 0.25), value: showNginxDetail)
+        .animation(.easeInOut(duration: 0.25), value: showPythonDetail)
+        .animation(.easeInOut(duration: 0.25), value: showNodeDetail)
         .overlay(alignment: .bottomTrailing) {
             if viewModel.showInstallOverlay {
                 InstallationStatusOverlay(viewModel: viewModel)
@@ -165,6 +201,10 @@ struct ApplicationsManagementView: View {
             showPHPDetail = true
         case "nginx":
             showNginxDetail = true
+        case "python":
+            showPythonDetail = true
+        case "node", "nodejs":
+            showNodeDetail = true
         // Future: Add cases for mysql, python, etc.
         default:
             break

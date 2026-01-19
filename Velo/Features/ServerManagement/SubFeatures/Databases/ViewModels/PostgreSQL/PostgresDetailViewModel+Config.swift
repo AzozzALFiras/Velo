@@ -20,7 +20,7 @@ extension PostgresDetailViewModel {
         // SHOW max_connections; SHOW shared_buffers; etc.
         let settings = ["max_connections", "shared_buffers", "work_mem", "maintenance_work_mem", "port"]
         
-        var newValues: [MySQLConfigValue] = []
+        var newValues: [SharedConfigValue] = []
         
         for setting in settings {
             let cmd = "sudo -u postgres psql -t -c 'SHOW \(setting);' 2>/dev/null"
@@ -28,11 +28,12 @@ extension PostgresDetailViewModel {
             let val = result.output.trimmingCharacters(in: .whitespacesAndNewlines)
             
             if !val.isEmpty {
-                newValues.append(MySQLConfigValue(
+                newValues.append(SharedConfigValue(
                     key: setting,
                     value: val,
-                    description: "PostgreSQL Setting", // Could map descriptions
                     displayName: setting,
+                    description: "PostgreSQL Setting",
+                    type: nil,
                     section: "General"
                 ))
             }

@@ -19,7 +19,7 @@ extension MongoDetailViewModel {
         let cmd = "mongosh --quiet --eval 'JSON.stringify(db.adminCommand({ getCmdLineOpts: 1 }))'"
         let result = await baseService.execute(cmd, via: session)
         
-        var newValues: [MySQLConfigValue] = []
+        var newValues: [SharedConfigValue] = []
         
         // Parse JSON output if successful
         if let data = result.output.data(using: .utf8),
@@ -28,11 +28,12 @@ extension MongoDetailViewModel {
            
             // Flatten a bit
             for (key, val) in parsed {
-                newValues.append(MySQLConfigValue(
+                newValues.append(SharedConfigValue(
                     key: key,
                     value: "\(val)",
-                    description: "MongoDB Setting",
                     displayName: key,
+                    description: "MongoDB Setting",
+                    type: nil,
                     section: "General"
                 ))
             }

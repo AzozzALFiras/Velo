@@ -26,7 +26,7 @@ final class RedisDetailViewModel: ObservableObject {
     
     @Published var selectedSection: MySQLDetailSection = .service
     
-    @Published var configValues: [MySQLConfigValue] = []
+    @Published var configValues: [SharedConfigValue] = []
     @Published var isLoadingConfig: Bool = false
     
     @Published var configFileContent: String = ""

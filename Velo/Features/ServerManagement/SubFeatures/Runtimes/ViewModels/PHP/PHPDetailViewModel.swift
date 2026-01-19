@@ -44,7 +44,7 @@ final class PHPDetailViewModel: ObservableObject {
     @Published var isLoadingDisabledFunctions: Bool = false
     
     // Configuration Values
-    @Published var configValues: [PHPConfigValue] = []
+    @Published var configValues: [SharedConfigValue] = []
     @Published var isLoadingConfig: Bool = false
     
     // Config File Content

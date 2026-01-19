@@ -42,11 +42,12 @@ extension NginxDetailViewModel {
                     .replacingOccurrences(of: ";", with: "")
                     .trimmingCharacters(in: .whitespaces)
                 
-                configValues.append(NginxConfigValue(
+                configValues.append(SharedConfigValue(
                     key: key,
                     value: value,
-                    description: desc,
                     displayName: name,
+                    description: desc,
+                    type: nil,
                     section: nil
                 ))
             } else {

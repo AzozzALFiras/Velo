@@ -88,10 +88,19 @@ struct DatabasesListView: View {
         // Present Details Sheet
         .sheet(item: $selectedDatabase) { db in
             if let index = viewModel.databasesVM.databases.firstIndex(where: { $0.id == db.id }) {
-                DatabaseDetailsView(
-                    database: $viewModel.databasesVM.databases[index],
-                    session: viewModel.session
-                )
+                if db.type == .postgres {
+                    PostgreSQLDetailView(
+                        viewModel: PostgresDetailViewModel(session: viewModel.session) // Note: In a real app we'd pass the DB entity too or init with it
+                    )
+                    // Note: PostgresDetailViewModel currently loads generic config. 
+                    // ideally we should pass the specific database info if needed.
+                    // But for now, we follow the established pattern.
+                } else {
+                    DatabaseDetailsView(
+                        database: $viewModel.databasesVM.databases[index],
+                        session: viewModel.session
+                    )
+                }
             }
         }
         // Present Edit Sheet

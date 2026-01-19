@@ -1,10 +1,6 @@
 import Foundation
 
-public enum WebServerType: String, Codable {
-    case nginx
-    case apache
-    case other
-}
+// WebServerType moved to Enums/WebServerType.swift
 
 public struct Website: Identifiable, Codable {
     public var id = UUID()

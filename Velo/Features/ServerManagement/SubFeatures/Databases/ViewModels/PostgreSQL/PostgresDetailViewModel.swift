@@ -35,7 +35,7 @@ final class PostgresDetailViewModel: ObservableObject {
     // If MySQLDetailSection is "Service, Configuration, Users, Status, Logs", I can reuse it or create equivalent.
     
     // Configuration Values
-    @Published var configValues: [MySQLConfigValue] = [] // Reuse or rename to DatabaseConfigValue?
+    @Published var configValues: [SharedConfigValue] = [] // Reuse or rename to DatabaseConfigValue?
     @Published var isLoadingConfig: Bool = false
     
     // Config File Content

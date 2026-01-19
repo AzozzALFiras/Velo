@@ -16,7 +16,7 @@ extension RedisDetailViewModel {
         // Use CONFIG GET * to list all, but that's huge.
         // Let's get meaningful ones.
         let keys = ["maxmemory", "maxmemory-policy", "port", "bind", "requirepass", "timeout"]
-        var newValues: [MySQLConfigValue] = []
+        var newValues: [SharedConfigValue] = []
         
         for key in keys {
             let cmd = "redis-cli CONFIG GET \(key)"
@@ -24,11 +24,12 @@ extension RedisDetailViewModel {
             // Output is key\nvalue
             let lines = result.output.components(separatedBy: .newlines).filter { !$0.isEmpty }
             if lines.count >= 2 {
-                newValues.append(MySQLConfigValue(
+                newValues.append(SharedConfigValue(
                     key: key,
                     value: lines[1],
-                    description: "Redis Configuration",
                     displayName: key,
+                    description: "Redis Configuration",
+                    type: nil,
                     section: "General"
                 ))
             }

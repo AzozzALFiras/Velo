@@ -26,7 +26,7 @@ class NginxDetailViewModel: ObservableObject {
     @Published var configPath = "/etc/nginx/nginx.conf"
     
     // Config
-    @Published var configValues: [NginxConfigValue] = []
+    @Published var configValues: [SharedConfigValue] = []
     @Published var configFileContent = ""
     @Published var isLoadingConfig = false
     @Published var isLoadingConfigFile = false

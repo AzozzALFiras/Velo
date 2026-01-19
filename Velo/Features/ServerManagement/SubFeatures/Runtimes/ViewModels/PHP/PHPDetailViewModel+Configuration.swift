@@ -10,7 +10,7 @@ extension PHPDetailViewModel {
         isLoadingConfig = true
         
         // Key configuration values to fetch
-        let configKeys: [(key: String, display: String, desc: String, type: PHPConfigValue.ConfigValueType)] = [
+        let configKeys: [(key: String, display: String, desc: String, type: ConfigValueType)] = [
             ("upload_max_filesize", "Max Upload Size", "Maximum size of an uploaded file", .size),
             ("post_max_size", "Max POST Size", "Maximum size of POST data", .size),
             ("memory_limit", "Memory Limit", "Maximum memory a script can consume", .size),
@@ -23,16 +23,17 @@ extension PHPDetailViewModel {
             ("date.timezone", "Timezone", "Default timezone", .string),
         ]
         
-        var values: [PHPConfigValue] = []
+        var values: [SharedConfigValue] = []
         
         for config in configKeys {
             if let value = await PHPService.shared.getConfigValue(config.key, via: session) {
-                values.append(PHPConfigValue(
+                values.append(SharedConfigValue(
                     key: config.key,
                     value: value,
                     displayName: config.display,
                     description: config.desc,
-                    type: config.type
+                    type: config.type,
+                    section: "General"
                 ))
             }
         }
