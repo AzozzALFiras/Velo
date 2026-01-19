@@ -23,8 +23,6 @@ struct ActiveSessionContainer: View {
 
     @Binding var showIntelligencePanel: Bool
     @Binding var selectedIntelligenceTab: IntelligenceTab
-    @Binding var inputText: String
-    @Binding var isExecuting: Bool
 
     var executeCommand: () -> Void
     var handleBlockAction: (CommandBlock, BlockAction) -> Void
@@ -55,8 +53,8 @@ struct ActiveSessionContainer: View {
                 WorkspaceLayout(
                     contextManager: contextManager,
                     blocks: session.blocks,
-                    inputText: $inputText,
-                    isExecuting: $isExecuting,
+                    inputText: $session.inputText,
+                    isExecuting: $session.isExecuting,
                     currentDirectory: currentDirectory,
                     onExecute: executeCommand,
                     onBlockAction: handleBlockAction,
@@ -118,11 +116,17 @@ struct ActiveSessionContainer: View {
 
             // Integrated Command Bar spanning both columns
             TerminalInputBar(
-                inputText: $inputText,
-                isExecuting: $isExecuting,
+                inputText: $session.inputText,
+                isExecuting: $session.isExecuting,
+                inlineSuggestion: session.inlineSuggestion,
+                showingAutocomplete: session.showingAutocomplete,
+                completions: session.completions,
+                selectedIndex: session.autocompleteSelectedIndex,
+                inputMode: session.inputMode,
                 currentDirectory: currentDirectory,
                 isGitRepository: contextManager.isGitRepository,
                 hasDocker: contextManager.isDockerProject,
+                isSSHActive: session.isSSHActive,
                 onExecute: executeCommand,
                 onShowFiles: {
                     selectedIntelligenceTab = .files
@@ -133,7 +137,15 @@ struct ActiveSessionContainer: View {
                     withAnimation { showIntelligencePanel = true }
                 },
                 onShowShortcuts: { showShortcuts = true },
-                onAskAI: askAI
+                onAskAI: askAI,
+                onAcceptSuggestion: { _ = session.acceptInlineSuggestion() },
+                onNavigateUp: { session.navigateAutocompleteUp() },
+                onNavigateDown: { session.navigateAutocompleteDown() },
+                onSelectCompletion: { item in
+                    session.inputText = item.insertText ?? item.text
+                    session.dismissAutocomplete()
+                },
+                onDismissAutocomplete: { session.dismissAutocomplete() }
             )
         }
         .transition(.opacity)

@@ -3,6 +3,7 @@
 //  Velo
 //
 //  AI-Powered Terminal - Main Terminal ViewModel
+//  Enhanced with interactive input handling, autocomplete, and context-aware suggestions
 //
 
 import SwiftUI
@@ -14,12 +15,12 @@ import Combine
 /// Main view model for terminal state management
 @MainActor
 final class TerminalViewModel: ObservableObject, Identifiable {
-    
+
     // Notifications
     static let downloadFinishedNotification = Notification.Name("VeloBackgroundDownloadFinished")
     static let fileFetchFinishedNotification = Notification.Name("VeloFileFetchFinished")
-    
-    
+
+
     // MARK: - Published Properties
     @Published var currentDirectory: String
     @Published var outputLines: [OutputLine] = []
@@ -29,10 +30,22 @@ final class TerminalViewModel: ObservableObject, Identifiable {
     @Published var errorMessage: String?
     @Published var commandStartTime: Date?
     @Published var activeCommand: String = ""
-    
+
     /// Command blocks for this session (per-session history)
     @Published var blocks: [CommandBlock] = []
-    
+
+    // MARK: - Interactive Input State
+    @Published var inputMode: TerminalInputMode = .normal
+    @Published var isAwaitingInteractiveInput: Bool = false
+    @Published var interactivePromptDescription: String = ""
+
+    // MARK: - Autocomplete State
+    @Published var showingAutocomplete: Bool = false
+    @Published var autocompleteSelectedIndex: Int = 0
+    @Published var inlineSuggestion: String?
+    @Published var currentCompletions: [CompletionItem] = []
+    @Published var currentSuggestions: [CommandSuggestion] = []
+
     // Derived state
     var isSSHActive: Bool {
         // Simple check: if active command starts with ssh and is executing
@@ -144,11 +157,13 @@ final class TerminalViewModel: ObservableObject, Identifiable {
     let terminalEngine: TerminalEngine
     let historyManager: CommandHistoryManager
     let predictionEngine: PredictionEngine
-    
+    let inputService: TerminalInputService
+    let autocompleteService: AutocompleteService
+
     // MARK: - Private
     private var cancellables = Set<AnyCancellable>()
     private var historyNavigationIndex = 0
-    
+
     // MARK: - Init
     init(
         terminalEngine: TerminalEngine,
@@ -157,21 +172,27 @@ final class TerminalViewModel: ObservableObject, Identifiable {
         self.terminalEngine = terminalEngine
         self.historyManager = historyManager
         self.predictionEngine = PredictionEngine(historyManager: historyManager)
+        self.inputService = TerminalInputService()
+        self.autocompleteService = AutocompleteService(historyManager: historyManager)
         self.currentDirectory = terminalEngine.currentDirectory
-        
+
         setupBindings()
+        setupInputServiceBindings()
     }
-    
+
     init() {
         let engine = TerminalEngine()
         let history = CommandHistoryManager()
-        
+
         self.terminalEngine = engine
         self.historyManager = history
         self.predictionEngine = PredictionEngine(historyManager: history)
+        self.inputService = TerminalInputService()
+        self.autocompleteService = AutocompleteService(historyManager: history)
         self.currentDirectory = engine.currentDirectory
-        
+
         setupBindings()
+        setupInputServiceBindings()
     }
     
     
@@ -179,41 +200,35 @@ final class TerminalViewModel: ObservableObject, Identifiable {
     func executeCommand() {
         let command = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !command.isEmpty else { return }
-        
+
         // Handle "clear" locally even during SSH (it clears Velo's output buffer)
         if command == "clear" {
             clearScreen()
             inputText = ""
             return
         }
-        
+
         // Auto-LS logic: Append ' && ls' to cd commands if enabled
         var finalCommand = command
         if UserDefaults.standard.bool(forKey: "autoLSafterCD") && command.trimmingCharacters(in: .whitespaces).hasPrefix("cd ") {
             finalCommand += " && ls"
         }
-        
+
         // If a process is already running (e.g., SSH session), send input to it
         if isExecuting {
-            terminalEngine.sendInput(finalCommand + "\n")
+            sendInteractiveInput(finalCommand)
             inputText = ""
             return
         }
-        
+
         // Clear input immediately
         inputText = ""
         predictionEngine.clear()
+        autocompleteService.clearCompletions()
         historyNavigationIndex = 0
         errorMessage = nil
-        
+
         // Handle built-in commands (cd for local machine)
-        // Note: We use original 'command' for local 'cd' because '&& ls' won't work with handleBuiltinCommand logic directly
-        // UNLESS we modify handleBuiltinCommand. But for local 'cd', Velo handles navigation internally.
-        // So Auto-LS logic here is mainly for SSH/Remote sessions.
-        // For local 'cd', we might want to run 'ls' too?
-        // Velo's local 'cd' updates currentDirectory and 'ls' is handled by 'ls' command separately.
-        // Since Velo is a terminal emulator, running 'cd ... && ls' as a raw command via 'execute' works locally too (it runs in shell).
-        // BUT 'handleBuiltinCommand' intercepts 'cd'.
         if handleBuiltinCommand(command) {
             // For local CD, if auto-LS is on, we can manually trigger 'ls'
             if UserDefaults.standard.bool(forKey: "autoLSafterCD") && command.hasPrefix("cd ") {
@@ -227,22 +242,19 @@ final class TerminalViewModel: ObservableObject, Identifiable {
             }
             return
         }
-        
+
         // Detect if command needs PTY (interactive commands)
-        let needsPTY = command.hasPrefix("ssh ") ||
-        command.hasPrefix("sftp ") ||
-        command.contains("sudo ") ||
-        command.hasPrefix("top") ||
-        command.hasPrefix("htop") ||
-        command.hasPrefix("vim ") ||
-        command.hasPrefix("nano ") ||
-        command.hasPrefix("less ") ||
-        command.hasPrefix("more ")
-        
+        let needsPTY = detectPTYRequirement(for: command)
+
         // Execute via terminal engine
         Task {
             isExecuting = true
-            
+
+            // Configure input service with PTY process if needed
+            if needsPTY {
+                inputService.reset()
+            }
+
             do {
                 let result: CommandModel
                 if needsPTY {
@@ -250,19 +262,96 @@ final class TerminalViewModel: ObservableObject, Identifiable {
                 } else {
                     result = try await terminalEngine.execute(command)
                 }
-                
+
                 // Add to history
                 historyManager.addCommand(result)
-                
+
                 lastExitCode = result.exitCode
                 outputLines = terminalEngine.outputLines
-                
+
             } catch {
                 errorMessage = error.localizedDescription
                 addOutputLine(error.localizedDescription, isError: true)
             }
-            
+
             isExecuting = false
+            inputService.reset()
+        }
+    }
+
+    // MARK: - Detect PTY Requirement
+    private func detectPTYRequirement(for command: String) -> Bool {
+        let lowercaseCommand = command.lowercased()
+
+        // Commands that always need PTY
+        let ptyCommands = [
+            "ssh ", "sftp ", "scp ",          // SSH operations
+            "sudo ",                           // Password prompt
+            "top", "htop", "btop",            // Interactive monitors
+            "vim ", "nvim ", "nano ", "emacs ", "vi ", // Text editors
+            "less ", "more ",                  // Pagers
+            "man ",                            // Manual pages
+            "mysql", "psql", "mongo", "redis-cli", // Database CLIs
+            "python ", "python3 ", "node ", "irb", "rails c", // REPLs
+            "ftp ", "telnet ",                 // Network tools
+            "screen ", "tmux",                 // Terminal multiplexers
+            "bash", "zsh", "sh",               // Shells
+        ]
+
+        for ptyCmd in ptyCommands {
+            if lowercaseCommand.hasPrefix(ptyCmd) || lowercaseCommand == ptyCmd.trimmingCharacters(in: .whitespaces) {
+                return true
+            }
+        }
+
+        // Check for interactive flags
+        if lowercaseCommand.contains(" -i") || lowercaseCommand.contains("--interactive") {
+            return true
+        }
+
+        return false
+    }
+
+    // MARK: - Send Interactive Input
+    /// Send input to running PTY process (for SSH sessions, sudo prompts, etc.)
+    func sendInteractiveInput(_ text: String, addNewline: Bool = true) {
+        let finalText = addNewline ? text + "\n" : text
+        terminalEngine.sendInput(finalText)
+
+        // Add to input history if it's a command (not password)
+        if inputMode != .password && !text.isEmpty && addNewline {
+            inputService.inputHistory.append(text)
+        }
+    }
+
+    // MARK: - Send Character (for real-time input)
+    /// Send a single character to the PTY (for interactive applications)
+    func sendCharacter(_ char: Character) {
+        terminalEngine.sendInput(String(char))
+    }
+
+    // MARK: - Send Control Sequence
+    /// Send control sequences (Ctrl+C, Ctrl+D, etc.)
+    func sendControlSequence(_ key: SpecialKey) {
+        switch key {
+        case .ctrlC:
+            terminalEngine.sendInput("\u{03}")
+        case .ctrlD:
+            terminalEngine.sendInput("\u{04}")
+        case .escape:
+            terminalEngine.sendInput("\u{1b}")
+        case .tab:
+            terminalEngine.sendInput("\t")
+        case .arrowUp:
+            terminalEngine.sendInput("\u{1b}[A")
+        case .arrowDown:
+            terminalEngine.sendInput("\u{1b}[B")
+        case .arrowRight:
+            terminalEngine.sendInput("\u{1b}[C")
+        case .arrowLeft:
+            terminalEngine.sendInput("\u{1b}[D")
+        default:
+            break
         }
     }
     
@@ -279,21 +368,105 @@ final class TerminalViewModel: ObservableObject, Identifiable {
     
     // MARK: - Clear Screen
     func clearScreen() {
-        // Clear local output buffer only
-        // We don't send commands to remote because Velo doesn't interpret ANSI codes
+        // Clear command blocks (what's displayed in UI)
+        blocks.removeAll()
+
+        // Clear local output buffer
         outputLines.removeAll()
         terminalEngine.clearOutput()
-        parsedDirectoryItems.removeAll()  // Also clear parsed items
+        parsedDirectoryItems.removeAll()
+
+        // Reset autocomplete and suggestions
+        autocompleteService.clearCompletions()
+        predictionEngine.clear()
+        inlineSuggestion = nil
+        showingAutocomplete = false
+        currentCompletions = []
+        currentSuggestions = []
+
+        // If in SSH session, send clear sequence to remote terminal
+        if isExecuting && isSSHActive {
+            // Send ANSI clear screen sequence: ESC[2J (clear screen) + ESC[H (cursor home)
+            terminalEngine.sendInput("\u{1b}[2J\u{1b}[H")
+        }
+
+        // Reset error state
+        errorMessage = nil
     }
     
-    // MARK: - Accept Inline Suggestion (Tab key)
+    // MARK: - Accept Inline Suggestion (Tab key or Arrow Right)
     func acceptInlineSuggestion() -> Bool {
+        // First try autocomplete service
+        if let suggestion = autocompleteService.acceptInline() {
+            inputText = suggestion
+            return true
+        }
+
+        // Fall back to prediction engine
         if let suggestion = predictionEngine.inlinePrediction, !suggestion.isEmpty {
             inputText = suggestion
             predictionEngine.clear()
             return true
         }
+
+        // If in SSH session, send Tab to remote shell for shell completion
+        if isExecuting {
+            terminalEngine.sendInput("\t")
+            return true
+        }
+
         return false
+    }
+
+    // MARK: - Autocomplete Navigation
+    func navigateAutocompleteUp() {
+        if showingAutocomplete {
+            autocompleteService.selectPrevious()
+            autocompleteSelectedIndex = autocompleteService.selectedIndex
+            inlineSuggestion = autocompleteService.inlineSuggestion
+        } else {
+            predictionEngine.moveSelectionUp()
+            inlineSuggestion = predictionEngine.inlinePrediction
+        }
+    }
+
+    func navigateAutocompleteDown() {
+        if showingAutocomplete {
+            autocompleteService.selectNext()
+            autocompleteSelectedIndex = autocompleteService.selectedIndex
+            inlineSuggestion = autocompleteService.inlineSuggestion
+        } else {
+            predictionEngine.moveSelectionDown()
+            inlineSuggestion = predictionEngine.inlinePrediction
+        }
+    }
+
+    func acceptAutocompleteSelection() -> Bool {
+        if showingAutocomplete, let item = autocompleteService.acceptSelected() {
+            inputText = item.insertText ?? item.text
+            return true
+        }
+
+        if let suggestion = predictionEngine.acceptSelectedSuggestion() {
+            inputText = suggestion.command
+            return true
+        }
+
+        return false
+    }
+
+    func dismissAutocomplete() {
+        autocompleteService.clearCompletions()
+        showingAutocomplete = false
+    }
+
+    // MARK: - Get Completions
+    var completions: [CompletionItem] {
+        currentCompletions
+    }
+
+    var suggestions: [CommandSuggestion] {
+        currentSuggestions
     }
     
     // MARK: - AI Actions
@@ -459,42 +632,99 @@ final class TerminalViewModel: ObservableObject, Identifiable {
         // Sync current directory
         terminalEngine.$currentDirectory
             .assign(to: &$currentDirectory)
-        
-        // Sync output lines and parse for directory items
+
+        // Sync output lines, parse for directory items, and detect prompts
         terminalEngine.$outputLines
             .sink { [weak self] lines in
                 guard let self = self else { return }
                 self.outputLines = lines
                 self.parseDirectoryItemsFromOutput(lines)
+
+                // Process recent output for prompt detection
+                if let lastLine = lines.last {
+                    self.inputService.processOutput(lastLine.text)
+                }
             }
             .store(in: &cancellables)
-        
+
         // Sync running state
         terminalEngine.$isRunning
             .assign(to: &$isExecuting)
-        
+
         // Sync command state
         terminalEngine.$commandStartTime
             .assign(to: &$commandStartTime)
-        
+
         terminalEngine.$currentCommand
             .assign(to: &$activeCommand)
-        
-        // Update predictions on input change (with parsed items from output)
+
+        // Update predictions and autocomplete on input change
         $inputText
             .debounce(for: .milliseconds(50), scheduler: DispatchQueue.main)
             .sink { [weak self] text in
                 guard let self = self else { return }
-                // Pass parsed items to prediction engine
-                // When isExecuting (SSH session), disable local suggestions
+
+                // Check if we're in an SSH session
+                let inSSHSession = self.isSSHActive
+
+                // Skip autocomplete only for non-SSH executing commands
+                // For SSH sessions, we still want autocomplete using remote items
+                if self.isExecuting && !inSSHSession {
+                    self.showingAutocomplete = false
+                    self.currentCompletions = []
+                    self.currentSuggestions = []
+                    self.inlineSuggestion = nil
+                    return
+                }
+
+                // Empty input - clear suggestions
+                guard !text.isEmpty else {
+                    self.showingAutocomplete = false
+                    self.currentCompletions = []
+                    self.currentSuggestions = []
+                    self.inlineSuggestion = nil
+                    return
+                }
+
+                // Update autocomplete service context
+                self.autocompleteService.updateContext(
+                    workingDirectory: inSSHSession ? (self.remoteWorkingDirectory ?? "~") : self.currentDirectory,
+                    remoteItems: self.parsedDirectoryItems,
+                    isSSH: inSSHSession
+                )
+
+                // Get completions
+                self.autocompleteService.getCompletions(for: text)
+
+                // Update prediction engine
                 self.predictionEngine.predict(
                     for: text,
-                    workingDirectory: self.currentDirectory,
+                    workingDirectory: inSSHSession ? (self.remoteWorkingDirectory ?? "~") : self.currentDirectory,
                     remoteItems: self.parsedDirectoryItems,
-                    isSSH: self.isExecuting
+                    isSSH: inSSHSession,
+                    serverHost: self.activeSSHConnectionString
                 )
+
+                // Sync autocomplete state to published properties
+                self.currentCompletions = self.autocompleteService.completions
+                self.currentSuggestions = self.predictionEngine.suggestions
+                self.showingAutocomplete = !self.currentCompletions.isEmpty || !self.currentSuggestions.isEmpty
+                self.autocompleteSelectedIndex = self.autocompleteService.selectedIndex
+                self.inlineSuggestion = self.autocompleteService.inlineSuggestion ?? self.predictionEngine.inlinePrediction
             }
             .store(in: &cancellables)
+    }
+
+    private func setupInputServiceBindings() {
+        // Sync input mode state
+        inputService.$inputMode
+            .assign(to: &$inputMode)
+
+        inputService.$isAwaitingInput
+            .assign(to: &$isAwaitingInteractiveInput)
+
+        inputService.$promptDescription
+            .assign(to: &$interactivePromptDescription)
     }
     
     // MARK: - Parse Directory Items from Output

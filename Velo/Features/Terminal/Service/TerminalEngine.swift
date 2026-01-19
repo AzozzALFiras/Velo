@@ -128,9 +128,9 @@ final class TerminalEngine: ObservableObject {
         // Setup output handling
         setupOutputHandling(output: output, error: error)
         
-        // Start flush timer on main thread (throttled to ~7Hz for smooth scrolling)
+        // Start flush timer on main thread (throttled to ~15Hz for smooth streaming)
         await MainActor.run {
-            self.flushTimer = Timer.scheduledTimer(withTimeInterval: 0.15, repeats: true) { [weak self] _ in
+            self.flushTimer = Timer.scheduledTimer(withTimeInterval: 0.066, repeats: true) { [weak self] _ in
                 self?.flushBuffer()
             }
         }
@@ -219,9 +219,9 @@ final class TerminalEngine: ObservableObject {
             }
         }
         
-        // Start flush timer
+        // Start flush timer (faster for PTY - ~20Hz for real-time interactive feel)
         await MainActor.run {
-            self.flushTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+            self.flushTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
                 self?.flushBuffer()
             }
         }
@@ -348,27 +348,29 @@ final class TerminalEngine: ObservableObject {
     
     private func flushBuffer() {
         let update = outputBuffer.flush()
-        guard !update.lines.isEmpty else { return }
-        
-        // Efficient Main Actor update
-        if update.replaceLast, !outputLines.isEmpty {
+        guard update.hasNewContent && !update.lines.isEmpty else { return }
+
+        // Efficient Main Actor update with optimized replace logic
+        if update.replaceLast && !outputLines.isEmpty {
+            // Replace the last line (for progress updates like wget/curl)
             outputLines.removeLast()
         }
-        
+
         outputLines.append(contentsOf: update.lines)
-        
+
         // Limit total lines to prevent memory issues (keep last 10000)
         let maxLines = 10000
         if outputLines.count > maxLines {
-            outputLines.removeFirst(outputLines.count - maxLines)
+            let overflow = outputLines.count - maxLines
+            outputLines.removeFirst(overflow)
         }
-        
-        // Accumulate output for command history
+
+        // Accumulate output for command history (skip partial lines being updated)
         for line in update.lines {
             accumulatedOutput += line.text + "\n"
         }
-        
-        // Optional: Notify publisher if needed
+
+        // Notify publisher for streaming subscribers
         for line in update.lines {
             outputPublisher.send(line)
         }

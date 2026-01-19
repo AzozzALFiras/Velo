@@ -41,9 +41,7 @@ struct WorkspaceRoot: View {
     // Column visibility
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     
-    // Input state
-    @State private var inputText = ""
-    @State private var isExecuting = false
+    // Note: Input state is managed directly by the active session (session.inputText, session.isExecuting)
     
     @State private var showAlert = false
     @State private var alertTitle = ""
@@ -143,9 +141,7 @@ struct WorkspaceRoot: View {
                             scripts: scripts,
                             showIntelligencePanel: $showIntelligencePanel,
                             selectedIntelligenceTab: $selectedIntelligenceTab,
-                            inputText: $inputText,
-                            isExecuting: $isExecuting,
-                            executeCommand: executeCommand,
+                            executeCommand: { session.executeCommand() },
                             handleBlockAction: handleBlockAction,
                             retryBlock: retryBlock,
                             askAI: askAI,
@@ -175,7 +171,7 @@ struct WorkspaceRoot: View {
             .sheet(isPresented: $showShortcuts) {
                 ShortcutsPanel(manager: shortcutsManager) { shortcut in
                     showShortcuts = false
-                    inputText = shortcut.command
+                    activeSession?.inputText = shortcut.command
                     executeCommand()
                 } onAddShortcut: {
                     // Future: show add shortcut sheet
@@ -212,7 +208,7 @@ struct WorkspaceRoot: View {
                     servers: sshManager.connections.map { $0.name },
                     files: [], // Future: recent files
                     onRunCommand: { cmd in
-                        inputText = cmd
+                        activeSession?.inputText = cmd
                         executeCommand()
                     },
                     onSelectServer: { name in
@@ -418,24 +414,26 @@ struct WorkspaceRoot: View {
     // MARK: - Actions
     
     private func executeCommand() {
-        guard !inputText.isEmpty else { return }
-        
+        // Get active session
+        guard let session = activeSession else { return }
+
+        // Read input from session (the UI binds directly to session.inputText)
+        guard !session.inputText.isEmpty else { return }
+
         // Allow execution if not already executing, OR if we are in an SSH session
         // (SSH sessions keep isExecuting=true, but we still want to send input)
         let isSSH = isCurrentSessionSSH
-        if isExecuting && !isSSH { return }
-        
-        var command = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
-        
+        if session.isExecuting && !isSSH { return }
+
+        var command = session.inputText.trimmingCharacters(in: .whitespacesAndNewlines)
+
         // Check for shortcut expansion
         if let expanded = shortcutsManager.expandShortcut(command) {
             command = expanded
         }
-        
-        inputText = ""
-        
-        // Get active session and append block to it
-        guard let session = activeSession else { return }
+
+        // Clear the session's input
+        session.inputText = ""
         
         // Create a new block for this session
         let block = CommandBlock(
@@ -444,16 +442,10 @@ struct WorkspaceRoot: View {
             workingDirectory: currentDirectory
         )
         session.blocks.append(block)
-        
-        // Execute via terminal VM
-        isExecuting = true
-        
+
         Task {
-            // Set the command on the active session
+            // Set the command on the active session and execute
             session.inputText = command
-            
-            // If it's an interactive session, we send input to the existing process
-            // If it's a new command, it will start a new process
             session.executeCommand()
             
             // For SSH sessions, we don't want to wait for the process to exit
@@ -471,7 +463,6 @@ struct WorkspaceRoot: View {
                 }
                 
                 block.status = .success // Mark as "sent" or "done" for this block
-                isExecuting = false // Release lock
                 return
             }
             
@@ -519,9 +510,7 @@ struct WorkspaceRoot: View {
                 workingDirectory: currentDirectory,
                 context: .detect(from: command)
             ))
-            
-            isExecuting = false
-            
+
             // Refresh context after command
             await contextManager.updateContext(for: session.currentDirectory)
         }
@@ -541,7 +530,8 @@ struct WorkspaceRoot: View {
     }
     
     private func retryBlock(_ block: CommandBlock) {
-        inputText = block.command
+        guard let session = activeSession else { return }
+        session.inputText = block.command
         executeCommand()
     }
     
@@ -655,10 +645,10 @@ struct WorkspaceRoot: View {
             return
         }
 
-        inputText = command
+        activeSession?.inputText = command
         executeCommand()
     }
-    
+
     private func explainError(_ error: ErrorItem) {
         askAI("Explain this error: \(error.message)")
     }
@@ -668,8 +658,9 @@ struct WorkspaceRoot: View {
     }
     
     private func runScript(_ script: AutoScript) {
+        guard let session = activeSession else { return }
         for command in script.commands {
-            inputText = command
+            session.inputText = command
             executeCommand()
         }
     }
@@ -753,7 +744,7 @@ struct WorkspaceRoot: View {
     }
     
     private func gitSync() {
-        inputText = "git pull && git push"
+        activeSession?.inputText = "git pull && git push"
         executeCommand()
     }
     
