@@ -6,130 +6,90 @@ struct NginxServiceView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 24) {
             
-            // Status Header
-            HStack {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Nginx Web Server")
-                        .font(.title2)
-                        .fontWeight(.bold)
-                        .foregroundStyle(.white)
-                    
-                    Text(viewModel.version.isEmpty ? "Checking version..." : viewModel.version)
-                        .font(.subheadline)
+            // Status Card
+            HStack(spacing: 16) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Current Status")
+                        .font(.caption)
                         .foregroundStyle(.gray)
+                    
+                    HStack(spacing: 8) {
+                        Circle()
+                            .fill(viewModel.isRunning ? Color.green : Color.red)
+                            .frame(width: 12, height: 12)
+                            .shadow(color: viewModel.isRunning ? .green : .red, radius: 4)
+                        
+                        Text(viewModel.isRunning ? "Running" : "Stopped")
+                            .font(.title3)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(.white)
+                    }
                 }
                 
                 Spacer()
                 
-                statusBadge(isRunning: viewModel.isRunning)
-            }
-            .padding()
-            .background(Color.white.opacity(0.05))
-            .cornerRadius(12)
-            
-            // Actions
-            HStack(spacing: 16) {
-                if viewModel.isRunning {
+                // Action Buttons
+                HStack(spacing: 12) {
+                    if viewModel.isRunning {
+                        actionButton(title: "Stop", icon: "stop.fill", color: .red) {
+                            await viewModel.stopService()
+                        }
+                    } else {
+                        actionButton(title: "Start", icon: "play.fill", color: .green) {
+                            await viewModel.startService()
+                        }
+                    }
+                    
                     actionButton(title: "Restart", icon: "arrow.clockwise", color: .orange) {
-                        Task { await viewModel.restartService() }
+                        await viewModel.restartService()
                     }
                     
                     actionButton(title: "Reload", icon: "arrow.triangle.2.circlepath", color: .blue) {
-                        Task { await viewModel.reloadService() }
-                    }
-                    
-                    actionButton(title: "Stop", icon: "stop.fill", color: .red) {
-                        Task { await viewModel.stopService() }
-                    }
-                } else {
-                    actionButton(title: "Start Service", icon: "play.fill", color: .green) {
-                        Task { await viewModel.startService() }
+                        await viewModel.reloadService()
                     }
                 }
             }
-            .disabled(viewModel.isPerformingAction)
+            .padding(20)
+            .background(Color.white.opacity(0.03))
+            .clipShape(RoundedRectangle(cornerRadius: 16))
+            .overlay(
+                RoundedRectangle(cornerRadius: 16)
+                    .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
+            )
             
-            if viewModel.isPerformingAction {
-                ProgressView()
-                    .padding(.top)
+            // Info Cards
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 16) {
+                infoCard(title: "Version", value: viewModel.version.isEmpty ? "Checking..." : viewModel.version, icon: "number")
+                infoCard(title: "Binary Path", value: viewModel.binaryPath, icon: "terminal")
+                infoCard(title: "Config Path", value: viewModel.configPath, icon: "doc.text")
+                infoCard(title: "Available Versions", value: "\(viewModel.availableVersions.count)", icon: "square.stack.3d.up")
             }
             
-            
-            // Available Versions
+            // Available Versions Section
             if !viewModel.availableVersions.isEmpty {
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("Available Versions")
-                        .font(.headline)
-                        .foregroundStyle(.white)
+                    HStack {
+                        Text("Available Versions")
+                            .font(.headline)
+                            .foregroundStyle(.white)
+                        
+                        Spacer()
+                    }
                     
                     ForEach(viewModel.availableVersions) { version in
-                        NginxVersionRow(version: version, viewModel: viewModel)
+                        versionRow(version: version)
                     }
                 }
                 .padding(16)
                 .background(Color.white.opacity(0.03))
                 .clipShape(RoundedRectangle(cornerRadius: 12))
             }
-            
-            Spacer()
-            
-            // Process Info (Placeholder mostly, or could list PID)
-            VStack(alignment: .leading, spacing: 16) {
-                Text("Process Information")
-                    .font(.headline)
-                    .foregroundStyle(.white)
-                
-                NginxInfoRow(label: "Binary Path", value: viewModel.binaryPath)
-                NginxInfoRow(label: "Config Path", value: viewModel.configPath)
-            }
-            .padding()
-            .background(Color.white.opacity(0.02))
-            .cornerRadius(12)
         }
     }
     
-    func statusBadge(isRunning: Bool) -> some View {
-        HStack {
-            Circle()
-                .fill(isRunning ? Color.green : Color.red)
-                .frame(width: 8, height: 8)
-            Text(isRunning ? "Running" : "Stopped")
-                .font(.headline)
-                .foregroundStyle(isRunning ? .green : .red)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(isRunning ? Color.green.opacity(0.1) : Color.red.opacity(0.1))
-        .clipShape(Capsule())
-    }
+    // MARK: - Components
     
-    func actionButton(title: String, icon: String, color: Color, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            VStack(spacing: 8) {
-                Image(systemName: icon)
-                    .font(.system(size: 24))
-                Text(title)
-                    .fontWeight(.medium)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 16)
-            .background(color.opacity(0.15))
-            .foregroundStyle(color)
-            .cornerRadius(12)
-            .overlay(
-                RoundedRectangle(cornerRadius: 12)
-                    .stroke(color.opacity(0.3), lineWidth: 1)
-            )
-        }
-        .buttonStyle(.plain)
-    }
-}
-
-struct NginxVersionRow: View {
-    let version: CapabilityVersion
-    @ObservedObject var viewModel: NginxDetailViewModel
-    
-    var body: some View {
+    private func versionRow(version: CapabilityVersion) -> some View {
         HStack {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 8) {
@@ -141,8 +101,8 @@ struct NginxVersionRow: View {
                         .font(.caption2)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
-                        .background(version.stability == "Stable" ? Color.green.opacity(0.2) : Color.blue.opacity(0.2))
-                        .foregroundStyle(version.stability == "Stable" ? .green : .blue)
+                        .background(stabilityColor(version.stability).opacity(0.2))
+                        .foregroundStyle(stabilityColor(version.stability))
                         .clipShape(Capsule())
                     
                     if version.isDefault {
@@ -159,8 +119,10 @@ struct NginxVersionRow: View {
             
             Spacer()
             
-            // Heuristic check for installed version
-            if viewModel.version.contains(version.version) {
+            let isInstalled = viewModel.version.contains(version.version)
+            let isInstalling = viewModel.isInstallingVersion && viewModel.installingVersionName == version.version
+            
+            if isInstalled {
                 HStack(spacing: 4) {
                     Image(systemName: "checkmark.circle.fill")
                         .font(.system(size: 12))
@@ -168,13 +130,15 @@ struct NginxVersionRow: View {
                         .font(.caption)
                 }
                 .foregroundStyle(.green)
-            } else if viewModel.isInstallingVersion && viewModel.installingVersionName == version.version {
-                HStack(spacing: 6) {
-                    ProgressView()
-                        .scaleEffect(0.6)
-                    Text(viewModel.installStatus.isEmpty ? "Installing..." : viewModel.installStatus)
-                        .font(.caption)
-                        .foregroundStyle(.orange)
+            } else if isInstalling {
+                VStack(alignment: .trailing, spacing: 4) {
+                    HStack(spacing: 6) {
+                        ProgressView()
+                            .scaleEffect(0.6)
+                        Text(viewModel.installStatus.isEmpty ? "Installing..." : viewModel.installStatus)
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                    }
                 }
             } else {
                 Button {
@@ -187,7 +151,6 @@ struct NginxVersionRow: View {
                         .font(.system(size: 10))
                         Text("Install")
                         .font(.caption)
-                            .fontWeight(.medium)
                     }
                     .foregroundStyle(.white)
                     .padding(.horizontal, 10)
@@ -196,26 +159,72 @@ struct NginxVersionRow: View {
                     .clipShape(Capsule())
                 }
                 .buttonStyle(.plain)
-                .disabled(viewModel.isInstallingVersion || viewModel.isPerformingAction)
+                .disabled(viewModel.isInstallingVersion)
             }
         }
         .padding(.vertical, 8)
-        .padding(.horizontal, 4)
+    }
+    
+    private func stabilityColor(_ stability: String) -> Color {
+        switch stability.lowercased() {
+        case "stable": return .green
+        case "mainline": return .blue
+        case "legacy": return .orange
+        default: return .gray
+        }
+    }
+    
+    private func actionButton(title: String, icon: String, color: Color, action: @escaping () async -> Void) -> some View {
+        Button {
+            Task {
+                await action()
+            }
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: icon)
+                    .font(.system(size: 12))
+                Text(title)
+                    .font(.system(size: 13, weight: .medium))
+            }
+            .foregroundStyle(.white)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .background(color.opacity(0.8))
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+        }
+        .buttonStyle(.plain)
+        .disabled(viewModel.isPerformingAction)
+    }
+    
+    private func infoCard(title: String, value: String, icon: String) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon)
+                .font(.system(size: 18))
+                .foregroundStyle(.green)
+                .frame(width: 36, height: 36)
+                .background(Color.green.opacity(0.15))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+            
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.caption)
+                    .foregroundStyle(.gray)
+                
+                Text(value)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+            }
+            
+            Spacer()
+        }
+        .padding(16)
+        .background(Color.white.opacity(0.03))
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .strokeBorder(Color.white.opacity(0.05), lineWidth: 1)
+        )
     }
 }
 
-private struct NginxInfoRow: View {
-    let label: String
-    let value: String
-    
-    var body: some View {
-        HStack {
-            Text(label)
-                .foregroundStyle(.gray)
-            Spacer()
-            Text(value)
-                .fontWeight(.medium)
-                .foregroundStyle(.white)
-        }
-    }
-}

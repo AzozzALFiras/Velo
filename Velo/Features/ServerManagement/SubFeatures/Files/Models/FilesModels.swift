@@ -54,16 +54,7 @@ struct QuickAccessLocation: Identifiable, Equatable, Codable {
         self.isSystem = isSystem
     }
 
-    static var defaultLocations: [QuickAccessLocation] {
-        [
-            QuickAccessLocation(name: "files.quickAccess.root".localized, path: "/", icon: "externaldrive", isSystem: true),
-            QuickAccessLocation(name: "files.quickAccess.home".localized, path: "~", icon: "house", isSystem: true),
-            QuickAccessLocation(name: "files.quickAccess.webRoot".localized, path: "/var/www", icon: "globe", isSystem: true),
-            QuickAccessLocation(name: "files.quickAccess.nginxSites".localized, path: "/etc/nginx/sites-available", icon: "server.rack", isSystem: true),
-            QuickAccessLocation(name: "files.quickAccess.logs".localized, path: "/var/log", icon: "doc.text", isSystem: true),
-            QuickAccessLocation(name: "files.quickAccess.temp".localized, path: "/tmp", icon: "clock.arrow.circlepath", isSystem: true)
-        ]
-    }
+
 }
 
 // MARK: - File Sort Options

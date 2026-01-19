@@ -39,7 +39,7 @@ final class FilesDetailViewModel: ObservableObject {
     @Published var showHiddenFiles: Bool = false
 
     // Quick Access
-    @Published var quickAccessLocations: [QuickAccessLocation] = QuickAccessLocation.defaultLocations
+    @Published var quickAccessLocations: [QuickAccessLocation] = [] // Initialized empty, loaded async
     @Published var favoriteLocations: [QuickAccessLocation] = []
     @Published var recentPaths: [String] = []
 
@@ -163,7 +163,23 @@ final class FilesDetailViewModel: ObservableObject {
     // MARK: - Data Loading
 
     func loadData() async {
-        await loadFiles()
+        // Load files and smart locations concurrently
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask { await self.loadFiles() }
+            group.addTask { await self.loadQuickAccessLocations() }
+        }
+    }
+    
+    func loadQuickAccessLocations() async {
+        guard let session = session else { return }
+        
+        // Use the new service to get smart locations
+        let locations = await QuickAccessService.shared.getLocations(via: session)
+        
+        // Update on main thread
+        await MainActor.run {
+            self.quickAccessLocations = locations
+        }
     }
 
     func loadFiles() async {

@@ -44,6 +44,14 @@ final class MySQLDetailViewModel: ObservableObject {
     @Published var statusInfo: MySQLStatusInfo = MySQLStatusInfo()
     @Published var isLoadingStatus: Bool = false
     
+    // Versions (Local & API)
+    @Published var installedVersions: [String] = []  // e.g. ["8.0", "5.7"]
+    @Published var availableVersionsFromAPI: [CapabilityVersion] = []
+    @Published var isInstallingVersion: Bool = false
+    @Published var installingVersionName: String = ""
+    @Published var installStatus: String = ""
+    @Published var capabilityIcon: String? = nil
+    
     // Loading & Error
     @Published var isLoading: Bool = false
     @Published var isPerformingAction: Bool = false
@@ -77,8 +85,19 @@ final class MySQLDetailViewModel: ObservableObject {
             self.version = "Not Installed"
         }
         
+        // Populate installed versions (currently only single version supported)
+        if version != "Not Installed" && version != "..." {
+            // Extract major.minor for cleaner display if needed, but using full is fine for now
+            self.installedVersions = [version]
+        } else {
+            self.installedVersions = []
+        }
+        
         // Find config path
         await loadConfigPath()
+        
+        // Load API Data (Versions)
+        await loadAPIData()
         
         // Load section-specific data
         await loadSectionData()
@@ -102,9 +121,27 @@ final class MySQLDetailViewModel: ObservableObject {
         case .logs:
             await loadLogs()
         case .databases:
-            // This section might be handled by existing DatabasesViewModel 
-            // but we can add a simple list here if needed.
             break
         }
+    }
+    
+    // MARK: - Helper Actions
+    
+    func performAsyncAction(_ actionName: String? = nil, action: () async -> (success: Bool, message: String?)) async {
+        isPerformingAction = true
+        errorMessage = nil
+        successMessage = nil
+        
+        let result = await action()
+        
+        if result.success {
+            if let msg = result.message {
+                successMessage = msg
+            }
+        } else {
+            errorMessage = result.message ?? "An error occurred"
+        }
+        
+        isPerformingAction = false
     }
 }
