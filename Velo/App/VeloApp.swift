@@ -83,6 +83,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             // Add vibrancy
             window.contentView?.wantsLayer = true
         }
+        
+        // Run one-time migration for keys
+        Task {
+            let results = await MainActor.run { KeychainService.shared.migrateFromUserDefaults() }
+            if !results.isEmpty {
+                print("🔑 [Migration] Keys migrated from UserDefaults: \(results.count)")
+            }
+        }
     }
     
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {

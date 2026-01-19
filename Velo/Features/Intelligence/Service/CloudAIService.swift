@@ -44,16 +44,6 @@ class CloudAIService: ObservableObject {
     private let keychainService = KeychainService.shared
 
     init() {
-        // Migrate API keys from UserDefaults to Keychain on first run
-        let migrationResults = keychainService.migrateFromUserDefaults()
-        for (key, success) in migrationResults {
-            if success {
-                print("✓ Migrated \(key) to Keychain")
-            } else {
-                print("✗ Failed to migrate \(key)")
-            }
-        }
-
         Task {
             await loadModels()
         }

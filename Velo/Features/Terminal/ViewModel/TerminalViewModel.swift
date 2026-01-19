@@ -159,6 +159,9 @@ final class TerminalViewModel: ObservableObject, Identifiable {
     let predictionEngine: PredictionEngine
     let inputService: TerminalInputService
     let autocompleteService: AutocompleteService
+    
+    // MARK: - SSH Metadata Service (Shadow Session)
+    private var metadataService: SSHMetadataService?
 
     // MARK: - Private
     private var cancellables = Set<AnyCancellable>()
@@ -167,7 +170,8 @@ final class TerminalViewModel: ObservableObject, Identifiable {
     // MARK: - Init
     init(
         terminalEngine: TerminalEngine,
-        historyManager: CommandHistoryManager
+        historyManager: CommandHistoryManager,
+        isShadow: Bool = false
     ) {
         self.terminalEngine = terminalEngine
         self.historyManager = historyManager
@@ -175,12 +179,16 @@ final class TerminalViewModel: ObservableObject, Identifiable {
         self.inputService = TerminalInputService()
         self.autocompleteService = AutocompleteService(historyManager: historyManager)
         self.currentDirectory = terminalEngine.currentDirectory
+        
+        if !isShadow {
+            self.metadataService = SSHMetadataService()
+        }
 
         setupBindings()
         setupInputServiceBindings()
     }
 
-    init() {
+    init(isShadow: Bool = false) {
         let engine = TerminalEngine()
         let history = CommandHistoryManager()
 
@@ -190,6 +198,10 @@ final class TerminalViewModel: ObservableObject, Identifiable {
         self.inputService = TerminalInputService()
         self.autocompleteService = AutocompleteService(historyManager: history)
         self.currentDirectory = engine.currentDirectory
+        
+        if !isShadow {
+            self.metadataService = SSHMetadataService()
+        }
 
         setupBindings()
         setupInputServiceBindings()
@@ -246,6 +258,14 @@ final class TerminalViewModel: ObservableObject, Identifiable {
         // Detect if command needs PTY (interactive commands)
         let needsPTY = detectPTYRequirement(for: command)
 
+        // Create a new command block for UI
+        let block = CommandBlock(
+            command: command, 
+            status: .running,
+            workingDirectory: currentDirectory
+        )
+        blocks.append(block)
+        
         // Execute via terminal engine
         Task {
             isExecuting = true
@@ -267,16 +287,48 @@ final class TerminalViewModel: ObservableObject, Identifiable {
                 historyManager.addCommand(result)
 
                 lastExitCode = result.exitCode
-                outputLines = terminalEngine.outputLines
+                // outputLines = terminalEngine.outputLines // No longer needed as source of truth, but we keep it sync'd in bindings
+
+                // Complete the block
+                await MainActor.run {
+                    if let lastBlock = self.blocks.last, lastBlock.id == block.id {
+                        lastBlock.complete(exitCode: result.exitCode)
+                    }
+                }
 
             } catch {
                 errorMessage = error.localizedDescription
-                addOutputLine(error.localizedDescription, isError: true)
+                // Update block with error
+                await MainActor.run {
+                    if let lastBlock = self.blocks.last, lastBlock.id == block.id {
+                        lastBlock.appendOutput(text: error.localizedDescription, isError: true)
+                        lastBlock.status = .error
+                        lastBlock.endTime = Date()
+                    }
+                }
             }
 
             isExecuting = false
             inputService.reset()
+            
+            // If we finished an SSH session, disconnect the shadow session
+            if self.isSSHActive {
+                Task { await self.metadataService?.disconnect() }
+            }
         }
+        
+        // Check if we are starting an SSH session
+        if isSSHCommand(command) {
+            // Give the main session a moment to start, then connect shadow
+            Task {
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                await self.metadataService?.connect(connectionString: command)
+            }
+        }
+    }
+    
+    private func isSSHCommand(_ command: String) -> Bool {
+        return command.trimmingCharacters(in: .whitespaces).hasPrefix("ssh ")
     }
 
     // MARK: - Detect PTY Requirement
@@ -633,12 +685,17 @@ final class TerminalViewModel: ObservableObject, Identifiable {
         terminalEngine.$currentDirectory
             .assign(to: &$currentDirectory)
 
-        // Sync output lines, parse for directory items, and detect prompts
+        // Sync output lines to outputLines AND the active block
         terminalEngine.$outputLines
             .sink { [weak self] lines in
                 guard let self = self else { return }
                 self.outputLines = lines
                 self.parseDirectoryItemsFromOutput(lines)
+
+                // Update the active block if it's running
+                if let lastBlock = self.blocks.last, lastBlock.isRunning {
+                     lastBlock.output = lines
+                }
 
                 // Process recent output for prompt detection
                 if let lastLine = lines.last {
@@ -763,10 +820,25 @@ final class TerminalViewModel: ObservableObject, Identifiable {
                     
                     // Additional cleanup - remove any embedded user@host: that might remain
                     path = path.replacingOccurrences(of: "^[a-zA-Z0-9._-]+@[a-zA-Z0-9.-]+:", with: "", options: .regularExpression)
-                    
+                     
                     if !path.isEmpty && (path.hasPrefix("/") || path.hasPrefix("~")) {
                         print("📍 [TerminalVM] Detected remote CWD: '\(path)' from cleaned line: '\(cleanedText)'")
                         detectedRemoteCWD = path
+                        
+                        // Sync shadow session and fetch new metadata
+                        Task {
+                            await self.metadataService?.syncDirectory(to: path)
+                            let items = await self.metadataService?.listDirectory(path: path) ?? []
+                            await MainActor.run {
+                                self.parsedDirectoryItems = items
+                                // Refresh autocomplete context
+                                self.autocompleteService.updateContext(
+                                    workingDirectory: path,
+                                    remoteItems: items,
+                                    isSSH: true
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -831,10 +903,13 @@ final class TerminalViewModel: ObservableObject, Identifiable {
         }
         
         // Update parsed items
-        if !items.isEmpty {
-            parsedDirectoryItems = Array(items).sorted()
-        } else if detectedDirChange {
-            parsedDirectoryItems.removeAll()
+        // For SSH, we rely strictly on metadataService (shadow session) to avoid pollution from output
+        if !isSSHActive {
+            if !items.isEmpty {
+                parsedDirectoryItems = Array(items).sorted()
+            } else if detectedDirChange {
+                parsedDirectoryItems.removeAll()
+            }
         }
     }
     
