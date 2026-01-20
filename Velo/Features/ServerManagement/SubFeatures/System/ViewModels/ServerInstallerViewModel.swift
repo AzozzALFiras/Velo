@@ -70,7 +70,7 @@ final class ServerInstallerViewModel: ObservableObject {
             do {
                 let capability = try await ApiService.shared.fetchCapabilityDetails(slug: slug)
                 
-                guard let version = capability.defaultVersion?.version ?? capability.versions?.first?.version else {
+                guard let version = capability.defaultVersion ?? capability.versions?.first?.version else {
                     await appendLog("❌ No versions available for \(slug)")
                     await MainActor.run { self.isInstalling = false }
                     return
@@ -112,7 +112,7 @@ final class ServerInstallerViewModel: ObservableObject {
 
                 do {
                     let capability = try await ApiService.shared.fetchCapabilityDetails(slug: slug)
-                    guard let version = capability.defaultVersion?.version ?? capability.versions?.first?.version else {
+                    guard let version = capability.defaultVersion ?? capability.versions?.first?.version else {
                         await appendLog("⚠️ No versions available for \(slug), skipping...")
                         continue
                     }
@@ -163,8 +163,14 @@ final class ServerInstallerViewModel: ObservableObject {
             let versionDetail = try await ApiService.shared.fetchCapabilityVersion(slug: capability.slug, version: version)
 
             await appendLog("> Detecting server OS...")
-            // We need OS type here - in a real app better to pass it in or fetch it
-            let osType = "ubuntu" // Defaulting for now as we don't have stats here directly
+            var osType = "ubuntu"
+            if let session = session {
+                let osInfo = await SystemStatsService.shared.getOSInfo(via: session)
+                if !osInfo.id.isEmpty {
+                    osType = osInfo.id.lowercased()
+                    await appendLog("> Detected OS: \(osInfo.prettyName.isEmpty ? osType : osInfo.prettyName)")
+                }
+            }
             
             guard let installCmd = getInstallCommand(from: versionDetail, os: osType) else {
                 await appendLog("> Error: No installation instruction found for \(osType).")
@@ -211,15 +217,27 @@ final class ServerInstallerViewModel: ObservableObject {
         guard let commands = version.installCommands else { return nil }
         let osKey = os.lowercased()
         
-        if let osCommands = commands[osKey], let cmd = osCommands["default"] ?? osCommands["install"] {
+        // Helper to join commands
+        func join(_ cmds: [String]?) -> String? {
+            guard let cmds = cmds, !cmds.isEmpty else { return nil }
+            return cmds.joined(separator: " && ")
+        }
+        
+        // 1. Try exact OS match (e.g. "ubuntu")
+        if let cmd = join(commands[osKey]) {
             return cmd
         }
-        if let linuxCommands = commands["linux"], let cmd = linuxCommands["default"] ?? linuxCommands["install"] {
+        
+        // 2. Try generic "linux"
+        if let cmd = join(commands["linux"]) {
             return cmd
         }
-        if let defaultCmd = commands["default"] as? String {
-            return defaultCmd
+        
+        // 3. Try "default"
+        if let cmd = join(commands["default"]) {
+            return cmd
         }
+        
         return nil
     }
     

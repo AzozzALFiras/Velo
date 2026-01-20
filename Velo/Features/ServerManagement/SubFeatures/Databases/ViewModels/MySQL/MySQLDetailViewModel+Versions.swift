@@ -38,14 +38,17 @@ extension MySQLDetailViewModel {
         installStatus = "Preparing installation..."
         
         // Get install commands from API
+        // Get install commands from API
         guard let installCommands = version.installCommands,
-              let osCommands = installCommands[osName] ?? installCommands["ubuntu"] ?? installCommands["debian"],
-              let installCommand = osCommands["default"] ?? osCommands["install"] else {
+              let commandsList = installCommands[osName] ?? installCommands["ubuntu"] ?? installCommands["debian"],
+              !commandsList.isEmpty else {
             errorMessage = "No install commands available for \(osName)"
             isInstallingVersion = false
             installStatus = ""
             return
         }
+        
+        let installCommand = commandsList.joined(separator: " && ")
         
         print("[MySQLDetailVM] Executing install command: \(installCommand.prefix(100))...")
         

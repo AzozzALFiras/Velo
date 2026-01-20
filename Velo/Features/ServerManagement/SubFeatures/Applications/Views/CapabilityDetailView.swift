@@ -24,11 +24,11 @@ struct CapabilityDetailView: View {
                             image.resizable().scaledToFit()
                         } else {
                             Image(systemName: "cube.box.fill")
-                                .foregroundStyle(Color(hex: capability.color))
+                                .foregroundStyle(Color(hex: capability.color ?? "#3B82F6"))
                         }
                     }
                     .frame(width: 80, height: 80)
-                    .background(Color(hex: capability.color).opacity(0.1))
+                    .background(Color(hex: capability.color ?? "#3B82F6").opacity(0.1))
                     .clipShape(RoundedRectangle(cornerRadius: 20))
                     
                     VStack(alignment: .leading, spacing: 6) {

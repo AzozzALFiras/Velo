@@ -34,13 +34,16 @@ extension NginxDetailViewModel {
         
         await performAsyncAction("Start Nginx") {
             let result = await SSHBaseService.shared.execute("sudo systemctl start nginx", via: session, timeout: 10)
-            let success = result.exitCode == 0
             
-            if success {
+            if result.exitCode == 0 {
                 await loadServiceStatus()
+                return (true, "nginx.msg.started".localized)
+            } else {
+                // Fetch status to understand why it failed
+                let status = await SSHBaseService.shared.execute("sudo systemctl status nginx --no-pager -l -n 10", via: session)
+                let cleanOutput = stripANSICodes(status.output)
+                return (false, "Failed to start Nginx: \(cleanOutput)")
             }
-            
-            return (success, success ? "nginx.msg.started".localized : "nginx.err.start".localized)
         }
     }
     
@@ -64,13 +67,16 @@ extension NginxDetailViewModel {
         
         await performAsyncAction("Restart Nginx") {
             let result = await SSHBaseService.shared.execute("sudo systemctl restart nginx", via: session, timeout: 15)
-            let success = result.exitCode == 0
             
-            if success {
+            if result.exitCode == 0 {
                 await loadServiceStatus()
+                return (true, "nginx.msg.restarted".localized)
+            } else {
+                // Fetch status to understand why it failed
+                let status = await SSHBaseService.shared.execute("sudo systemctl status nginx --no-pager -l -n 10", via: session)
+                let cleanOutput = stripANSICodes(status.output)
+                return (false, "Failed to restart Nginx: \(cleanOutput)")
             }
-            
-            return (success, success ? "nginx.msg.restarted".localized : "nginx.err.restart".localized)
         }
     }
     
@@ -89,5 +95,10 @@ extension NginxDetailViewModel {
             
             return (success, success ? "nginx.msg.reloaded".localized : "nginx.err.reload".localized)
         }
+    }
+    
+    private func stripANSICodes(_ input: String) -> String {
+        let pattern = "\\x1B\\[[0-9;]*[mGKHF]|\\[\\d*(;\\d+)*m"
+        return input.replacingOccurrences(of: pattern, with: "", options: .regularExpression)
     }
 }

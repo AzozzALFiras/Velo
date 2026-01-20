@@ -5,11 +5,11 @@ public struct Capability: Identifiable, Codable {
     public let name: String
     public let slug: String
     public let icon: String // URL string
-    public let color: String // Hex string
+    public let color: String? // Hex string (Optional)
     public let category: String
     public let isEnabled: Bool
     public let description: String
-    public let defaultVersion: CapabilityVersion?
+    public let defaultVersion: String? // Changed to String as List API returns string version
     public let versions: [CapabilityVersion]?
 }
 
@@ -21,7 +21,7 @@ public struct CapabilityVersion: Identifiable, Codable {
     public let eolDate: String?
     public let recommendedUsage: String?
     public let isDefault: Bool
-    public let installCommands: [String: [String: String]]? // OS -> Type -> Command
+    public let installCommands: [String: [String]]? // OS -> Commands (Array of strings)
     public let features: [CapabilityFeature]?
     
     // Computed id for Identifiable conformance

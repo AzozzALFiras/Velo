@@ -52,8 +52,12 @@ class ApiService {
         }
     }
     
-    func fetchCapabilities() async throws -> [Capability] {
-        let (data, _) = try await performRequest(endpoint: "/capabilities")
+    func fetchCapabilities(category: String? = nil) async throws -> [Capability] {
+        var endpoint = "/capabilities"
+        if let category = category {
+            endpoint += "?category=\(category)"
+        }
+        let (data, _) = try await performRequest(endpoint: endpoint)
         
         let decoder = JSONDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase

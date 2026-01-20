@@ -14,6 +14,7 @@ struct ApplicationsManagementView: View {
     @State private var showNginxDetail = false
     @State private var showPythonDetail = false
     @State private var showNodeDetail = false
+    @State private var showApacheDetail = false
     
     /// Slugs of installed software (lowercased for matching)
     private var installedSlugs: Set<String> {
@@ -113,7 +114,7 @@ struct ApplicationsManagementView: View {
                             .foregroundStyle(.gray)
                             .padding(.horizontal)
                     } else {
-                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 160), spacing: 16)], spacing: 16) {
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 16)], spacing: 16) {
                             ForEach(availableToInstall) { cap in
                                 CapabilityCard(capability: cap)
                                     .onTapGesture {
@@ -124,7 +125,8 @@ struct ApplicationsManagementView: View {
                     }
                 }
             }
-            .padding(.vertical, 32)
+            .padding(.vertical, 40)
+            .padding(.horizontal, 24) // Added extra horizontal padding to prevent sidebar overlap
         }
         .background(Color(red: 0.05, green: 0.05, blue: 0.08).ignoresSafeArea())
         .sheet(item: $selectedCapability) { cap in
@@ -178,11 +180,20 @@ struct ApplicationsManagementView: View {
                     .transition(.move(edge: .trailing).combined(with: .opacity))
                     .zIndex(100)
             }
+            
+            if showApacheDetail {
+                ApacheDetailView(session: viewModel.session, onDismiss: {
+                    showApacheDetail = false
+                })
+                .transition(.move(edge: .trailing).combined(with: .opacity))
+                .zIndex(100)
+            }
         }
         .animation(.easeInOut(duration: 0.25), value: showPHPDetail)
         .animation(.easeInOut(duration: 0.25), value: showNginxDetail)
         .animation(.easeInOut(duration: 0.25), value: showPythonDetail)
         .animation(.easeInOut(duration: 0.25), value: showNodeDetail)
+        .animation(.easeInOut(duration: 0.25), value: showApacheDetail)
         .overlay(alignment: .bottomTrailing) {
             if viewModel.showInstallOverlay {
                 InstallationStatusOverlay(viewModel: viewModel)
@@ -205,6 +216,8 @@ struct ApplicationsManagementView: View {
             showPythonDetail = true
         case "node", "nodejs":
             showNodeDetail = true
+        case "apache", "apache2":
+            showApacheDetail = true
         // Future: Add cases for mysql, python, etc.
         default:
             break
@@ -221,12 +234,19 @@ struct InstalledAppCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Image(systemName: software.iconName)
-                    .font(.title2)
-                    .foregroundStyle(.white)
-                    .frame(width: 40, height: 40)
-                    .background(Color.blue.opacity(0.2))
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                AsyncImage(url: URL(string: "https://velo.3zozz.com/assets/icons/\(software.name.lowercased()).png")) { phase in
+                    if let image = phase.image {
+                        image
+                            .resizable()
+                            .scaledToFit()
+                    } else {
+                        Image(systemName: "cube.box.fill")
+                            .foregroundStyle(.white)
+                    }
+                }
+                .frame(width: 40, height: 40)
+                .background(Color.blue.opacity(0.2))
+                .clipShape(RoundedRectangle(cornerRadius: 10))
                 
                 Spacer()
                 
@@ -260,28 +280,29 @@ struct CapabilityCard: View {
     
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            AsyncImage(url: URL(string: capability.icon)) { phase in
+            AsyncImage(url: URL(string: "https://velo.3zozz.com/assets/icons/\(capability.slug).png")) { phase in
                 if let image = phase.image {
                     image
                         .resizable()
                         .scaledToFit()
                 } else {
                     Image(systemName: "cube.box.fill")
-                        .foregroundStyle(Color(hex: capability.color))
+                        .foregroundStyle(Color(hex: capability.color ?? "#3B82F6"))
                 }
             }
-            .frame(width: 40, height: 40)
+            .frame(width: 32, height: 32)
             
             VStack(alignment: .leading, spacing: 4) {
                 Text(capability.name)
-                    .font(.headline)
+                    .font(.subheadline) // Was headline
+                    .fontWeight(.semibold)
                     .foregroundStyle(.white)
                 Text(capability.category.capitalized)
-                    .font(.caption)
+                    .font(.caption2) // Was caption
                     .foregroundStyle(.gray)
             }
         }
-        .padding()
+        .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color.white.opacity(0.03))
         .clipShape(RoundedRectangle(cornerRadius: 16))
