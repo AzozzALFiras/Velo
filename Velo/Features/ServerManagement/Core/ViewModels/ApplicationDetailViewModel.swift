@@ -34,13 +34,23 @@ final class ApplicationDetailViewModel: ObservableObject {
     @Published var errorMessage: String?
     @Published var successMessage: String?
 
+    private var cancellables = Set<AnyCancellable>()
+
     // MARK: - Init
 
     init(app: ApplicationDefinition, session: TerminalViewModel?) {
         self.app = app
         self.session = session
-        self.state = ApplicationState()
+        let newState = ApplicationState()
+        self.state = newState
         self.selectedSection = app.defaultSection ?? app.sections.first!
+        
+        // Bind state changes to ViewModel changes to ensure UI updates propagate
+        newState.objectWillChange
+            .sink { [weak self] _ in
+                self?.objectWillChange.send()
+            }
+            .store(in: &cancellables)
     }
 
     // MARK: - Data Loading
