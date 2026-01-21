@@ -421,8 +421,9 @@ final class ApplicationDetailViewModel: ObservableObject {
 
         isPerformingAction = false
     }
-
+    // Strip ANSI escape codes from a string
     private func stripANSI(_ input: String) -> String {
+        // Remove ANSI escape codes
         let pattern = "\\x1B\\[[0-9;]*[mGKHF]|\\[\\d*(;\\d+)*m"
         return input.replacingOccurrences(of: pattern, with: "", options: .regularExpression)
     }
