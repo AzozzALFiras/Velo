@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import Combine
 
 /// Holds the runtime state of an application
 @MainActor
@@ -48,10 +49,10 @@ final class ApplicationState: ObservableObject {
     @Published var databases: [DatabaseInfo] = []
     @Published var users: [DatabaseUser] = []
 
-    // MySQL specific
+    // MySQL specific (uses existing MySQLStatusInfo)
     @Published var mysqlStatus: MySQLStatusInfo?
 
-    // Nginx specific
+    // Nginx specific (uses existing NginxStatusInfo)
     @Published var nginxStatus: NginxStatusInfo?
     @Published var securityRulesStatus: [String: Bool] = [:]
     @Published var securityStats: (total: String, last24h: String) = ("0", "0")
@@ -97,7 +98,7 @@ final class ApplicationState: ObservableObject {
     }
 }
 
-// MARK: - Supporting Types
+// MARK: - Supporting Types (only types not defined elsewhere)
 
 /// Information about a PHP extension
 struct PHPExtensionInfo: Identifiable, Hashable {
@@ -126,7 +127,7 @@ struct PHPFPMStatus: Hashable {
     let acceptedConnections: Int
 }
 
-/// Database information
+/// Database information (for unified database list)
 struct DatabaseInfo: Identifiable, Hashable {
     let id: String
     let name: String
@@ -139,42 +140,4 @@ struct DatabaseInfo: Identifiable, Hashable {
         self.size = size
         self.tableCount = tableCount
     }
-}
-
-/// Database user information
-struct DatabaseUser: Identifiable, Hashable {
-    let id: String
-    let username: String
-    let host: String
-    let privileges: [String]
-
-    init(username: String, host: String = "localhost", privileges: [String] = []) {
-        self.id = "\(username)@\(host)"
-        self.username = username
-        self.host = host
-        self.privileges = privileges
-    }
-}
-
-/// MySQL status info - placeholder if not already defined
-struct MySQLStatusInfo: Hashable {
-    let uptime: String
-    let threads: Int
-    let questions: Int
-    let slowQueries: Int
-    let opens: Int
-    let flushTables: Int
-    let openTables: Int
-    let queriesPerSecond: Double
-}
-
-/// Nginx status info - placeholder if not already defined
-struct NginxStatusInfo: Hashable {
-    let activeConnections: Int
-    let accepts: Int
-    let handled: Int
-    let requests: Int
-    let reading: Int
-    let writing: Int
-    let waiting: Int
 }

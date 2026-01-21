@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import Combine
 
 /// Defines an application that can be managed through the unified detail view
 struct ApplicationDefinition: Identifiable, Hashable {

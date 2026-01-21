@@ -445,7 +445,16 @@ actor SSHBaseService: TerminalOutputDelegate {
     
     // MARK: - Helpers
     
+    private var sessionPasswords = [UUID: String]()
+
     private func fetchPasswordForSession(_ session: TerminalViewModel) async -> String? {
+        let sessionId = await MainActor.run { session.id }
+        
+        // 1. Check Cache
+        if let cached = sessionPasswords[sessionId] {
+            return cached
+        }
+        
         let connStr = await MainActor.run { session.activeSSHConnectionString }
         guard let connStr = connStr else { return nil }
         
@@ -456,28 +465,26 @@ actor SSHBaseService: TerminalOutputDelegate {
         let hostAndPort = parts[1]
         let host = hostAndPort.components(separatedBy: ":").first ?? hostAndPort
         
-        return await MainActor.run {
+        let password = await MainActor.run {
             let manager = SSHManager()
             let savedConnections = manager.connections
-            
-            print("🔑 [SSHBase] Looking for credentials for \(username)@\(host)... (Total saved: \(savedConnections.count))")
             
             // Try to find matching connection
             if let conn = savedConnections.first(where: { 
                 $0.host.lowercased() == host.lowercased() && 
                 $0.username.lowercased() == username.lowercased() 
             }) {
-                let pwd = manager.getPassword(for: conn)
-                print("🔑 [SSHBase] ✅ Found matching connection '\(conn.name)' - Password: \(pwd != nil ? "YES" : "NO")")
-                return pwd
-            } else {
-                print("🔑 [SSHBase] ❌ No matching connection found for \(username)@\(host)")
-                for c in savedConnections {
-                    print("  - Available: \(c.username)@\(c.host)")
-                }
+                return manager.getPassword(for: conn)
             }
             return nil
         }
+        
+        // 2. Cache Result
+        if let found = password {
+            sessionPasswords[sessionId] = found
+        }
+        
+        return password
     }
 }
 

@@ -10,11 +10,7 @@ import SwiftUI
 struct ApplicationsManagementView: View {
     @ObservedObject var viewModel: ServerManagementViewModel
     @State private var selectedCapability: Capability?
-    @State private var showPHPDetail = false
-    @State private var showNginxDetail = false
-    @State private var showPythonDetail = false
-    @State private var showNodeDetail = false
-    @State private var showApacheDetail = false
+    @State private var activeDetailApp: ApplicationDefinition? = nil
     
     /// Slugs of installed software (lowercased for matching)
     private var installedSlugs: Set<String> {
@@ -133,67 +129,19 @@ struct ApplicationsManagementView: View {
             CapabilityDetailView(viewModel: viewModel, capability: cap)
         }
         .overlay {
-            if showPHPDetail {
-                PHPDetailView(session: viewModel.session, onDismiss: {
-                    showPHPDetail = false
-                })
-                    .transition(.move(edge: .trailing).combined(with: .opacity))
-                    .zIndex(100)
-            }
-            
-            if showNginxDetail {
-                NginxDetailView(session: viewModel.session, onDismiss: {
-                    showNginxDetail = false
-                })
-                    .transition(.move(edge: .trailing).combined(with: .opacity))
-                    .zIndex(100)
-            }
-            
-            if showPythonDetail {
-                PythonDetailView(session: viewModel.session)
-                    .overlay(alignment: .topTrailing) {
-                        Button { showPythonDetail = false } label: {
-                            Image(systemName: "xmark.circle.fill")
-                                .font(.title)
-                                .foregroundStyle(.gray)
-                                .padding()
-                        }
-                        .buttonStyle(.plain)
+            if let app = activeDetailApp {
+                UnifiedApplicationDetailView(
+                    app: app,
+                    session: viewModel.session,
+                    onDismiss: {
+                        activeDetailApp = nil
                     }
-                    .background(Color(NSColor.windowBackgroundColor))
-                    .transition(.move(edge: .trailing).combined(with: .opacity))
-                    .zIndex(100)
-            }
-            
-            if showNodeDetail {
-                NodeDetailView(session: viewModel.session)
-                    .overlay(alignment: .topTrailing) {
-                        Button { showNodeDetail = false } label: {
-                            Image(systemName: "xmark.circle.fill")
-                                .font(.title)
-                                .foregroundStyle(.gray)
-                                .padding()
-                        }
-                        .buttonStyle(.plain)
-                    }
-                    .background(Color(NSColor.windowBackgroundColor))
-                    .transition(.move(edge: .trailing).combined(with: .opacity))
-                    .zIndex(100)
-            }
-            
-            if showApacheDetail {
-                ApacheDetailView(session: viewModel.session, onDismiss: {
-                    showApacheDetail = false
-                })
+                )
                 .transition(.move(edge: .trailing).combined(with: .opacity))
                 .zIndex(100)
             }
         }
-        .animation(.easeInOut(duration: 0.25), value: showPHPDetail)
-        .animation(.easeInOut(duration: 0.25), value: showNginxDetail)
-        .animation(.easeInOut(duration: 0.25), value: showPythonDetail)
-        .animation(.easeInOut(duration: 0.25), value: showNodeDetail)
-        .animation(.easeInOut(duration: 0.25), value: showApacheDetail)
+        .animation(.easeInOut(duration: 0.25), value: activeDetailApp?.id)
         .overlay(alignment: .bottomTrailing) {
             if viewModel.showInstallOverlay {
                 InstallationStatusOverlay(viewModel: viewModel)
@@ -207,20 +155,8 @@ struct ApplicationsManagementView: View {
     // MARK: - Helpers
     
     private func handleInstalledSoftwareTap(_ software: InstalledSoftware) {
-        switch software.name.lowercased() {
-        case "php":
-            showPHPDetail = true
-        case "nginx":
-            showNginxDetail = true
-        case "python":
-            showPythonDetail = true
-        case "node", "nodejs":
-            showNodeDetail = true
-        case "apache", "apache2":
-            showApacheDetail = true
-        // Future: Add cases for mysql, python, etc.
-        default:
-            break
+        if let app = ApplicationRegistry.shared.applicationForSoftware(named: software.name) {
+            activeDetailApp = app
         }
     }
 }
