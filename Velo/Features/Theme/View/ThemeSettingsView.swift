@@ -13,11 +13,17 @@ struct ThemeSettingsView: View {
     @State private var showingCustomThemeEditor = false
     @State private var editingTheme: VeloTheme?
     
+    // Deletion State
+    @State private var showingDeleteAlert = false
+    @State private var themeToDelete: VeloTheme?
+    @State private var errorMessage: String?
+    @State private var showingErrorAlert = false
+    
     var body: some View {
         VStack(alignment: .leading, spacing: VeloDesign.Spacing.lg) {
             // Built-in Themes
             VStack(alignment: .leading, spacing: VeloDesign.Spacing.md) {
-                SectionHeader(title: "Built-in Themes")
+                SectionHeader(title: "theme.builtin".localized)
                 
                 LazyVGrid(columns: [
                     GridItem(.flexible()),
@@ -37,7 +43,7 @@ struct ThemeSettingsView: View {
             if !themeManager.customThemes.isEmpty {
                 VStack(alignment: .leading, spacing: VeloDesign.Spacing.md) {
                     HStack {
-                        SectionHeader(title: "Custom Themes")
+                        SectionHeader(title: "theme.custom".localized)
                         Spacer()
                         Button(action: { showingCustomThemeEditor = true }) {
                             Image(systemName: "plus.circle.fill")
@@ -56,7 +62,10 @@ struct ThemeSettingsView: View {
                                 isSelected: themeManager.currentTheme.id == theme.id,
                                 onSelect: { themeManager.setTheme(theme) },
                                 onEdit: { editingTheme = theme },
-                                onDelete: { themeManager.deleteCustomTheme(theme) }
+                                onDelete: {
+                                    themeToDelete = theme
+                                    showingDeleteAlert = true
+                                }
                             )
                         }
                     }
@@ -65,7 +74,7 @@ struct ThemeSettingsView: View {
                 Button(action: { showingCustomThemeEditor = true }) {
                     HStack {
                         Image(systemName: "plus.circle.fill")
-                        Text("Create Custom Theme")
+                        Text("theme.create".localized)
                     }
                     .font(VeloDesign.Typography.subheadline)
                     .foregroundColor(VeloDesign.Colors.neonCyan)
@@ -86,6 +95,33 @@ struct ThemeSettingsView: View {
         }
         .sheet(item: $editingTheme) { theme in
             CustomThemeEditorView(theme: theme)
+        }
+        // Deletion Confirmation Alert
+        .alert("Delete Theme", isPresented: $showingDeleteAlert) {
+            Button("Cancel", role: .cancel) { themeToDelete = nil }
+            Button("Delete", role: .destructive) {
+                if let theme = themeToDelete {
+                    SecurityManager.shared.securelyPerformAction(reason: "Delete custom theme \(theme.name)") {
+                        themeManager.deleteCustomTheme(theme)
+                    } onError: { error in
+                        self.errorMessage = error
+                        self.showingErrorAlert = true
+                    }
+                }
+                themeToDelete = nil
+            }
+        } message: {
+            if let theme = themeToDelete {
+                Text("Are you sure you want to delete '\(theme.name)'? This action cannot be undone.")
+            }
+        }
+        // Error Alert
+        .alert("Authentication Error", isPresented: $showingErrorAlert) {
+            Button("OK", role: .cancel) { errorMessage = nil }
+        } message: {
+            if let error = errorMessage {
+                Text(error)
+            }
         }
     }
 }
@@ -209,7 +245,7 @@ struct CustomThemeEditorView: View {
         VStack(spacing: 0) {
             // Header
             HStack {
-                Text(isEditing ? "Edit Theme" : "Create Theme")
+                Text(isEditing ? "theme.edit".localized : "theme.create".localized)
                     .font(VeloDesign.Typography.headline)
                     .foregroundColor(VeloDesign.Colors.textPrimary)
                 
@@ -229,11 +265,11 @@ struct CustomThemeEditorView: View {
                 VStack(alignment: .leading, spacing: VeloDesign.Spacing.lg) {
                     // Theme Name
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("Theme Name")
+                        Text("theme.name".localized)
                             .font(VeloDesign.Typography.caption)
                             .foregroundColor(VeloDesign.Colors.textSecondary)
                         
-                        TextField("Enter theme name", text: $themeName)
+                        TextField("theme.enterName".localized, text: $themeName)
                             .textFieldStyle(.plain)
                             .font(VeloDesign.Typography.monoFont)
                             .padding(10)
@@ -253,7 +289,7 @@ struct CustomThemeEditorView: View {
             // Actions
             HStack {
                 Button(action: { dismiss() }) {
-                    Text("Cancel")
+                    Text("theme.cancel".localized)
                         .font(VeloDesign.Typography.subheadline)
                         .foregroundColor(VeloDesign.Colors.textSecondary)
                         .padding(.horizontal, 24)
@@ -264,7 +300,7 @@ struct CustomThemeEditorView: View {
                 Spacer()
                 
                 Button(action: saveTheme) {
-                    Text(isEditing ? "Save" : "Create")
+                    Text(isEditing ? "theme.save".localized : "theme.createBtn".localized)
                         .font(VeloDesign.Typography.subheadline)
                         .foregroundColor(.black)
                         .padding(.horizontal, 24)
@@ -326,7 +362,7 @@ struct ColorSchemeEditor: View {
     
     var body: some View {
         VStack(alignment: .leading, spacing: VeloDesign.Spacing.md) {
-            Text("Colors")
+            Text("theme.colors".localized)
                 .font(VeloDesign.Typography.headline)
                 .foregroundColor(VeloDesign.Colors.textPrimary)
             
@@ -373,14 +409,14 @@ struct FontSchemeEditor: View {
     
     var body: some View {
         VStack(alignment: .leading, spacing: VeloDesign.Spacing.md) {
-            Text("Fonts")
+            Text("theme.fonts".localized)
                 .font(VeloDesign.Typography.headline)
                 .foregroundColor(VeloDesign.Colors.textPrimary)
             
             VStack(spacing: VeloDesign.Spacing.sm) {
                 // Mono Font
                 HStack {
-                    Text("Monospace Font")
+                    Text("theme.monoFont".localized)
                         .font(VeloDesign.Typography.caption)
                         .foregroundColor(VeloDesign.Colors.textSecondary)
                     Spacer()
@@ -394,13 +430,13 @@ struct FontSchemeEditor: View {
                 }
                 
                 HStack {
-                    Text("Mono Font Size")
+                    Text("theme.monoSize".localized)
                         .font(VeloDesign.Typography.caption)
                         .foregroundColor(VeloDesign.Colors.textSecondary)
                     Spacer()
                     Slider(value: $fontScheme.monoFontSize, in: 10...18, step: 1)
                         .frame(width: 150)
-                    Text("\(Int(fontScheme.monoFontSize))pt")
+                    Text("theme.font.size".localized(Int(fontScheme.monoFontSize)))
                         .font(VeloDesign.Typography.monoSmall)
                         .foregroundColor(VeloDesign.Colors.textMuted)
                         .frame(width: 40, alignment: .trailing)
@@ -410,26 +446,26 @@ struct FontSchemeEditor: View {
                 
                 // Headline Font
                 HStack {
-                    Text("Headline Font")
+                    Text("theme.headlineFont".localized)
                         .font(VeloDesign.Typography.caption)
                         .foregroundColor(VeloDesign.Colors.textSecondary)
                     Spacer()
                     Picker("", selection: $fontScheme.headlineFontName) {
-                        Text("System Rounded").tag("System Rounded")
-                        Text("System Default").tag("System Default")
+                        Text("theme.system.rounded".localized).tag("System Rounded")
+                        Text("theme.system.default".localized).tag("System Default")
                     }
                     .labelsHidden()
                     .frame(width: 200)
                 }
                 
                 HStack {
-                    Text("Headline Size")
+                    Text("theme.headlineSize".localized)
                         .font(VeloDesign.Typography.caption)
                         .foregroundColor(VeloDesign.Colors.textSecondary)
                     Spacer()
                     Slider(value: $fontScheme.headlineFontSize, in: 14...24, step: 1)
                         .frame(width: 150)
-                    Text("\(Int(fontScheme.headlineFontSize))pt")
+                    Text("theme.font.size".localized(Int(fontScheme.headlineFontSize)))
                         .font(VeloDesign.Typography.monoSmall)
                         .foregroundColor(VeloDesign.Colors.textMuted)
                         .frame(width: 40, alignment: .trailing)

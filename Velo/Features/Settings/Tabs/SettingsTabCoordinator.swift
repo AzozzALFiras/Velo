@@ -16,6 +16,7 @@ struct SettingsTabCoordinator: View {
     enum SettingsTab: String, CaseIterable, Identifiable {
         case general = "General"
         case theme = "Theme"
+        case language = "Language"
         case ssh = "SSH"
         case ai = "Cloud AI"
         case about = "About"
@@ -26,9 +27,21 @@ struct SettingsTabCoordinator: View {
             switch self {
             case .general: return "gearshape.fill"
             case .theme: return "paintpalette.fill"
+            case .language: return "globe"
             case .ssh: return "server.rack"
             case .ai: return "sparkles"
             case .about: return "info.circle.fill"
+            }
+        }
+
+        var label: String {
+            switch self {
+            case .general: return "settings.general".localized
+            case .theme: return "settings.theme".localized
+            case .language: return "settings.language".localized
+            case .ssh: return "settings.ssh".localized
+            case .ai: return "settings.ai".localized
+            case .about: return "settings.about".localized
             }
         }
     }
@@ -42,7 +55,7 @@ struct SettingsTabCoordinator: View {
                 VStack(spacing: 0) {
                     // Header
                     HStack {
-                        Text("Settings")
+                        Text("settings.title".localized)
                             .font(TypographyTokens.displayMd)
                             .foregroundColor(ColorTokens.textPrimary)
                         Spacer()
@@ -74,7 +87,7 @@ struct SettingsTabCoordinator: View {
                         HStack(spacing: VeloDesign.Spacing.sm) {
                             Image(systemName: "xmark.circle.fill")
                                 .font(.system(size: 16))
-                            Text("Close")
+                            Text("common.close".localized)
                                 .font(TypographyTokens.body)
                         }
                         .foregroundColor(ColorTokens.textSecondary)
@@ -97,6 +110,8 @@ struct SettingsTabCoordinator: View {
                                 GeneralTab()
                             case .theme:
                                 ThemeTab()
+                            case .language:
+                                LanguageTab()
                             case .ssh:
                                 SSHTab()
                             case .ai:
@@ -131,7 +146,7 @@ struct SettingsTabButton: View {
                     .foregroundColor(isSelected ? ColorTokens.accentPrimary : ColorTokens.textSecondary)
                     .frame(width: 20)
 
-                Text(tab.rawValue)
+                Text(tab.label)
                     .font(TypographyTokens.body)
                     .foregroundColor(isSelected ? ColorTokens.textPrimary : ColorTokens.textSecondary)
 
@@ -148,3 +163,4 @@ struct SettingsTabButton: View {
 #Preview {
     SettingsTabCoordinator()
 }
+

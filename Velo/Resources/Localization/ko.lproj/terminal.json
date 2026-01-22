@@ -1,0 +1,21 @@
+{
+  "terminal.execute": "실행",
+  "terminal.clear": "지우기",
+  "terminal.interrupt": "중단",
+  "terminal.typeCommand": "명령어 입력...",
+  "terminal.running": "실행 중...",
+  "terminal.completed": "완료",
+  "terminal.failed": "실패",
+  "terminal.exitCode": "종료 코드",
+  "terminal.empty.title": "명령 실행 준비 완료",
+  "terminal.empty.subtitle": "명령을 입력하거나 단축키를 사용하세요",
+  "terminal.empty.newTab": "새 탭",
+  "terminal.empty.clear": "지우기",
+  "terminal.empty.history": "내역",
+  "terminal.menu.copy": "(ko) Copy Line",
+  "terminal.menu.explain": "(ko) Explain Error",
+  "terminal.menu.fix": "(ko) Fix Error",
+  "terminal.menu.open": "(ko) Open {}",
+  "terminal.output.showMore": "(ko) Show {} more lines",
+  "terminal.output.collapse": "(ko) Collapse"
+}

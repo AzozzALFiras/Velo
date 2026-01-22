@@ -16,6 +16,7 @@ final class CommandHistoryManager: ObservableObject {
     // MARK: - Published State
     @Published private(set) var recentCommands: [CommandModel] = []
     @Published private(set) var frequentCommands: [CommandModel] = []
+    @Published private(set) var favoriteCommands: [CommandModel] = []
     @Published private(set) var sessions: [SessionModel] = []
     @Published private(set) var currentSession: SessionModel?
     
@@ -40,6 +41,18 @@ final class CommandHistoryManager: ObservableObject {
         Task {
             await loadHistory()
             startNewSession()
+        }
+    }
+    
+    // MARK: - Toggle Favorite
+    func toggleFavorite(for commandId: UUID) {
+        if let index = allCommands.firstIndex(where: { $0.id == commandId }) {
+            allCommands[index].isFavorite.toggle()
+            updatePublishedArrays()
+            
+            Task {
+                await saveHistory()
+            }
         }
     }
     
@@ -177,6 +190,11 @@ final class CommandHistoryManager: ObservableObject {
                      frequencyMap[normalizeCommand($1.command), default: 0] }
         
         frequentCommands = Array(sortedByFrequency.prefix(15))
+        
+        // Favorites: all commands marked as favorite, sorted by timestamp
+        favoriteCommands = allCommands
+            .filter { $0.isFavorite }
+            .sorted { $0.timestamp > $1.timestamp }
     }
     
     private func normalizeCommand(_ command: String) -> String {

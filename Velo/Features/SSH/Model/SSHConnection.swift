@@ -8,30 +8,6 @@
 import Foundation
 import SwiftUI
 
-// MARK: - SSH Auth Method
-enum SSHAuthMethod: String, Codable, CaseIterable, Identifiable {
-    case password = "password"
-    case privateKey = "privateKey"
-    case sshAgent = "sshAgent"
-    
-    var id: String { rawValue }
-    
-    var displayName: String {
-        switch self {
-        case .password: return "Password"
-        case .privateKey: return "Private Key"
-        case .sshAgent: return "SSH Agent"
-        }
-    }
-    
-    var icon: String {
-        switch self {
-        case .password: return "key.fill"
-        case .privateKey: return "doc.text.fill"
-        case .sshAgent: return "person.badge.key.fill"
-        }
-    }
-}
 
 // MARK: - SSH Connection
 struct SSHConnection: Identifiable, Codable, Hashable {
@@ -146,7 +122,7 @@ struct SSHConfigParser {
         var currentPort: Int = 22
         var currentIdentityFile: String?
         
-        for line in content.components(separatedBy: .newlines) {
+        for line in content.components(separatedBy: CharacterSet.newlines) {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
             guard !trimmed.isEmpty, !trimmed.hasPrefix("#") else { continue }
             

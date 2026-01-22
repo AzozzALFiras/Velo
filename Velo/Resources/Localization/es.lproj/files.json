@@ -1,0 +1,13 @@
+{
+    "files.upload": "Upload",
+    "files.col.name": "Name",
+    "files.col.size": "Size",
+    "files.col.permissions": "Permissions",
+    "files.col.owner": "Owner",
+    "files.col.modified": "Modified",
+    "files.delete.confirm_folder": "Are you sure you want to delete the folder '%@' and all its contents?",
+    "files.delete.confirm_file": "Are you sure you want to delete '%@'?",
+    "files.rename.title": "Rename File",
+    "files.rename.current": "Current name",
+    "files.rename.new": "New name"
+}

@@ -1,0 +1,17 @@
+{
+  "editor.title": "المحرر",
+  "editor.save": "حفظ",
+  "editor.saveAs": "حفظ باسم",
+  "editor.undo": "تراجع",
+  "editor.redo": "إعادة",
+  "editor.find": "بحث",
+  "editor.replace": "استبدال",
+  "editor.lineNumbers": "أرقام الأسطر",
+  "editor.wordWrap": "التفاف الكلمات",
+  "editor.unsavedChanges": "تغييرات غير محفوظة",
+  "editor.discardChanges": "تجاهل التغييرات",
+  "editor.fetchingFile": "جارٍ جلب الملف البعيد",
+  "editor.saving": "جارٍ الحفظ...",
+  "editor.saved": "تم الحفظ بنجاح",
+  "editor.saveFailed": "فشل الحفظ"
+}

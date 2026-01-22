@@ -8,10 +8,17 @@
 import Foundation
 import Combine
 
+// MARK: - Delegate Protocol
+protocol TerminalOutputDelegate: AnyObject {
+    func terminalDidReceiveOutput(_ engine: TerminalEngine, text: String)
+}
+
 // MARK: - Terminal Engine
 /// Core engine for managing shell processes and command execution
 @MainActor
 final class TerminalEngine: ObservableObject {
+    
+    weak var delegate: TerminalOutputDelegate?
     
     // MARK: - Published State
     @Published private(set) var isRunning: Bool = false
@@ -38,6 +45,12 @@ final class TerminalEngine: ObservableObject {
     private let outputBuffer = OutputBuffer()
     private var flushTimer: Timer?
     private var cancellables = Set<AnyCancellable>()
+
+    // PERFORMANCE FIX: Throttle delegate notifications to prevent excessive Task creation
+    // Using nonisolated(unsafe) for thread-safe access from background queues
+    // This is safe because we only do atomic read/write of a Date value
+    private nonisolated(unsafe) var lastDelegateNotification: Date = .distantPast
+    private let delegateThrottleInterval: TimeInterval = 0.05  // 50ms = max 20 calls/second
     
     // MARK: - Configuration
     private let shell: String
@@ -121,9 +134,9 @@ final class TerminalEngine: ObservableObject {
         // Setup output handling
         setupOutputHandling(output: output, error: error)
         
-        // Start flush timer on main thread (throttled to ~7Hz for smooth scrolling)
+        // Start flush timer on main thread (throttled to ~15Hz for smooth streaming)
         await MainActor.run {
-            self.flushTimer = Timer.scheduledTimer(withTimeInterval: 0.15, repeats: true) { [weak self] _ in
+            self.flushTimer = Timer.scheduledTimer(withTimeInterval: 0.066, repeats: true) { [weak self] _ in
                 self?.flushBuffer()
             }
         }
@@ -204,12 +217,23 @@ final class TerminalEngine: ObservableObject {
         
         // Create PTY process with output handler
         ptyProcess = PTYProcess { [weak self] text in
-            self?.outputBuffer.append(text, isError: false)
+            guard let self = self else { return }
+            self.outputBuffer.append(text, isError: false)
+
+            // PERFORMANCE FIX: Throttle delegate notifications to prevent excessive Task creation
+            let now = Date()
+            if now.timeIntervalSince(self.lastDelegateNotification) >= self.delegateThrottleInterval {
+                self.lastDelegateNotification = now
+                Task { @MainActor [weak self] in
+                    guard let self = self else { return }
+                    self.delegate?.terminalDidReceiveOutput(self, text: text)
+                }
+            }
         }
         
-        // Start flush timer
+        // Start flush timer (faster for PTY - ~20Hz for real-time interactive feel)
         await MainActor.run {
-            self.flushTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+            self.flushTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
                 self?.flushBuffer()
             }
         }
@@ -308,45 +332,72 @@ final class TerminalEngine: ObservableObject {
         // Handle stdout - runs on background queue
         output.fileHandleForReading.readabilityHandler = { [weak self] handle in
             let data = handle.availableData
-            guard !data.isEmpty else { return }
+            guard !data.isEmpty, let self = self else { return }
             if let text = String(data: data, encoding: .utf8) {
-                self?.outputBuffer.append(text, isError: false)
+                self.outputBuffer.append(text, isError: false)
+
+                // PERFORMANCE FIX: Throttle delegate notifications
+                let now = Date()
+                if now.timeIntervalSince(self.lastDelegateNotification) >= self.delegateThrottleInterval {
+                    self.lastDelegateNotification = now
+                    Task { @MainActor [weak self] in
+                        guard let self = self else { return }
+                        self.delegate?.terminalDidReceiveOutput(self, text: text)
+                    }
+                }
             }
         }
-        
+
         // Handle stderr - runs on background queue
         error.fileHandleForReading.readabilityHandler = { [weak self] handle in
             let data = handle.availableData
-            guard !data.isEmpty else { return }
+            guard !data.isEmpty, let self = self else { return }
             if let text = String(data: data, encoding: .utf8) {
-                self?.outputBuffer.append(text, isError: true)
+                self.outputBuffer.append(text, isError: true)
+
+                // PERFORMANCE FIX: Throttle delegate notifications
+                let now = Date()
+                if now.timeIntervalSince(self.lastDelegateNotification) >= self.delegateThrottleInterval {
+                    self.lastDelegateNotification = now
+                    Task { @MainActor [weak self] in
+                        guard let self = self else { return }
+                        self.delegate?.terminalDidReceiveOutput(self, text: text)
+                    }
+                }
             }
         }
     }
     
     private func flushBuffer() {
         let update = outputBuffer.flush()
-        guard !update.lines.isEmpty else { return }
-        
-        // Efficient Main Actor update
-        if update.replaceLast, !outputLines.isEmpty {
+        guard update.hasNewContent && !update.lines.isEmpty else { return }
+
+        // Efficient Main Actor update with optimized replace logic
+        if update.replaceLast && !outputLines.isEmpty {
+            // Replace the last line (for progress updates like wget/curl)
             outputLines.removeLast()
         }
-        
+
         outputLines.append(contentsOf: update.lines)
-        
+
         // Limit total lines to prevent memory issues (keep last 10000)
         let maxLines = 10000
         if outputLines.count > maxLines {
-            outputLines.removeFirst(outputLines.count - maxLines)
+            let overflow = outputLines.count - maxLines
+            outputLines.removeFirst(overflow)
         }
-        
-        // Accumulate output for command history
+
+        // Accumulate output for command history (skip partial lines being updated)
+        // PERFORMANCE FIX: Cap accumulated output to prevent memory explosion (max 5MB)
+        let maxAccumulatedSize = 5_000_000
         for line in update.lines {
             accumulatedOutput += line.text + "\n"
         }
-        
-        // Optional: Notify publisher if needed
+        if accumulatedOutput.count > maxAccumulatedSize {
+            accumulatedOutput = String(accumulatedOutput.suffix(maxAccumulatedSize / 2))
+        }
+
+        // Notify publisher for streaming subscribers
         for line in update.lines {
             outputPublisher.send(line)
         }

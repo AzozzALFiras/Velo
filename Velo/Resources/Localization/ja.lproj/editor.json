@@ -1,0 +1,17 @@
+{
+  "editor.title": "エディタ",
+  "editor.save": "保存",
+  "editor.saveAs": "別名で保存",
+  "editor.undo": "元に戻す",
+  "editor.redo": "やり直し",
+  "editor.find": "検索",
+  "editor.replace": "置換",
+  "editor.lineNumbers": "行番号",
+  "editor.wordWrap": "折り返し",
+  "editor.unsavedChanges": "未保存の変更",
+  "editor.discardChanges": "変更を破棄",
+  "editor.fetchingFile": "リモートファイルを取得中",
+  "editor.saving": "保存中...",
+  "editor.saved": "保存しました",
+  "editor.saveFailed": "保存に失敗しました"
+}

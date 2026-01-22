@@ -1,0 +1,17 @@
+{
+  "editor.title": "Editor",
+  "editor.save": "Speichern",
+  "editor.saveAs": "Speichern unter",
+  "editor.undo": "Rückgängig",
+  "editor.redo": "Wiederholen",
+  "editor.find": "Suchen",
+  "editor.replace": "Ersetzen",
+  "editor.lineNumbers": "Zeilennummern",
+  "editor.wordWrap": "Zeilenumbruch",
+  "editor.unsavedChanges": "Nicht gespeicherte Änderungen",
+  "editor.discardChanges": "Änderungen verwerfen",
+  "editor.fetchingFile": "Lade Remote-Datei",
+  "editor.saving": "Speichert...",
+  "editor.saved": "Erfolgreich gespeichert",
+  "editor.saveFailed": "Speichern fehlgeschlagen"
+}

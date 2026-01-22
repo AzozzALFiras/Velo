@@ -1,124 +1,94 @@
 # Velo 🚀
 
-**The AI-Powered Terminal for the Future.**
+**The AI-Powered Terminal & Server Management Center.**
 
-Velo is a next-generation terminal emulator built for macOS, designed to bridge the gap between classic command-line power and modern AI intelligence. It features a futuristic "glassmorphism" UI, intelligent command prediction, multi-tab support, cloud AI integration, and a high-performance rendering engine that eliminates UI blocking.
+Velo is a next-generation terminal emulator and server management suite built for macOS. It bridges the gap between classic command-line power, modern server administration, and advanced AI intelligence. Designed with a futuristic "glassmorphism" UI, Velo offers a unified workspace for developers and sysadmins to manage SSH connections, web servers, databases, and Docker containers with ease.
 
 ![Velo Terminal UI](https://raw.githubusercontent.com/AzozzALFiras/Velo/refs/heads/main/Velo/screenshots/1.png)
+
 ## ✨ Key Features
 
-### 🎨 Theme Customization
-- **4 Built-in Themes**: Choose from Neon Dark (default), Classic Dark, Light, and Cyberpunk themes
-- **Custom Theme Creation**: Full control over 17 color properties and font settings
-- **Live Preview**: Real-time theme preview cards showing color palettes
-- **Font Customization**: Select from System Monospaced, Menlo, Monaco, SF Mono, or Courier New
-- **Persistent Storage**: Custom themes saved locally and persist between sessions
-- **Import/Export**: Share themes with JSON import/export functionality
+### 🛠️ Complete Server Management
+Velo transforms your terminal into a full-fledged server dashboard.
+- **Web Server Control**: Manage Nginx and Apache configurations, monitor status, and handle virtual hosts.
+- **Database Management**: Integrated tools for MySQL. View status, manage users, modify configurations, and inspect logs.
+- **Application & Runtime Manager**: Easily manage installed runtimes (PHP, Node.js) and applications.
+- **Service Monitoring**: Real-time status tracking for system services with one-click restart/stop capabilities.
 
-### 🔐 SSH Session Management
-- **Saved Connections**: Store SSH connections with groups for organization
-- **Multiple Auth Methods**: Password, private key, or SSH agent authentication
-- **Keychain Integration**: Secure credential storage in macOS Keychain
-- **Quick Connect**: Fast connection via popover in tab bar with recent/saved hosts
-- **Import from Config**: One-click import from `~/.ssh/config`
-- **Custom Icons & Colors**: Personalize connections for easy identification
+### 🧠 Advanced AI Intelligence
+- **Multi-Provider Support**: Seamlessly integrate with OpenAI, Anthropic, and DeepSeek.
+- **Smart Context**: AI understands your OS version, hardware specs, and active context for precise suggestions.
+- **Command Prediction**: Predictive engine learns your workflow (e.g., `git add` → `git commit`) to suggest the next move.
+- **Error Analysis**: Instant "Ask AI" troubleshooting for terminal errors.
+- **Intelligent Chat**: A dedicated panel for code generation, explanation, and pair programming.
 
-### 🧠 AI & Intelligence
-- **Multi-Provider Cloud AI**: Integrated support for OpenAI, Anthropic, and DeepSeek with dynamic model configuration from the Velo API.
-- **Smart Autocomplete**: Context-aware suggestions based on your history, recent files, and common patterns.
-- **Command Prediction**: Learns your workflow (e.g., `git add` → `git commit` → `git push`) and suggests the next step.
-- **Error Analysis**: One-click "Ask AI" button on command errors for instant troubleshooting and solutions.
-- **AI Insights Panel**: A dedicated panel providing explanations, error analysis, and command tips with interactive code blocks.
-- **Dynamic Thinking Animation**: Premium pulsing animation when AI is processing your queries.
-- **System-Aware Prompts**: AI includes your macOS version, CPU cores, and RAM in its context for better recommendations.
-- **Fuzzy History**: Instant retrieval of past commands with a robust fuzzy search.
+### 🖥️ Modern Dashboard & UI
+- **3-Panel Layout**: NavigationSplitView with Sidebar, Workspace, and Intelligence Panel.
+- **Glassmorphism Design**: Sleek, translucent interface with neon accents and blur effects.
+- **Command Bar**: Spotlight-style quick action bar for navigation and command execution.
+- **Customizable Themes**: Built-in premium themes (Neon, Cyberpunk) plus a full editor to create your own.
 
-### ⚡ Performance Engine
-- **Throttled Rendering**: Custom `OutputBuffer` processes high-speed logs (like `brew install` or `npm install`) on background threads, updating the UI at a smooth 60fps (10Hz batches) to prevent "beach ball" freezes.
-- **Non-Blocking I/O**: File existence checks and extensive parsing are offloaded, ensuring buttons and interactions remain 100% responsive during heavy loads.
-- **Native Swift**: Built with pure SwiftUI and Combine for maximum performance on macOS.
+### 📁 File Explorer & Operations
+- **Remote File Manager**: Browse, edit, and manage files on SSH servers directly.
+- **Drag-and-Drop**: Seamlessly drag files out to Finder or drop to upload via SCP.
+- **Smart Editor**: VS Code-like editor for remote files with syntax highlighting.
+- **Auto-Authentication**: Password injection for secure and smooth file transfers.
 
-### 🎨 Futuristic UI
-- **Multi-Tab Support**: Browser-style tab management for parallel terminal sessions with `Cmd+T` shortcuts.
-- **Glassmorphism Design**: Beautiful, translucent interfaces with blur effects and neon accents.
-- **Settings in Tab Bar**: Premium integrated settings button with clean, organized preferences.
-- **Warp-Inspired Blocks**: Commands are grouped into distinct "blocks" with clear separation between input and output.
-- **Interactive Output**: 
-  - Click any file path to open, preview, or run it.
-  - Hover effects that don't lag the UI.
-  - Context menus for advanced file operations.
-  - One-click "Ask AI" on error lines.
+### 🐳 Docker & Git Integration
+- **Docker Panel**: Monitor containers, view logs, and manage images.
+- **Git Integration**: Visual commit history, diff viewing, and branch management.
 
-### 🧭 Smart Navigation & SSH
-- **Auto-List Directory**: Automatically runs `ls` after you `cd` into a directory (local or remote), ensuring you always see files immediately.
-- **SSH Quick Nav**: Clickable directory badge that works even in SSH sessions. It shows the current folder's contents and lets you hop to subfolders instantly.
-- **Intelligent Parsing**: Velo understands complex ANSI-colored outputs, ensuring directory suggestions are accurate even on heavily customized servers.
-- **Advanced Autocomplete**: Use `Tab` or `Right Arrow` to accept inline suggestions powered by your history and current context.
-- **Remote File Editor**: Edit remote files directly within Velo using a powerful VS Code-like editor. Features syntax highlighting, line numbers, and seamless saving back to the server.
-- **Decoupled Headers**: Sticky headers for command blocks that remain interactive independently of the scrolling log stream.
+### 🔐 Robust SSH & Connectivity
+- **Session Manager**: Organize connections with groups, custom icons, and labels.
+- **Keychain Support**: Securely store passwords and private keys.
+- **Automatic Resume**: Smart reconnection handling for dropped sessions.
+- **Local & Remote Tabs**: Mix local shell and remote SSH tabs in one window.
 
-### 🔄 App Management
-- **Remote Configuration**: Dynamic AI model and endpoint fetching from the Velo API.
-- **Version Control**: Automatic version checking with `X-Velo-Version` header on all API requests.
-- **Smart Updates**: Detects outdated versions (HTTP 426) and displays a beautiful update overlay with release notes.
-- **Manual Update Check**: Built-in "Check for Update" button in Settings.
+## 🛠 Architecture & Project Structure
 
-## 🛠 Architecture
+Velo utilizes a **Strict Feature-Based Architecture** organized by domain, ensuring scalability and maintainability. The codebase is divided into clear logical layers following the **MVVM (Model-View-ViewModel)** design pattern.
 
-Velo utilizes a **Strict Feature-Based Architecture** organized by domain, ensuring scalability and maintainability.
+### 📂 Directory Structure
 
-### Directory Structure
 ```
 Velo/
-├── App/           # Lifecycle & Entry Points
-├── Core/          # Shared Utilities, Design System, Extensions
+├── App/           # Application Lifecycle (App entry point, ContentView)
+├── Core/          # Shared Utilities and Foundations
+│   ├── Components/     # Reusable UI Components (Buttons, Fields, etc.)
+│   ├── DesignSystem/   # Global Styles, Colors, and Typography
+│   ├── Extensions/     # Swift Extensions for common types
+│   ├── Models/         # Shared Data Models
+│   ├── Services/       # Core Services (e.g., API, Logging)
+│   └── Utilities/      # Helper Functions and Wrappers
 └── Features/      # Self-contained feature modules
-    ├── Terminal/
-    ├── SSH/
-    ├── History/
-    ├── AI/
-    ├── Theme/
-    ├── Predictions/
-    ├── Settings/
-    └── Tabs/
+    ├── Dashboard/      # Main application layout and navigation
+    ├── ServerManagement/ # Remote server management (Nginx, MySQL, etc.)
+    │   ├── SubFeatures/    # Modular sub-components for server tasks
+    ├── Terminal/       # Terminal emulation logic
+    ├── SSH/            # SSH connection handling
+    ├── Intelligence/   # AI chat and features
+    ├── Settings/       # User preferences
+    └── ...
 ```
 
-### Design Pattern
-Velo follows a clean **MVVM (Model-View-ViewModel)** architecture:
+### 🏗️ Design Pattern: MVVM
 
-- **Models**:
-  - `VeloTheme`: Theme configuration with ColorScheme and FontScheme
-  - `CommandModel`: Command execution data and metadata
-  - `SessionModel`: Terminal session state
-- **Services**:
-  - `TerminalEngine`: Core PTY management, process execution, and thread-safe output buffering.
-  - `ThemeManager`: Theme management, persistence, and custom theme CRUD operations.
-  - `CloudAIService`: Multi-provider AI integration with OpenAI, Anthropic, and DeepSeek.
-  - `ApiService`: Centralized API manager for Velo backend services with versioning and update handling.
-  - `PredictionEngine`: Handles command prediction and suggestion generation.
-  - `CommandHistoryManager`: Persists and indexes command history across all tabs.
-- **ViewModels**:
-  - `TabManager`: Manages multiple terminal sessions and tab switching.
-  - `TerminalViewModel`: Manages the state of individual terminal sessions.
-  - `HistoryViewModel`: Handles command history UI and interactions.
-  - `PredictionViewModel`: Manages autocomplete suggestions and inline predictions.
-- **Views**:
-  - `TerminalWallView`: The main orchestrator view with tab management.
-  - `TabBarView`: Horizontal tab switcher with close and new tab buttons.
-  - `TerminalTabContent`: Content view for each terminal tab.
-  - `OutputStreamView`: High-performance list rendering for logs.
-  - `AIInsightPanel`: Cloud AI chat interface with thinking animations.
-  - `ThemeSettingsView`: Theme customization UI with preview cards and editor.
-  - `SettingsView`: Comprehensive settings panel with update checking.
+Each feature module (e.g., `Features/Terminal`) is self-contained and follows the MVVM separation of concerns:
+
+- **Model**: Defines the data structures and business logic entities (e.g., `TerminalSession`, `ServerConfig`).
+- **View**: SwiftUI views that render the UI and observe the ViewModel (e.g., `TerminalView`, `ServerStatusView`).
+- **ViewModel**: Manages state, handles user intent, and communicates with Services (e.g., `TerminalViewModel`, `ServerManagementViewModel`).
+- **Service**: Handles data fetching, networking, and heavy computations (e.g., `SSHService`, `NginxService`).
+
+This architecture ensures that code remains testable, modular, and easy to navigate. Shared resources and UI components are centralized in `Core` to maintain consistency across the entire application.
 
 ## 💻 Tech Stack
 
 - **Language**: Swift 5.9
-- **Frameworks**: SwiftUI, Combine, AppKit, Foundation
-- **Data Persistence**: CoreData / JSON (History)
-- **Concurrency**: Swift Concurrency (`async`/`await`), `MainActor`, `Task`
-- **Networking**: URLSession with custom headers and error handling
-- **API Integration**: RESTful API communication with the Velo backend
+- **UI Framework**: SwiftUI & AppKit
+- **Architecture**: MVVM (Model-View-ViewModel) / Feature-Based
+- **Concurrency**: Swift Concurrency (`async`/`await`), Combine
+- **Networking**: URLSession, custom SSH implementations
 
 ## 🚀 Getting Started
 
@@ -127,36 +97,33 @@ Velo follows a clean **MVVM (Model-View-ViewModel)** architecture:
 - Xcode 15+
 
 ### Installation
-1. Clone the repository.
+1. **Clone the repository**
    ```bash
    git clone https://github.com/azozzalfiras/velo.git
+   cd velo
    ```
-2. Open `Velo.xcodeproj` in Xcode.
-3. Build and Run (⌘R).
+2. **Open in Xcode**
+   Open `Velo.xcodeproj` in Xcode.
+3. **Build and Run**
+   Press `Cmd + R` to build and run the application.
 
 ### Configuration
-1. Open Settings (gear icon in the top-right tab bar).
-2. **Theme**: Choose from built-in themes or create custom themes with your preferred colors and fonts.
-3. **AI Provider**: Configure your AI provider (OpenAI, Anthropic, or DeepSeek).
-4. Enter your API key for the selected provider.
-5. **Preferences**: Customize auto-open settings and enable/disable features.
-6. Start using AI-powered features and enjoy your personalized theme!
+1. **AI Setup**: Go to Settings > Intelligence to configure your API keys (OpenAI, Anthropic, DeepSeek).
+2. **Theme**: Customize your appearance in Settings > Theme.
+3. **SSH**: Import your `~/.ssh/config` or add hosts manually in the Sidebar.
 
 ## 🤝 Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+Contributions are welcome!
+1. Fork the Project
+2. Create your Feature Branch (`git checkout -b feature/AmazingFeature`)
+3. Commit your Changes (`git commit -m 'Add some AmazingFeature'`)
+4. Push to the Branch (`git push origin feature/AmazingFeature`)
+5. Open a Pull Request
 
-## 🔮 Next Steps (Future Enhancements)
+## 📄 License
 
-- **🤖 Autonomous Agents**: AI that can autonomously debug complex issues, run test suites, and refactor code across multiple files.
-- **☁️ Velo Cloud Sync**: Sync your themes, history, and SSH configurations securely across all your Macs.
-- **📱 Companion App**: Monitor long-running tasks and server stats remotely from your iPhone.
-- **⚗️ Plugin Architecture**: Extensible API for developers to create custom widgets, themes, and command handlers.
-- **🖥️ Split Panes & Layouts**: Tmux-style split views with drag-and-drop support for efficient multitasking.
-- **📊 Data Visualization**: Automatically detect CSV/JSON output and render interactive charts and tables inline.
-- **🗣️ Voice Command Control**: Execute complex workflows using natural language voice commands.
-- **Enhanced AI Features**: Code generation, refactoring suggestions, and project analysis
-- **Syntax highlighting themes**: Customizable code highlighting for different languages
+Distributed under the MIT License. See `LICENSE` for more information.
 
 ---
 *Built with ❤️ by Azozz ALFiras*

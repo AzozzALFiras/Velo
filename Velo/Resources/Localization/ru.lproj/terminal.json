@@ -1,0 +1,21 @@
+{
+  "terminal.execute": "Выполнить",
+  "terminal.clear": "Очистить",
+  "terminal.interrupt": "Прервать",
+  "terminal.typeCommand": "Введите команду...",
+  "terminal.running": "Выполнение...",
+  "terminal.completed": "Завершено",
+  "terminal.failed": "Ошибка",
+  "terminal.exitCode": "Код выхода",
+  "terminal.empty.title": "Готов к выполнению команд",
+  "terminal.empty.subtitle": "Введите команду или используйте клавиши",
+  "terminal.empty.newTab": "Новая вкладка",
+  "terminal.empty.clear": "Очистить",
+  "terminal.empty.history": "История",
+  "terminal.menu.copy": "(ru) Copy Line",
+  "terminal.menu.explain": "(ru) Explain Error",
+  "terminal.menu.fix": "(ru) Fix Error",
+  "terminal.menu.open": "(ru) Open {}",
+  "terminal.output.showMore": "(ru) Show {} more lines",
+  "terminal.output.collapse": "(ru) Collapse"
+}

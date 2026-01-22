@@ -1,0 +1,21 @@
+{
+  "terminal.execute": "执行",
+  "terminal.clear": "清除",
+  "terminal.interrupt": "中断",
+  "terminal.typeCommand": "输入命令...",
+  "terminal.running": "运行中...",
+  "terminal.completed": "已完成",
+  "terminal.failed": "失败",
+  "terminal.exitCode": "退出代码",
+  "terminal.empty.title": "准备好运行命令",
+  "terminal.empty.subtitle": "在下方输入命令或使用快捷键",
+  "terminal.empty.newTab": "新标签页",
+  "terminal.empty.clear": "清除",
+  "terminal.empty.history": "历史记录",
+  "terminal.menu.copy": "(zh) Copy Line",
+  "terminal.menu.explain": "(zh) Explain Error",
+  "terminal.menu.fix": "(zh) Fix Error",
+  "terminal.menu.open": "(zh) Open {}",
+  "terminal.output.showMore": "(zh) Show {} more lines",
+  "terminal.output.collapse": "(zh) Collapse"
+}

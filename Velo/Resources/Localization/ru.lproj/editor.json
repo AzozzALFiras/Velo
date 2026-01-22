@@ -1,0 +1,17 @@
+{
+  "editor.title": "Редактор",
+  "editor.save": "Сохранить",
+  "editor.saveAs": "Сохранить как",
+  "editor.undo": "Отменить",
+  "editor.redo": "Вернуть",
+  "editor.find": "Найти",
+  "editor.replace": "Заменить",
+  "editor.lineNumbers": "Номера строк",
+  "editor.wordWrap": "Перенос строк",
+  "editor.unsavedChanges": "Несохраненные изменения",
+  "editor.discardChanges": "Отменить изменения",
+  "editor.fetchingFile": "Загрузка файла...",
+  "editor.saving": "Сохранение...",
+  "editor.saved": "Файл сохранен",
+  "editor.saveFailed": "Ошибка сохранения"
+}

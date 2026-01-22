@@ -27,18 +27,18 @@ struct AboutTab: View {
         VStack(alignment: .leading, spacing: VeloDesign.Spacing.xl) {
             // Header
             VStack(alignment: .leading, spacing: VeloDesign.Spacing.xs) {
-                Text("About Velo")
+                Text("about.title".localized)
                     .font(TypographyTokens.displayMd)
                     .foregroundColor(ColorTokens.textPrimary)
 
-                Text("Version information and credits")
+                Text("about.subtitle".localized)
                     .font(TypographyTokens.bodySm)
                     .foregroundColor(ColorTokens.textSecondary)
             }
 
             // App Version & Updates
             VStack(alignment: .leading, spacing: VeloDesign.Spacing.md) {
-                SectionHeader(title: "Version & Updates")
+                SectionHeader(title: "about.version".localized)
 
                 VStack(spacing: VeloDesign.Spacing.md) {
                     HStack {
@@ -63,7 +63,7 @@ struct AboutTab: View {
                                 ProgressView()
                                     .controlSize(.small)
                             } else {
-                                Text("Check for Update")
+                                Text("about.checkUpdate".localized)
                                     .font(TypographyTokens.bodySm)
                                     .foregroundColor(ColorTokens.accentPrimary)
                                     .padding(.horizontal, 12)
@@ -104,7 +104,7 @@ struct AboutTab: View {
 
             // Developer
             VStack(alignment: .leading, spacing: VeloDesign.Spacing.md) {
-                SectionHeader(title: "Developer")
+                SectionHeader(title: "about.developer".localized)
 
                 HStack {
                     Image(systemName: "hammer.fill")
@@ -127,7 +127,7 @@ struct AboutTab: View {
 
             // Connect
             VStack(alignment: .leading, spacing: VeloDesign.Spacing.md) {
-                SectionHeader(title: "Connect")
+                SectionHeader(title: "about.connect".localized)
 
                 VStack(spacing: VeloDesign.Spacing.sm) {
                     LinkRow(
@@ -172,13 +172,13 @@ struct AboutTab: View {
                     if info.latestVersion != ApiService.shared.appVersion {
                         updateStatus = UpdateStatus(
                             isUpdateAvailable: true,
-                            message: "New version v\(info.latestVersion) available!",
+                            message: "about.updateAvailable".localized.replacingOccurrences(of: "{}", with: info.latestVersion),
                             updateURL: info.pageUpdate
                         )
                     } else {
                         updateStatus = UpdateStatus(
                             isUpdateAvailable: false,
-                            message: "You are on the latest version.",
+                            message: "about.latestVersion".localized,
                             updateURL: ""
                         )
                     }
@@ -188,7 +188,7 @@ struct AboutTab: View {
                     isCheckingUpdate = false
                     updateStatus = UpdateStatus(
                         isUpdateAvailable: false,
-                        message: "Failed to check for updates.",
+                        message: "about.updateFailed".localized,
                         updateURL: ""
                     )
                 }

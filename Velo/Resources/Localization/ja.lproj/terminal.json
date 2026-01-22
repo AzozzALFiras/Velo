@@ -1,0 +1,21 @@
+{
+  "terminal.execute": "実行",
+  "terminal.clear": "クリア",
+  "terminal.interrupt": "中断",
+  "terminal.typeCommand": "コマンドを入力...",
+  "terminal.running": "実行中...",
+  "terminal.completed": "完了",
+  "terminal.failed": "失敗",
+  "terminal.exitCode": "終了コード",
+  "terminal.empty.title": "コマンド実行準備完了",
+  "terminal.empty.subtitle": "コマンドを入力するかショートカットを使用してください",
+  "terminal.empty.newTab": "新規タブ",
+  "terminal.empty.clear": "クリア",
+  "terminal.empty.history": "履歴",
+  "terminal.menu.copy": "(ja) Copy Line",
+  "terminal.menu.explain": "(ja) Explain Error",
+  "terminal.menu.fix": "(ja) Fix Error",
+  "terminal.menu.open": "(ja) Open {}",
+  "terminal.output.showMore": "(ja) Show {} more lines",
+  "terminal.output.collapse": "(ja) Collapse"
+}

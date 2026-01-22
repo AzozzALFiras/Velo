@@ -1,0 +1,21 @@
+{
+  "terminal.execute": "Ejecutar",
+  "terminal.clear": "Limpiar",
+  "terminal.interrupt": "Interrumpir",
+  "terminal.typeCommand": "Escribe un comando...",
+  "terminal.running": "Ejecutando...",
+  "terminal.completed": "Completado",
+  "terminal.failed": "Fallido",
+  "terminal.exitCode": "Código de salida",
+  "terminal.empty.title": "Listo para ejecutar comandos",
+  "terminal.empty.subtitle": "Escriba un comando o use atajos de teclado",
+  "terminal.empty.newTab": "Nueva pestaña",
+  "terminal.empty.clear": "Limpiar",
+  "terminal.empty.history": "Historial",
+  "terminal.menu.copy": "(es) Copy Line",
+  "terminal.menu.explain": "(es) Explain Error",
+  "terminal.menu.fix": "(es) Fix Error",
+  "terminal.menu.open": "(es) Open {}",
+  "terminal.output.showMore": "(es) Show {} more lines",
+  "terminal.output.collapse": "(es) Collapse"
+}

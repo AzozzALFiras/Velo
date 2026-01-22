@@ -1,0 +1,21 @@
+{
+    "server.admin": "إدارة السيرفر",
+    "server.connected_as": "متصل كـ",
+    "web.ssl.title": "شهادة SSL",
+    "web.ssl.cert_details": "تفاصيل الشهادة",
+    "web.ssl.renew": "تجديد",
+    "web.ssl.remove": "إزالة SSL",
+    "web.ssl.configure": "إعداد SSL",
+    "web.details.save": "حفظ التغييرات",
+    "web.details.domain": "النطاق",
+    "web.details.path": "مسار السيرفر",
+    "web.details.done": "تم",
+    "web.logs.empty": "لا توجد سجلات متاحة",
+    "server.tab.home": "الرئيسية",
+    "server.tab.websites": "المواقع",
+    "server.tab.databases": "قواعد البيانات",
+    "server.tab.files": "الملفات",
+    "server.tab.applications": "التطبيقات",
+    "server.tab.logs": "سجل العمليات",
+    "server.tab.settings": "الإعدادات"
+}

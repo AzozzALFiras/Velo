@@ -1,0 +1,17 @@
+{
+  "editor.title": "Editor",
+  "editor.save": "Salvar",
+  "editor.saveAs": "Salvar como",
+  "editor.undo": "Desfazer",
+  "editor.redo": "Refazer",
+  "editor.find": "Buscar",
+  "editor.replace": "Substituir",
+  "editor.lineNumbers": "Números de linha",
+  "editor.wordWrap": "Quebra de linha",
+  "editor.unsavedChanges": "Alterações não salvas",
+  "editor.discardChanges": "Descartar alterações",
+  "editor.fetchingFile": "Buscando arquivo...",
+  "editor.saving": "Salvando...",
+  "editor.saved": "Salvo com sucesso",
+  "editor.saveFailed": "Falha ao salvar"
+}

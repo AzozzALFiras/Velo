@@ -14,12 +14,18 @@ struct SSHSettingsView: View {
     @State private var showingGroupEditor = false
     @State private var showingImportAlert = false
     @State private var importCount = 0
+    
+    // Deletion State
+    @State private var showingDeleteAlert = false
+    @State private var connectionToDelete: SSHConnection?
+    @State private var errorMessage: String?
+    @State private var showingErrorAlert = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: VeloDesign.Spacing.lg) {
             // Header
             HStack {
-                SectionHeader(title: "SSH Connections")
+                SectionHeader(title: "ssh.settings.title".localized)
                 Spacer()
 
                 // Import button
@@ -29,7 +35,7 @@ struct SSHSettingsView: View {
                 }
                 .buttonStyle(.plain)
                 .foregroundColor(ColorTokens.accentPrimary)
-                .help("Import from ~/.ssh/config")
+                .help("ssh.import.hint".localized)
 
                 // Add group
                 Button(action: { showingGroupEditor = true }) {
@@ -38,7 +44,7 @@ struct SSHSettingsView: View {
                 }
                 .buttonStyle(.plain)
                 .foregroundColor(ColorTokens.accentPrimary)
-                .help("Add Group")
+                .help("ssh.group.add".localized)
 
                 // Add connection
                 Button(action: { showingEditor = true }) {
@@ -47,7 +53,7 @@ struct SSHSettingsView: View {
                 }
                 .buttonStyle(.plain)
                 .foregroundColor(ColorTokens.accentPrimary)
-                .help("Add Connection")
+                .help("ssh.conn.add".localized)
             }
 
             // Connections list
@@ -61,7 +67,10 @@ struct SSHSettingsView: View {
                             group: group,
                             connections: sshManager.connections(in: group),
                             onEdit: { editingConnection = $0 },
-                            onDelete: { sshManager.deleteConnection($0) }
+                            onDelete: {
+                                connectionToDelete = $0
+                                showingDeleteAlert = true
+                            }
                         )
                     }
 
@@ -72,7 +81,10 @@ struct SSHSettingsView: View {
                             group: nil,
                             connections: ungrouped,
                             onEdit: { editingConnection = $0 },
-                            onDelete: { sshManager.deleteConnection($0) }
+                            onDelete: {
+                                connectionToDelete = $0
+                                showingDeleteAlert = true
+                            }
                         )
                     }
                 }
@@ -90,7 +102,34 @@ struct SSHSettingsView: View {
         .alert("Import Complete", isPresented: $showingImportAlert) {
             Button("OK", role: .cancel) { }
         } message: {
-            Text("Imported \(importCount) connection\(importCount == 1 ? "" : "s") from ~/.ssh/config")
+            Text("ssh.import.success".localized.replacingOccurrences(of: "{}", with: "\(importCount)"))
+        }
+        // Deletion Confirmation Alert
+        .alert("Delete Connection", isPresented: $showingDeleteAlert) {
+            Button("Cancel", role: .cancel) { connectionToDelete = nil }
+            Button("Delete", role: .destructive) {
+                if let conn = connectionToDelete {
+                    SecurityManager.shared.securelyPerformAction(reason: "Confirm deletion of \(conn.name)") {
+                        sshManager.deleteConnection(conn)
+                    } onError: { error in
+                        self.errorMessage = error
+                        self.showingErrorAlert = true
+                    }
+                }
+                connectionToDelete = nil
+            }
+        } message: {
+            if let conn = connectionToDelete {
+                Text("Are you sure you want to delete \(conn.name)? This will also remove the saved password.")
+            }
+        }
+        // Error Alert
+        .alert("Authentication Error", isPresented: $showingErrorAlert) {
+            Button("OK", role: .cancel) { errorMessage = nil }
+        } message: {
+            if let error = errorMessage {
+                Text(error)
+            }
         }
     }
 
@@ -111,13 +150,13 @@ struct EmptySSHView: View {
                 .font(.system(size: 40))
                 .foregroundColor(ColorTokens.textTertiary)
 
-            Text("No SSH Connections")
+            Text("ssh.none".localized)
                 .font(TypographyTokens.body)
                 .foregroundColor(ColorTokens.textSecondary)
 
             HStack(spacing: VeloDesign.Spacing.md) {
                 Button(action: onAdd) {
-                    Label("Add Connection", systemImage: "plus")
+                    Label("ssh.conn.add".localized, systemImage: "plus")
                         .font(TypographyTokens.caption)
                 }
                 .buttonStyle(.plain)
@@ -128,7 +167,7 @@ struct EmptySSHView: View {
                 .cornerRadius(6)
 
                 Button(action: onImport) {
-                    Label("Import from Config", systemImage: "square.and.arrow.down")
+                    Label("ssh.import.hint".localized, systemImage: "square.and.arrow.down")
                         .font(TypographyTokens.caption)
                 }
                 .buttonStyle(.plain)

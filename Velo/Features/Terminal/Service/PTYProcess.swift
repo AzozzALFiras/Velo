@@ -11,14 +11,23 @@ import Darwin
 // MARK: - PTY Process
 /// A process wrapper that uses a real pseudo-terminal for interactive commands
 final class PTYProcess {
-    
+
     // MARK: - Properties
     private var masterFD: Int32 = -1
     private var childPID: pid_t = 0
     private var isRunning = false
-    
+
     private var readSource: DispatchSourceRead?
     private let outputHandler: (String) -> Void
+
+    // For proper cleanup when suspended
+    private var isSourceSuspended: Bool = false
+    private let suspendLock = NSLock()
+
+    // PERFORMANCE: Batch output to reduce main thread dispatch overhead
+    private var pendingOutput: String = ""
+    private var outputScheduled: Bool = false
+    private let outputLock = NSLock()
     
     // MARK: - Init
     init(outputHandler: @escaping (String) -> Void) {
@@ -117,21 +126,29 @@ final class PTYProcess {
     }
     
     func terminate() {
+        suspendLock.lock()
+        // If suspended, resume before cancelling (required by GCD)
+        if isSourceSuspended {
+            readSource?.resume()
+            isSourceSuspended = false
+        }
+        suspendLock.unlock()
+
         readSource?.cancel()
         readSource = nil
-        
+
         if childPID > 0 {
             kill(childPID, SIGTERM)
             var status: Int32 = 0
             _ = waitpid(childPID, &status, WNOHANG)
             childPID = 0
         }
-        
+
         if masterFD >= 0 {
             close(masterFD)
             masterFD = -1
         }
-        
+
         isRunning = false
     }
     
@@ -168,40 +185,129 @@ final class PTYProcess {
     
     // MARK: - Private
     private func setupReadSource() {
-        let source = DispatchSource.makeReadSource(fileDescriptor: masterFD, queue: .global(qos: .userInteractive))
-        
+        let source = DispatchSource.makeReadSource(fileDescriptor: masterFD, queue: .global(qos: .utility))
+
         source.setEventHandler { [weak self] in
             self?.readAvailable()
         }
-        
+
         source.setCancelHandler { [weak self] in
-            if let fd = self?.masterFD, fd >= 0 {
-                close(fd)
-                self?.masterFD = -1
-            }
+            // Note: FD is closed in cleanupOnEOF() or terminate()
+            // This handler is just for cleanup notification
+            self?.isRunning = false
         }
-        
+
         readSource = source
         source.resume()
     }
     
     private func readAvailable() {
-        guard masterFD >= 0 else { return }
-        
+        guard masterFD >= 0, isRunning else { return }
+
+        // Read ALL available data to drain the buffer (prevents source from re-firing)
+        var allData = Data()
         var buffer = [UInt8](repeating: 0, count: 4096)
-        let bytesRead = read(masterFD, &buffer, buffer.count)
-        
-        if bytesRead > 0 {
-            if let text = String(bytes: buffer[0..<bytesRead], encoding: .utf8) {
-                DispatchQueue.main.async { [weak self] in
-                    self?.outputHandler(text)
+
+        // Read in a loop until we get EAGAIN or error
+        while true {
+            let bytesRead = read(masterFD, &buffer, buffer.count)
+
+            if bytesRead > 0 {
+                allData.append(contentsOf: buffer[0..<bytesRead])
+                // Continue reading if there might be more data
+                if bytesRead == buffer.count {
+                    continue
+                } else {
+                    break
+                }
+            } else if bytesRead == 0 {
+                // EOF - clean up
+                cleanupOnEOF()
+                return
+            } else {
+                // bytesRead < 0
+                if errno == EAGAIN || errno == EWOULDBLOCK {
+                    // No more data available right now - this is normal
+                    break
+                } else {
+                    // Real error - clean up
+                    cleanupOnEOF()
+                    return
                 }
             }
-        } else if bytesRead == 0 || (bytesRead < 0 && errno != EAGAIN) {
-            // EOF or error
-            DispatchQueue.main.async { [weak self] in
-                self?.isRunning = false
+        }
+
+        // If we read any data, batch it and schedule delivery
+        if !allData.isEmpty {
+            if let text = String(data: allData, encoding: .utf8) {
+                deliverOutput(text)
             }
+        }
+    }
+
+    /// Batch output delivery to reduce main thread dispatch overhead
+    private func deliverOutput(_ text: String) {
+        outputLock.lock()
+        pendingOutput += text
+
+        // Cap pending output to prevent memory explosion (100KB max)
+        if pendingOutput.count > 100_000 {
+            pendingOutput = String(pendingOutput.suffix(50_000))
+        }
+
+        // If delivery is already scheduled, just accumulate
+        if outputScheduled {
+            outputLock.unlock()
+            return
+        }
+
+        outputScheduled = true
+        let output = pendingOutput
+        pendingOutput = ""
+        outputLock.unlock()
+
+        // Deliver on main thread
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            self.outputHandler(output)
+
+            // Check if more output accumulated while we were delivering
+            self.outputLock.lock()
+            if !self.pendingOutput.isEmpty {
+                let moreOutput = self.pendingOutput
+                self.pendingOutput = ""
+                self.outputLock.unlock()
+                self.outputHandler(moreOutput)
+            } else {
+                self.outputScheduled = false
+                self.outputLock.unlock()
+            }
+        }
+    }
+
+    /// Clean up resources when EOF or error is encountered
+    /// This prevents the DispatchSourceRead from firing continuously
+    private func cleanupOnEOF() {
+        suspendLock.lock()
+        // If suspended, resume before cancelling (required by GCD)
+        if isSourceSuspended {
+            readSource?.resume()
+            isSourceSuspended = false
+        }
+        suspendLock.unlock()
+
+        // Cancel the dispatch source FIRST to stop the read loop
+        readSource?.cancel()
+        readSource = nil
+
+        // Close file descriptor to release system resources
+        if masterFD >= 0 {
+            close(masterFD)
+            masterFD = -1
+        }
+
+        DispatchQueue.main.async { [weak self] in
+            self?.isRunning = false
         }
     }
 }

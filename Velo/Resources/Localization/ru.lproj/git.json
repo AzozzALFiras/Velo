@@ -1,0 +1,14 @@
+{
+  "git.clean": "Clean",
+  "git.sync": "Sync",
+  "git.changes.count": "%d changes",
+  "git.title": "Source Control",
+  "git.staged": "Staged Changes",
+  "git.unstaged": "Changes",
+  "git.untracked": "Untracked",
+  "git.ahead": "Ahead",
+  "git.behind": "Behind",
+  "git.commitPlaceholder": "Enter commit message...",
+  "git.suggest": "Suggest Message",
+  "git.commitTo": "Commit to {}"
+}

@@ -1,0 +1,21 @@
+{
+  "terminal.execute": "Execute",
+  "terminal.clear": "Clear",
+  "terminal.interrupt": "Interrupt",
+  "terminal.typeCommand": "Type a command...",
+  "terminal.running": "Running...",
+  "terminal.completed": "Completed",
+  "terminal.failed": "Failed",
+  "terminal.exitCode": "Exit code",
+  "terminal.empty.title": "Ready to Run Commands",
+  "terminal.empty.subtitle": "Type a command below or use keyboard shortcuts",
+  "terminal.empty.newTab": "New Tab",
+  "terminal.empty.clear": "Clear",
+  "terminal.empty.history": "History",
+  "terminal.menu.copy": "Copy Line",
+  "terminal.menu.explain": "Explain Error",
+  "terminal.menu.fix": "Fix Error",
+  "terminal.menu.open": "Open {}",
+  "terminal.output.showMore": "Show {} more lines",
+  "terminal.output.collapse": "Collapse"
+}

@@ -1,0 +1,17 @@
+{
+  "editor.title": "편집기",
+  "editor.save": "저장",
+  "editor.saveAs": "다른 이름으로 저장",
+  "editor.undo": "실행 취소",
+  "editor.redo": "다시 실행",
+  "editor.find": "찾기",
+  "editor.replace": "바꾸기",
+  "editor.lineNumbers": "줄 번호",
+  "editor.wordWrap": "줄 바꿈",
+  "editor.unsavedChanges": "저장되지 않은 변경 사항",
+  "editor.discardChanges": "변경 사항 취소",
+  "editor.fetchingFile": "원격 파일 가져오는 중",
+  "editor.saving": "저장 중...",
+  "editor.saved": "성공적으로 저장됨",
+  "editor.saveFailed": "저장 실패"
+}

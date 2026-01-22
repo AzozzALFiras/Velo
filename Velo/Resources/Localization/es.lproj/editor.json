@@ -1,0 +1,17 @@
+{
+  "editor.title": "Editor",
+  "editor.save": "Guardar",
+  "editor.saveAs": "Guardar como",
+  "editor.undo": "Deshacer",
+  "editor.redo": "Rehacer",
+  "editor.find": "Buscar",
+  "editor.replace": "Reemplazar",
+  "editor.lineNumbers": "Números de línea",
+  "editor.wordWrap": "Ajuste de línea",
+  "editor.unsavedChanges": "Cambios sin guardar",
+  "editor.discardChanges": "Descartar cambios",
+  "editor.fetchingFile": "Obteniendo archivo remoto",
+  "editor.saving": "Guardando...",
+  "editor.saved": "Guardado exitosamente",
+  "editor.saveFailed": "Error al guardar"
+}

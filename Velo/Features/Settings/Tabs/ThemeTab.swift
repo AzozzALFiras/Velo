@@ -12,11 +12,11 @@ struct ThemeTab: View {
         VStack(alignment: .leading, spacing: VeloDesign.Spacing.xl) {
             // Header
             VStack(alignment: .leading, spacing: VeloDesign.Spacing.xs) {
-                Text("Theme")
+                Text("theme.title".localized)
                     .font(TypographyTokens.displayMd)
                     .foregroundColor(ColorTokens.textPrimary)
 
-                Text("Customize colors, fonts, and visual appearance")
+                Text("theme.subtitle".localized)
                     .font(TypographyTokens.bodySm)
                     .foregroundColor(ColorTokens.textSecondary)
             }

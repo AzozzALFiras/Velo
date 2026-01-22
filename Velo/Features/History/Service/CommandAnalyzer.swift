@@ -312,3 +312,50 @@ struct WorkContext {
     let secondary: [CommandContext]
     let workingDirectory: String
 }
+
+// MARK: - Prediction Model
+
+struct PredictionModel: Identifiable {
+    let id = UUID()
+    let suggestedCommand: String
+    let confidence: Double
+    let reason: String
+    let source: PredictionSource
+    
+    enum PredictionSource {
+        case sequential
+        case frequency
+        case contextual
+        case ai
+    }
+}
+
+// MARK: - Command Explanation Types
+
+struct CommandExplanation {
+    let command: String
+    let summary: String
+    let breakdown: [ExplanationPart]
+    let relatedCommands: [String]
+    let warnings: [String]
+    let tips: [String]
+}
+
+struct ExplanationPart: Identifiable {
+    let id = UUID()
+    let token: String
+    let explanation: String
+    let type: TokenType
+}
+
+enum TokenType {
+    case command
+    case flag
+    case argument
+    case path
+    case pipe
+    case redirect
+    case variable
+    case string
+}
+

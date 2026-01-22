@@ -13,10 +13,15 @@ struct VeloApp: App {
     @StateObject private var themeManager = ThemeManager()
     @StateObject private var sshManager = SSHManager()
     
+    init() {
+        // Disable state restoration EARLY to prevent CPU loop
+        UserDefaults.standard.set(true, forKey: "ApplePersistenceIgnoreState")
+    }
+    
     var body: some Scene {
         WindowGroup {
-            TerminalWallView()
-                .frame(minWidth: 900, minHeight: 600)
+            ContentView()
+                .frame(minWidth: 1200, minHeight: 700)
                 .preferredColorScheme(.dark)
                 .environmentObject(themeManager)
                 .environmentObject(sshManager)
@@ -78,11 +83,25 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             window.titlebarAppearsTransparent = true
             window.titleVisibility = .hidden
             window.backgroundColor = NSColor(VeloDesign.Colors.deepSpace)
-            window.isMovableByWindowBackground = true
+            window.isMovableByWindowBackground = false  // Disabled - was causing drag issues
+            window.isRestorable = false // CRITICAL: Prevent state restoration attempts
             
             // Add vibrancy
             window.contentView?.wantsLayer = true
         }
+        
+        // Run one-time migration for keys
+        Task {
+            let results = await MainActor.run { KeychainService.shared.migrateFromUserDefaults() }
+            if !results.isEmpty {
+                print("🔑 [Migration] Keys migrated from UserDefaults: \(results.count)")
+            }
+        }
+    }
+    
+    // Explicitly disable state restoration
+    func application(_ app: NSApplication, shouldRestoreApplicationState persistentState: NSCoder) -> Bool {
+        return false
     }
     
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {

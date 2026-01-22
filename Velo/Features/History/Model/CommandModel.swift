@@ -21,6 +21,7 @@ struct CommandModel: Identifiable, Codable, Hashable {
     var tags: [String]
     var context: CommandContext
     var frequency: Int
+    var isFavorite: Bool
     
     init(
         id: UUID = UUID(),
@@ -33,7 +34,8 @@ struct CommandModel: Identifiable, Codable, Hashable {
         sessionId: UUID = UUID(),
         tags: [String] = [],
         context: CommandContext = .general,
-        frequency: Int = 1
+        frequency: Int = 1,
+        isFavorite: Bool = false
     ) {
         self.id = id
         self.command = command
@@ -46,6 +48,7 @@ struct CommandModel: Identifiable, Codable, Hashable {
         self.tags = tags
         self.context = context
         self.frequency = frequency
+        self.isFavorite = isFavorite
     }
     
     var isSuccess: Bool {

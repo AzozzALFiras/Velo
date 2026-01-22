@@ -32,57 +32,66 @@ enum ValidationService {
         }
     }
 
-    // MARK: - API Key Validation
+    // MARK: - API Key Validation Strategy
+    
+    /// Strategy protocol for API key validation
+    private protocol APIKeyValidator {
+        func validate(_ key: String) -> ValidationResult
+    }
+    
+    // Concrete strategies
+    private struct OpenAIValidator: APIKeyValidator {
+        func validate(_ key: String) -> ValidationResult {
+            guard key.hasPrefix("sk-") else { return .error("OpenAI keys should start with 'sk-'") }
+            guard key.count > 20 else { return .error("OpenAI key appears too short") }
+            if key.count > 200 { return .warning("API key seems unusually long") }
+            return .success("API key format is valid")
+        }
+    }
+    
+    private struct AnthropicValidator: APIKeyValidator {
+        func validate(_ key: String) -> ValidationResult {
+            guard key.hasPrefix("sk-ant-") else { return .error("Anthropic keys should start with 'sk-ant-'") }
+            guard key.count > 20 else { return .error("Anthropic key appears too short") }
+            return .success("API key format is valid")
+        }
+    }
+    
+    private struct DeepSeekValidator: APIKeyValidator {
+        func validate(_ key: String) -> ValidationResult {
+            guard key.hasPrefix("sk-") else { return .error("DeepSeek keys should start with 'sk-'") }
+            guard key.count > 20 else { return .error("DeepSeek key appears too short") }
+            return .success("API key format is valid")
+        }
+    }
+    
+    private struct DefaultValidator: APIKeyValidator {
+        func validate(_ key: String) -> ValidationResult {
+            guard key.count > 10 else { return .error("API key appears too short") }
+            return .success("API key format is valid")
+        }
+    }
+    
+    // Registry
+    private static let validators: [String: APIKeyValidator] = [
+        "openai": OpenAIValidator(),
+        "anthropic": AnthropicValidator(),
+        "deepseek": DeepSeekValidator()
+    ]
 
-    /// Validate API key format for different providers
+    /// Validate API key format for different providers (Open/Closed Principle)
     static func validateAPIKey(key: String, provider: String) -> ValidationResult {
         // Empty check
-        guard !key.isEmpty else {
-            return .error("API key cannot be empty")
-        }
-
+        guard !key.isEmpty else { return .error("API key cannot be empty") }
+        
         // Whitespace check
         if key.contains(" ") || key.contains("\t") || key.contains("\n") {
             return .error("API key contains invalid whitespace")
         }
-
-        // Provider-specific validation
-        switch provider.lowercased() {
-        case "openai":
-            guard key.hasPrefix("sk-") else {
-                return .error("OpenAI keys should start with 'sk-'")
-            }
-            guard key.count > 20 else {
-                return .error("OpenAI key appears too short")
-            }
-            if key.count > 200 {
-                return .warning("API key seems unusually long")
-            }
-
-        case "anthropic":
-            guard key.hasPrefix("sk-ant-") else {
-                return .error("Anthropic keys should start with 'sk-ant-'")
-            }
-            guard key.count > 20 else {
-                return .error("Anthropic key appears too short")
-            }
-
-        case "deepseek":
-            guard key.hasPrefix("sk-") else {
-                return .error("DeepSeek keys should start with 'sk-'")
-            }
-            guard key.count > 20 else {
-                return .error("DeepSeek key appears too short")
-            }
-
-        default:
-            // Unknown provider - basic validation only
-            guard key.count > 10 else {
-                return .error("API key appears too short")
-            }
-        }
-
-        return .success("API key format is valid")
+        
+        // Use strategy
+        let validator = validators[provider.lowercased()] ?? DefaultValidator()
+        return validator.validate(key)
     }
 
     // MARK: - SSH Connection Validation
