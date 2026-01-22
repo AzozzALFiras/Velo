@@ -24,6 +24,10 @@ final class OutputBuffer {
     private var lineCount: Int = 0
     private var hasNewContent: Bool = false
 
+    // PERFORMANCE FIX: Maximum sizes to prevent memory explosion
+    private let maxPendingBufferSize = 100_000  // 100KB max pending
+    private let maxLinesBeforeFlush = 1000       // Force flush if too many lines accumulate
+
     // Returns lines to add, and whether to replace the last existing line of the UI
     struct BufferUpdate {
         let lines: [OutputLine]
@@ -40,8 +44,14 @@ final class OutputBuffer {
         hasNewContent = true
 
         // Combine with pending buffer
-        let fullText = pendingBuffer + text
+        var fullText = pendingBuffer + text
         pendingBuffer = ""
+
+        // PERFORMANCE FIX: Prevent pending buffer from growing too large
+        if fullText.count > maxPendingBufferSize {
+            // Keep only the last portion to preserve recent context
+            fullText = String(fullText.suffix(maxPendingBufferSize / 2))
+        }
 
         var current = ""
         var hasCarriageReturn = false

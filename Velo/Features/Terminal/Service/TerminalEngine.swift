@@ -45,6 +45,12 @@ final class TerminalEngine: ObservableObject {
     private let outputBuffer = OutputBuffer()
     private var flushTimer: Timer?
     private var cancellables = Set<AnyCancellable>()
+
+    // PERFORMANCE FIX: Throttle delegate notifications to prevent excessive Task creation
+    // Using nonisolated(unsafe) for thread-safe access from background queues
+    // This is safe because we only do atomic read/write of a Date value
+    private nonisolated(unsafe) var lastDelegateNotification: Date = .distantPast
+    private let delegateThrottleInterval: TimeInterval = 0.05  // 50ms = max 20 calls/second
     
     // MARK: - Configuration
     private let shell: String
@@ -211,11 +217,17 @@ final class TerminalEngine: ObservableObject {
         
         // Create PTY process with output handler
         ptyProcess = PTYProcess { [weak self] text in
-            self?.outputBuffer.append(text, isError: false)
-            
-            // Fast-track for SSHBaseService and other delegates
-            Task { @MainActor in
-                self?.delegate?.terminalDidReceiveOutput(self!, text: text)
+            guard let self = self else { return }
+            self.outputBuffer.append(text, isError: false)
+
+            // PERFORMANCE FIX: Throttle delegate notifications to prevent excessive Task creation
+            let now = Date()
+            if now.timeIntervalSince(self.lastDelegateNotification) >= self.delegateThrottleInterval {
+                self.lastDelegateNotification = now
+                Task { @MainActor [weak self] in
+                    guard let self = self else { return }
+                    self.delegate?.terminalDidReceiveOutput(self, text: text)
+                }
             }
         }
         
@@ -320,27 +332,37 @@ final class TerminalEngine: ObservableObject {
         // Handle stdout - runs on background queue
         output.fileHandleForReading.readabilityHandler = { [weak self] handle in
             let data = handle.availableData
-            guard !data.isEmpty else { return }
+            guard !data.isEmpty, let self = self else { return }
             if let text = String(data: data, encoding: .utf8) {
-                self?.outputBuffer.append(text, isError: false)
-                
-                // Fast-track for delegates
-                Task { @MainActor in
-                    self?.delegate?.terminalDidReceiveOutput(self!, text: text)
+                self.outputBuffer.append(text, isError: false)
+
+                // PERFORMANCE FIX: Throttle delegate notifications
+                let now = Date()
+                if now.timeIntervalSince(self.lastDelegateNotification) >= self.delegateThrottleInterval {
+                    self.lastDelegateNotification = now
+                    Task { @MainActor [weak self] in
+                        guard let self = self else { return }
+                        self.delegate?.terminalDidReceiveOutput(self, text: text)
+                    }
                 }
             }
         }
-        
+
         // Handle stderr - runs on background queue
         error.fileHandleForReading.readabilityHandler = { [weak self] handle in
             let data = handle.availableData
-            guard !data.isEmpty else { return }
+            guard !data.isEmpty, let self = self else { return }
             if let text = String(data: data, encoding: .utf8) {
-                self?.outputBuffer.append(text, isError: true)
-                
-                // Fast-track for delegates
-                Task { @MainActor in
-                    self?.delegate?.terminalDidReceiveOutput(self!, text: text)
+                self.outputBuffer.append(text, isError: true)
+
+                // PERFORMANCE FIX: Throttle delegate notifications
+                let now = Date()
+                if now.timeIntervalSince(self.lastDelegateNotification) >= self.delegateThrottleInterval {
+                    self.lastDelegateNotification = now
+                    Task { @MainActor [weak self] in
+                        guard let self = self else { return }
+                        self.delegate?.terminalDidReceiveOutput(self, text: text)
+                    }
                 }
             }
         }
@@ -366,8 +388,13 @@ final class TerminalEngine: ObservableObject {
         }
 
         // Accumulate output for command history (skip partial lines being updated)
+        // PERFORMANCE FIX: Cap accumulated output to prevent memory explosion (max 5MB)
+        let maxAccumulatedSize = 5_000_000
         for line in update.lines {
             accumulatedOutput += line.text + "\n"
+        }
+        if accumulatedOutput.count > maxAccumulatedSize {
+            accumulatedOutput = String(accumulatedOutput.suffix(maxAccumulatedSize / 2))
         }
 
         // Notify publisher for streaming subscribers

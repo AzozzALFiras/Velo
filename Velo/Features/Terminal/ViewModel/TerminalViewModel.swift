@@ -116,6 +116,18 @@ final class TerminalViewModel: ObservableObject, Identifiable {
     @Published var downloadStartTime: Date? = nil // When download started
     @Published var fetchedFileContent: String? = nil
     @Published var fetchingFilePath: String? = nil  // Track which file is being fetched
+
+    /// Maximum size for download logs to prevent memory explosion (1MB)
+    private let maxDownloadLogsSize = 1_000_000
+
+    /// Append to downloadLogs with size cap to prevent memory explosion
+    private func appendToDownloadLogs(_ text: String) {
+        downloadLogs += text
+        // PERFORMANCE FIX: Cap log size to prevent memory explosion
+        if downloadLogs.count > maxDownloadLogsSize {
+            downloadLogs = String(downloadLogs.suffix(maxDownloadLogsSize / 2))
+        }
+    }
     
     // MARK: - Toast Notifications
     @Published var showToast = false
@@ -180,9 +192,13 @@ final class TerminalViewModel: ObservableObject, Identifiable {
         self.autocompleteService = AutocompleteService(historyManager: historyManager)
         self.currentDirectory = terminalEngine.currentDirectory
         
-        if !isShadow {
-            self.metadataService = SSHMetadataService()
-        }
+        // PERFORMANCE FIX: Shadow session disabled to prevent resource doubling
+        // The shadow session spawns a second SSH connection for metadata fetching,
+        // which doubles CPU and memory usage. Re-enable once optimized.
+        // if !isShadow {
+        //     self.metadataService = SSHMetadataService()
+        // }
+        self.metadataService = nil
 
         setupBindings()
         setupInputServiceBindings()
@@ -198,10 +214,12 @@ final class TerminalViewModel: ObservableObject, Identifiable {
         self.inputService = TerminalInputService()
         self.autocompleteService = AutocompleteService(historyManager: history)
         self.currentDirectory = engine.currentDirectory
-        
-        if !isShadow {
-            self.metadataService = SSHMetadataService()
-        }
+
+        // PERFORMANCE FIX: Shadow session disabled to prevent resource doubling
+        // if !isShadow {
+        //     self.metadataService = SSHMetadataService()
+        // }
+        self.metadataService = nil
 
         setupBindings()
         setupInputServiceBindings()
@@ -310,21 +328,30 @@ final class TerminalViewModel: ObservableObject, Identifiable {
 
             isExecuting = false
             inputService.reset()
-            
-            // If we finished an SSH session, disconnect the shadow session
-            if self.isSSHActive {
-                Task { await self.metadataService?.disconnect() }
+
+            // PERFORMANCE FIX: Clear SSH session caches to prevent memory accumulation
+            if command.trimmingCharacters(in: .whitespaces).hasPrefix("ssh ") {
+                Task {
+                    await SSHBaseService.shared.clearSessionCache(for: self.id)
+                }
             }
+
+            // PERFORMANCE FIX: Shadow session disabled
+            // If we finished an SSH session, disconnect the shadow session
+            // if self.isSSHActive {
+            //     Task { await self.metadataService?.disconnect() }
+            // }
         }
         
+        // PERFORMANCE FIX: Shadow session connection disabled
         // Check if we are starting an SSH session
-        if isSSHCommand(command) {
-            // Give the main session a moment to start, then connect shadow
-            Task {
-                try? await Task.sleep(nanoseconds: 500_000_000)
-                await self.metadataService?.connect(connectionString: command)
-            }
-        }
+        // if isSSHCommand(command) {
+        //     // Give the main session a moment to start, then connect shadow
+        //     Task {
+        //         try? await Task.sleep(nanoseconds: 500_000_000)
+        //         await self.metadataService?.connect(connectionString: command)
+        //     }
+        // }
     }
     
     private func isSSHCommand(_ command: String) -> Bool {
@@ -685,28 +712,41 @@ final class TerminalViewModel: ObservableObject, Identifiable {
         terminalEngine.$currentDirectory
             .assign(to: &$currentDirectory)
 
-        // Sync output lines to outputLines AND the active block
+        // PERFORMANCE FIX: Split output processing into fast path and debounced path
+
+        // Fast path: Immediate UI updates (keep responsive)
         terminalEngine.$outputLines
             .sink { [weak self] lines in
                 guard let self = self else { return }
                 self.outputLines = lines
-                
+
                 // Max buffer size optimization
                 if self.outputLines.count > 2000 {
                     self.outputLines = Array(self.outputLines.suffix(2000))
                 }
-                
-                self.parseDirectoryItemsFromOutput(lines)
 
                 // Update the active block if it's running
                 if let lastBlock = self.blocks.last, lastBlock.isRunning {
-                     lastBlock.output = self.outputLines // Update with potentially trimmed lines
+                    lastBlock.output = self.outputLines
                 }
+            }
+            .store(in: &cancellables)
 
-                // Process recent output for prompt detection
-                if let lastLine = lines.last {
-                    self.inputService.processOutput(lastLine.text)
-                }
+        // Throttled prompt detection (separate from UI updates to reduce CPU)
+        terminalEngine.$outputLines
+            .throttle(for: .milliseconds(100), scheduler: DispatchQueue.main, latest: true)
+            .compactMap { $0.last?.text }
+            .sink { [weak self] lastLineText in
+                self?.inputService.processOutput(lastLineText)
+            }
+            .store(in: &cancellables)
+
+        // Debounced path: Expensive directory parsing (runs max ~4 times/second)
+        terminalEngine.$outputLines
+            .debounce(for: .milliseconds(250), scheduler: DispatchQueue.main)
+            .sink { [weak self] lines in
+                guard let self = self else { return }
+                self.parseDirectoryItemsFromOutput(lines)
             }
             .store(in: &cancellables)
 
@@ -906,21 +946,29 @@ final class TerminalViewModel: ObservableObject, Identifiable {
         if let newRemoteCWD = detectedRemoteCWD, newRemoteCWD != remoteWorkingDirectory {
             print("📍 [TerminalVM] Detected remote CWD change: '\(newRemoteCWD)' (was: \(remoteWorkingDirectory ?? "nil"))")
             remoteWorkingDirectory = newRemoteCWD
-            
+
+            // PERFORMANCE FIX: Shadow session disabled - skip metadata fetch
             // Sync shadow session and fetch new metadata - ONLY ONCE per change
-            Task {
-                await self.metadataService?.syncDirectory(to: newRemoteCWD)
-                let items = await self.metadataService?.listDirectory(path: newRemoteCWD) ?? []
-                await MainActor.run {
-                    self.parsedDirectoryItems = items
-                    // Refresh autocomplete context
-                    self.autocompleteService.updateContext(
-                        workingDirectory: newRemoteCWD,
-                        remoteItems: items,
-                        isSSH: true
-                    )
-                }
-            }
+            // Task {
+            //     await self.metadataService?.syncDirectory(to: newRemoteCWD)
+            //     let items = await self.metadataService?.listDirectory(path: newRemoteCWD) ?? []
+            //     await MainActor.run {
+            //         self.parsedDirectoryItems = items
+            //         // Refresh autocomplete context
+            //         self.autocompleteService.updateContext(
+            //             workingDirectory: newRemoteCWD,
+            //             remoteItems: items,
+            //             isSSH: true
+            //         )
+            //     }
+            // }
+
+            // Update autocomplete context with current items (without shadow session)
+            self.autocompleteService.updateContext(
+                workingDirectory: newRemoteCWD,
+                remoteItems: self.parsedDirectoryItems,
+                isSSH: true
+            )
         }
         
         // Update parsed items
@@ -1093,12 +1141,13 @@ final class TerminalViewModel: ObservableObject, Identifiable {
         
         downloadProcess = PTYProcess { [weak self] text in
             guard let self = self else { return }
-            
+
             // Log raw output with timestamp
             let timestamp = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .medium)
             print("[\(timestamp)] PTY Output: \(text.replacingOccurrences(of: "\n", with: "\\n"))")
-            
-            self.downloadLogs += text
+
+            // PERFORMANCE FIX: Use capped append to prevent memory explosion
+            self.appendToDownloadLogs(text)
             
             // Auto-auth check - use instance flag to prevent multiple injections
             // Detect various password prompt formats
@@ -1279,7 +1328,8 @@ final class TerminalViewModel: ObservableObject, Identifiable {
         // Start upload process
         uploadProcess = PTYProcess { [weak self] text in
             guard let self = self else { return }
-            self.downloadLogs += text
+            // PERFORMANCE FIX: Use capped append to prevent memory explosion
+            self.appendToDownloadLogs(text)
             
             // Try to parse percentage (e.g., " 45% ")
             if let range = text.range(of: #"\d+%"#, options: .regularExpression) {

@@ -443,8 +443,20 @@ actor SSHBaseService: TerminalOutputDelegate {
         return regex.stringByReplacingMatches(in: clean, options: [], range: range, withTemplate: "")
     }
     
+    // MARK: - Session Cleanup
+
+    /// Clear all caches for a session when it ends
+    /// This prevents memory accumulation from long-running sessions
+    func clearSessionCache(for sessionId: UUID) {
+        sessionPasswords.removeValue(forKey: sessionId)
+        activeCommands.removeValue(forKey: sessionId)
+        silencedSessionIds.remove(sessionId)
+        sessionQueues.removeValue(forKey: sessionId)
+        print("🧹 [SSHBase] Cleared caches for session \(sessionId)")
+    }
+
     // MARK: - Helpers
-    
+
     private var sessionPasswords = [UUID: String]()
 
     private func fetchPasswordForSession(_ session: TerminalViewModel) async -> String? {
@@ -490,10 +502,22 @@ actor SSHBaseService: TerminalOutputDelegate {
 
 @MainActor
 extension OutputStatus {
-    func appendOutput(_ text: String) { capturedOutput += text }
+    /// Maximum size for captured output to prevent memory explosion (10MB)
+    private static let maxCapturedOutputSize = 10_000_000
+
+    func appendOutput(_ text: String) {
+        capturedOutput += text
+
+        // PERFORMANCE FIX: Cap output size to prevent memory explosion
+        if capturedOutput.count > Self.maxCapturedOutputSize {
+            // Keep the last 5MB to preserve recent context including potential markers
+            capturedOutput = String(capturedOutput.suffix(5_000_000))
+        }
+    }
+
     func setHasEndMarker(_ val: Bool) { hasEndMarker = val }
     func setContinuation(_ cont: CheckedContinuation<SSHCommandResult, Never>) { continuation = cont }
-    
+
     func resumeIfNeeded(with result: SSHCommandResult) {
         if let cont = continuation {
             cont.resume(returning: result)

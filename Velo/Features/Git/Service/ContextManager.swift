@@ -142,27 +142,49 @@ final class ContextManager {
     }
     
     // MARK: - Git Detection
-    
+
     private func detectGitRepository(_ path: String) async -> Bool {
         await withCheckedContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async {
+            DispatchQueue.global(qos: .utility).async {
+                // PERFORMANCE FIX: Quick check if path exists locally first
+                // This prevents expensive directory tree walking for SSH remote paths
+                // that don't exist on the local filesystem
+                var isDirectory: ObjCBool = false
+                guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory),
+                      isDirectory.boolValue else {
+                    // Path doesn't exist locally or isn't a directory - skip git detection
+                    continuation.resume(returning: false)
+                    return
+                }
+
                 let gitPath = (path as NSString).appendingPathComponent(".git")
-                let exists = FileManager.default.fileExists(atPath: gitPath)
-                
-                // Also check parent directories
-                if !exists {
-                    var currentPath = path
-                    while currentPath != "/" {
-                        currentPath = (currentPath as NSString).deletingLastPathComponent
-                        let parentGitPath = (currentPath as NSString).appendingPathComponent(".git")
-                        if FileManager.default.fileExists(atPath: parentGitPath) {
-                            continuation.resume(returning: true)
-                            return
-                        }
+                if FileManager.default.fileExists(atPath: gitPath) {
+                    continuation.resume(returning: true)
+                    return
+                }
+
+                // Check parent directories (limit depth to prevent long walks)
+                var currentPath = path
+                var depth = 0
+                let maxDepth = 10  // Limit how far up we walk
+
+                while currentPath != "/" && depth < maxDepth {
+                    currentPath = (currentPath as NSString).deletingLastPathComponent
+                    depth += 1
+
+                    // Quick existence check before checking .git
+                    guard FileManager.default.fileExists(atPath: currentPath) else {
+                        break
+                    }
+
+                    let parentGitPath = (currentPath as NSString).appendingPathComponent(".git")
+                    if FileManager.default.fileExists(atPath: parentGitPath) {
+                        continuation.resume(returning: true)
+                        return
                     }
                 }
-                
-                continuation.resume(returning: exists)
+
+                continuation.resume(returning: false)
             }
         }
     }
@@ -255,10 +277,17 @@ final class ContextManager {
     }
     
     // MARK: - File Detection
-    
+
     private func detectFileExists(_ directory: String, filename: String) async -> Bool {
         await withCheckedContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async {
+            DispatchQueue.global(qos: .utility).async {
+                // PERFORMANCE FIX: Quick check if directory exists locally first
+                // This prevents unnecessary file checks for SSH remote paths
+                guard FileManager.default.fileExists(atPath: directory) else {
+                    continuation.resume(returning: false)
+                    return
+                }
+
                 let filePath = (directory as NSString).appendingPathComponent(filename)
                 let exists = FileManager.default.fileExists(atPath: filePath)
                 continuation.resume(returning: exists)

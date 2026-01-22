@@ -106,27 +106,37 @@ final class TerminalInputService: ObservableObject {
         detectPrompt(in: text)
     }
 
+    // MARK: - Cached Shell Prompt Patterns (PERFORMANCE: avoid recreating regex on every call)
+    private static let shellPromptRegexes: [NSRegularExpression] = {
+        let patterns = [
+            "\\$\\s*$",      // Standard shell prompt
+            "#\\s*$",        // Root prompt
+            "❯\\s*$",        // Custom prompt
+            ">\\s*$",        // Basic prompt
+        ]
+        return patterns.compactMap { try? NSRegularExpression(pattern: $0, options: []) }
+    }()
+
     // MARK: - Detect Prompt
     private func detectPrompt(in text: String) {
+        // Skip very short text (optimization)
+        guard text.count >= 1 else { return }
+
+        // Only check last portion of text for prompts (optimization)
+        let checkText = text.count > 100 ? String(text.suffix(100)) : text
+        let range = NSRange(checkText.startIndex..., in: checkText)
+
         // Check against known patterns
         for pattern in PromptPattern.patterns {
-            if pattern.matches(text) {
+            if pattern.regex.firstMatch(in: checkText, options: [], range: range) != nil {
                 setInputMode(pattern.mode, description: pattern.description)
                 return
             }
         }
 
         // Check for shell prompt (indicates command completed)
-        let shellPromptPatterns = [
-            "\\$\\s*$",      // Standard shell prompt
-            "#\\s*$",        // Root prompt
-            "❯\\s*$",        // Custom prompt
-            ">\\s*$",        // Basic prompt
-        ]
-
-        for promptPattern in shellPromptPatterns {
-            if let regex = try? NSRegularExpression(pattern: promptPattern, options: []),
-               regex.firstMatch(in: text, options: [], range: NSRange(text.startIndex..., in: text)) != nil {
+        for regex in Self.shellPromptRegexes {
+            if regex.firstMatch(in: checkText, options: [], range: range) != nil {
                 // Back to normal mode after command completes
                 if inputMode != .normal {
                     setInputMode(.normal, description: "")
