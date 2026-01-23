@@ -13,12 +13,35 @@ protocol TerminalOutputDelegate: AnyObject {
     func terminalDidReceiveOutput(_ engine: TerminalEngine, text: String)
 }
 
+/// Callback for immediate password prompt detection (faster than Combine pipeline)
+typealias PasswordPromptCallback = (String) -> Void
+
 // MARK: - Terminal Engine
 /// Core engine for managing shell processes and command execution
 @MainActor
 final class TerminalEngine: ObservableObject {
     
-    weak var delegate: TerminalOutputDelegate?
+    /// Buffer for output received when no delegate is set
+    /// This ensures password prompts and other critical early output aren't lost
+    private var pendingDelegateOutput: [String] = []
+    private let maxPendingOutputCount = 100 // Limit buffer size
+    
+    weak var delegate: TerminalOutputDelegate? {
+        didSet {
+            // When delegate is set, replay any buffered output
+            if let delegate = delegate, !pendingDelegateOutput.isEmpty {
+                print("🔔 [TerminalEngine] Replaying \(pendingDelegateOutput.count) buffered outputs to new delegate")
+                for output in pendingDelegateOutput {
+                    delegate.terminalDidReceiveOutput(self, text: output)
+                }
+                pendingDelegateOutput.removeAll()
+            }
+        }
+    }
+
+    /// Direct callback for immediate password prompt detection
+    /// This bypasses the Combine pipeline for fastest possible response
+    var onPasswordPromptDetected: PasswordPromptCallback?
     
     // MARK: - Published State
     @Published private(set) var isRunning: Bool = false
@@ -45,12 +68,6 @@ final class TerminalEngine: ObservableObject {
     private let outputBuffer = OutputBuffer()
     private var flushTimer: Timer?
     private var cancellables = Set<AnyCancellable>()
-
-    // PERFORMANCE FIX: Throttle delegate notifications to prevent excessive Task creation
-    // Using nonisolated(unsafe) for thread-safe access from background queues
-    // This is safe because we only do atomic read/write of a Date value
-    private nonisolated(unsafe) var lastDelegateNotification: Date = .distantPast
-    private let delegateThrottleInterval: TimeInterval = 0.05  // 50ms = max 20 calls/second
     
     // MARK: - Configuration
     private let shell: String
@@ -216,17 +233,34 @@ final class TerminalEngine: ObservableObject {
         }
         
         // Create PTY process with output handler
+        // NOTE: This handler is called on main thread (via PTYProcess.deliverOutput)
         ptyProcess = PTYProcess { [weak self] text in
             guard let self = self else { return }
+
+            // Log every output (to verify handler is being called)
+            print("📥 [TerminalEngine] PTY output received: \(text.prefix(40))...")
+
             self.outputBuffer.append(text, isError: false)
 
-            // PERFORMANCE FIX: Throttle delegate notifications to prevent excessive Task creation
-            let now = Date()
-            if now.timeIntervalSince(self.lastDelegateNotification) >= self.delegateThrottleInterval {
-                self.lastDelegateNotification = now
-                Task { @MainActor [weak self] in
-                    guard let self = self else { return }
-                    self.delegate?.terminalDidReceiveOutput(self, text: text)
+            // FAST PATH: Immediate password prompt detection
+            // This is faster than waiting for Combine pipeline
+            let lowerText = text.lowercased()
+            if lowerText.contains("password:") ||
+               lowerText.contains("passphrase:") ||
+               lowerText.contains("password for") {
+                print("🔐 [TerminalEngine] Password prompt detected in output!")
+                self.onPasswordPromptDetected?(text)
+            }
+
+            // Forward to delegate directly (we're on main thread)
+            if let delegate = self.delegate {
+                print("🔔 [TerminalEngine] Forwarding to delegate: \(text.prefix(30))...")
+                delegate.terminalDidReceiveOutput(self, text: text)
+            } else {
+                // Buffer output for later replay when delegate is set
+                print("⚠️ [TerminalEngine] No delegate - buffering output: \(text.prefix(30))...")
+                if self.pendingDelegateOutput.count < self.maxPendingOutputCount {
+                    self.pendingDelegateOutput.append(text)
                 }
             }
         }
@@ -300,11 +334,17 @@ final class TerminalEngine: ObservableObject {
     // MARK: - Send Input
     /// Send input to running process
     func sendInput(_ text: String) {
+        print("⌨️ [TerminalEngine] sendInput called. Text: '\(text.prefix(20))...' ptyProcess: \(ptyProcess != nil), inputPipe: \(inputPipe != nil)")
+        
         if let pty = ptyProcess {
+            print("⌨️ [TerminalEngine] Writing to PTY...")
             pty.write(text)
         } else if let pipe = inputPipe {
+            print("⌨️ [TerminalEngine] Writing to pipe...")
             let data = (text + "\n").data(using: .utf8) ?? Data()
             pipe.fileHandleForWriting.write(data)
+        } else {
+            print("⌨️ [TerminalEngine] ⚠️ No PTY or pipe available!")
         }
     }
     
@@ -335,14 +375,13 @@ final class TerminalEngine: ObservableObject {
             guard !data.isEmpty, let self = self else { return }
             if let text = String(data: data, encoding: .utf8) {
                 self.outputBuffer.append(text, isError: false)
-
-                // PERFORMANCE FIX: Throttle delegate notifications
-                let now = Date()
-                if now.timeIntervalSince(self.lastDelegateNotification) >= self.delegateThrottleInterval {
-                    self.lastDelegateNotification = now
-                    Task { @MainActor [weak self] in
-                        guard let self = self else { return }
-                        self.delegate?.terminalDidReceiveOutput(self, text: text)
+                
+                // Forward to delegate on main thread
+                DispatchQueue.main.async {
+                    if let delegate = self.delegate {
+                        delegate.terminalDidReceiveOutput(self, text: text)
+                    } else if self.pendingDelegateOutput.count < self.maxPendingOutputCount {
+                        self.pendingDelegateOutput.append(text)
                     }
                 }
             }
@@ -354,14 +393,13 @@ final class TerminalEngine: ObservableObject {
             guard !data.isEmpty, let self = self else { return }
             if let text = String(data: data, encoding: .utf8) {
                 self.outputBuffer.append(text, isError: true)
-
-                // PERFORMANCE FIX: Throttle delegate notifications
-                let now = Date()
-                if now.timeIntervalSince(self.lastDelegateNotification) >= self.delegateThrottleInterval {
-                    self.lastDelegateNotification = now
-                    Task { @MainActor [weak self] in
-                        guard let self = self else { return }
-                        self.delegate?.terminalDidReceiveOutput(self, text: text)
+                
+                // Forward to delegate on main thread
+                DispatchQueue.main.async {
+                    if let delegate = self.delegate {
+                        delegate.terminalDidReceiveOutput(self, text: text)
+                    } else if self.pendingDelegateOutput.count < self.maxPendingOutputCount {
+                        self.pendingDelegateOutput.append(text)
                     }
                 }
             }
@@ -369,6 +407,7 @@ final class TerminalEngine: ObservableObject {
     }
     
     private func flushBuffer() {
+        // UI Buffer Flush logic
         let update = outputBuffer.flush()
         guard update.hasNewContent && !update.lines.isEmpty else { return }
 

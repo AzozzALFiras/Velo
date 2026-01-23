@@ -27,6 +27,12 @@ actor SSHBaseService: TerminalOutputDelegate {
     // Track which sessions have been silenced (stty -echo) to avoid repeated setup
     private var silencedSessionIds = Set<UUID>()
     
+    // Track which sessions we're actively watching (for SSH password injection)
+    private var watchedSessions = [UUID: TerminalViewModel]()
+    
+    // Track if SSH connection password has been injected for a session
+    private var sshPasswordInjected = Set<UUID>()
+    
     // Serial queue per session to prevent interleaving
     private var sessionQueues = [UUID: Task<Void, Never>]()
     
@@ -66,7 +72,41 @@ actor SSHBaseService: TerminalOutputDelegate {
         let startTime = Date()
         let (engine, sessionId) = await MainActor.run { 
             session.terminalEngine.delegate = self
+            print("🔔 [SSHBase] Delegate SET on engine. self = \\(String(describing: self))")
             return (session.terminalEngine, session.id) 
+        }
+        
+        // Track this session for SSH password injection
+        watchedSessions[sessionId] = session
+        
+        // Wait for SSH authentication if this is the first command for this session
+        // This gives time for the buffered password prompt to be processed and password injected
+        if !silencedSessionIds.contains(sessionId) {
+            print("🔧 [SSHBase] Waiting for SSH session authentication...")
+            
+            // Wait up to 5 seconds for password injection to complete
+            var waitAttempts = 0
+            let maxWaitAttempts = 50 // 50 * 100ms = 5 seconds
+            
+            while waitAttempts < maxWaitAttempts {
+                // Allow actor to process pending output handlers
+                await Task.yield()
+                
+                // Check if password was injected (meaning auth is in progress/done)
+                if sshPasswordInjected.contains(sessionId) {
+                    print("🔧 [SSHBase] SSH password was injected, waiting for shell prompt...")
+                    // Give extra time for SSH to fully authenticate after password
+                    try? await Task.sleep(nanoseconds: 2_000_000_000) // 2 seconds
+                    break
+                }
+                
+                try? await Task.sleep(nanoseconds: 100_000_000) // 100ms
+                waitAttempts += 1
+            }
+            
+            if waitAttempts >= maxWaitAttempts {
+                print("🔧 [SSHBase] ⚠️ Timeout waiting for SSH auth, proceeding anyway...")
+            }
         }
         
         // 1. Warmup / Reset logic
@@ -97,7 +137,7 @@ actor SSHBaseService: TerminalOutputDelegate {
                     engine.sendInput("dmesg -n 1 2>/dev/null; echo 0 > /proc/sys/kernel/printk 2>/dev/null || true\n")
                 }
             }
-            try? await Task.sleep(nanoseconds: 1_200_000_000)
+            try? await Task.sleep(nanoseconds: 1_500_000_000) // Increased to 1.5 seconds
         }
         
         // 2. Wrap command in absolute unique markers
@@ -287,6 +327,7 @@ actor SSHBaseService: TerminalOutputDelegate {
     // MARK: - TerminalOutputDelegate
     
     nonisolated func terminalDidReceiveOutput(_ engine: TerminalEngine, text: String) {
+        print("🔔 [SSHBase] Delegate received output: \(text.prefix(50))...")
         Task {
             await self.handleIncomingOutput(engine, text: text)
         }
@@ -294,11 +335,15 @@ actor SSHBaseService: TerminalOutputDelegate {
     
     // Corrected handleIncomingOutput
     private func handleIncomingOutput(_ sender: TerminalEngine, text: String) async {
+        print("🔔 [SSHBase] handleIncomingOutput called. activeCommands count: \(activeCommands.count)")
+        
         for (sessionId, active) in activeCommands {
             // Precise routing: Only process output if it comes from the engine that started this command
             let isCorrectEngine = await MainActor.run {
                 active.terminalViewModel?.terminalEngine === sender
             }
+            
+            print("🔔 [SSHBase] Checking session \(sessionId). isCorrectEngine: \(isCorrectEngine)")
             
             guard isCorrectEngine else { continue }
             
@@ -366,11 +411,50 @@ actor SSHBaseService: TerminalOutputDelegate {
                     
                     print("🔧 [SSHBase] 🔐 Injecting sudo password for command: \(active.cleanCommand.prefix(20))")
                     await MainActor.run {
-                        active.terminalViewModel?.terminalEngine.sendInput("\(pwd)\n")
+                        // Use \r for PTY - terminals expect Carriage Return, not Line Feed
+                        active.terminalViewModel?.terminalEngine.sendInput("\(pwd)\r")
                     }
                 } else {
                     // Log why we didn't inject
                     print("🔧 [SSHBase] ⚠️ Password prompt detected for '\(active.cleanCommand.prefix(20))' but no password available for this session.")
+                }
+            }
+        }
+        
+        // FALLBACK: Check for SSH connection password prompt even if no active command
+        // This handles the case where SSH connection itself needs password before any command
+        let lowerText = text.lowercased()
+        let isSSHPasswordPrompt = lowerText.contains("password:") || 
+                                   lowerText.contains("passphrase:") ||
+                                   lowerText.contains("password for")
+        
+        if isSSHPasswordPrompt && activeCommands.isEmpty {
+            print("🔧 [SSHBase] Detected SSH connection password prompt. Checking watched sessions...")
+            
+            // Find the session by matching the engine
+            for (sessionId, session) in watchedSessions {
+                let isCorrectEngine = await MainActor.run {
+                    session.terminalEngine === sender
+                }
+                
+                guard isCorrectEngine else { continue }
+                
+                // Check if we already injected password for this SSH connection
+                guard !sshPasswordInjected.contains(sessionId) else {
+                    print("🔧 [SSHBase] SSH password already injected for session \(sessionId)")
+                    continue
+                }
+                
+                // Try to get password for this session
+                if let password = await fetchPasswordForSession(session) {
+                    sshPasswordInjected.insert(sessionId)
+                    print("🔧 [SSHBase] 🔐 Injecting SSH connection password for session \(sessionId)")
+                    await MainActor.run {
+                        // Use \r for PTY - terminals expect Carriage Return, not Line Feed
+                        session.terminalEngine.sendInput("\(password)\r")
+                    }
+                } else {
+                    print("🔧 [SSHBase] ⚠️ SSH password prompt detected but no password found for session \(sessionId)")
                 }
             }
         }
@@ -452,6 +536,8 @@ actor SSHBaseService: TerminalOutputDelegate {
         activeCommands.removeValue(forKey: sessionId)
         silencedSessionIds.remove(sessionId)
         sessionQueues.removeValue(forKey: sessionId)
+        watchedSessions.removeValue(forKey: sessionId)
+        sshPasswordInjected.remove(sessionId)
         print("🧹 [SSHBase] Cleared caches for session \(sessionId)")
     }
 
@@ -464,36 +550,58 @@ actor SSHBaseService: TerminalOutputDelegate {
         
         // 1. Check Cache
         if let cached = sessionPasswords[sessionId] {
+            print("🔐 [SSHBase] Using cached password for session \(sessionId)")
             return cached
         }
         
         let connStr = await MainActor.run { session.activeSSHConnectionString }
-        guard let connStr = connStr else { return nil }
+        print("🔐 [SSHBase] Fetching password for connection: \(connStr ?? "nil")")
+        
+        guard let connStr = connStr else { 
+            print("🔐 [SSHBase] ⚠️ No connection string available")
+            return nil 
+        }
         
         let parts = connStr.components(separatedBy: "@")
-        guard parts.count == 2 else { return nil }
+        guard parts.count == 2 else { 
+            print("🔐 [SSHBase] ⚠️ Invalid connection string format: \(connStr)")
+            return nil 
+        }
         
         let username = parts[0]
         let hostAndPort = parts[1]
         let host = hostAndPort.components(separatedBy: ":").first ?? hostAndPort
         
+        print("🔐 [SSHBase] Looking for: username='\(username)', host='\(host)'")
+        
         let password = await MainActor.run {
             let manager = SSHManager()
             let savedConnections = manager.connections
+            
+            print("🔐 [SSHBase] Found \(savedConnections.count) saved connections")
+            for conn in savedConnections {
+                print("🔐 [SSHBase]   - \(conn.username)@\(conn.host):\(conn.port)")
+            }
             
             // Try to find matching connection
             if let conn = savedConnections.first(where: { 
                 $0.host.lowercased() == host.lowercased() && 
                 $0.username.lowercased() == username.lowercased() 
             }) {
-                return manager.getPassword(for: conn)
+                print("🔐 [SSHBase] ✅ Found matching connection: \(conn.username)@\(conn.host)")
+                let pwd = manager.getPassword(for: conn)
+                print("🔐 [SSHBase] Password from keychain: \(pwd != nil ? "Found (\(pwd!.count) chars)" : "NOT FOUND")")
+                return pwd
             }
+            
+            print("🔐 [SSHBase] ⚠️ No matching connection found")
             return nil
         }
         
         // 2. Cache Result
         if let found = password {
             sessionPasswords[sessionId] = found
+            print("🔐 [SSHBase] ✅ Password cached for session \(sessionId)")
         }
         
         return password

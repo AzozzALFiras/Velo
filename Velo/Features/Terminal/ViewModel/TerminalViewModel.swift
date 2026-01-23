@@ -165,6 +165,9 @@ final class TerminalViewModel: ObservableObject, Identifiable {
     private var downloadProcess: PTYProcess?
     private var downloadPasswordInjected = false
     
+    // SSH password auto-injection for main terminal sessions
+    private var sshPasswordInjected = false
+    
     // Dependencies
     let terminalEngine: TerminalEngine
     let historyManager: CommandHistoryManager
@@ -202,6 +205,7 @@ final class TerminalViewModel: ObservableObject, Identifiable {
 
         setupBindings()
         setupInputServiceBindings()
+        setupFastPasswordDetection()
     }
 
     init(isShadow: Bool = false) {
@@ -223,9 +227,19 @@ final class TerminalViewModel: ObservableObject, Identifiable {
 
         setupBindings()
         setupInputServiceBindings()
+        setupFastPasswordDetection()
     }
-    
-    
+
+    // MARK: - Fast Password Detection Setup
+    /// Sets up the direct password prompt callback for fastest detection
+    private func setupFastPasswordDetection() {
+        terminalEngine.onPasswordPromptDetected = { [weak self] text in
+            guard let self = self else { return }
+            print("🔐 [TerminalVM] Fast path: Password prompt detected!")
+            self.handleSSHPasswordPrompt(text)
+        }
+    }
+
     // MARK: - Execute Command
     func executeCommand() {
         let command = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -331,6 +345,7 @@ final class TerminalViewModel: ObservableObject, Identifiable {
 
             // PERFORMANCE FIX: Clear SSH session caches to prevent memory accumulation
             if command.trimmingCharacters(in: .whitespaces).hasPrefix("ssh ") {
+                self.sshPasswordInjected = false // Reset for next connection
                 Task {
                     await SSHBaseService.shared.clearSessionCache(for: self.id)
                 }
@@ -356,6 +371,72 @@ final class TerminalViewModel: ObservableObject, Identifiable {
     
     private func isSSHCommand(_ command: String) -> Bool {
         return command.trimmingCharacters(in: .whitespaces).hasPrefix("ssh ")
+    }
+    
+    // MARK: - SSH Password Auto-Injection
+    private func handleSSHPasswordPrompt(_ text: String) {
+        // Only process if we're executing an SSH command
+        guard isExecuting && isSSHActive else { return }
+        
+        // Check if this is a password prompt
+        let lowerText = text.lowercased()
+        let isPasswordPrompt = lowerText.contains("password:") ||
+                               lowerText.contains("passphrase:") ||
+                               lowerText.contains("password for")
+        
+        guard isPasswordPrompt && !sshPasswordInjected else { return }
+        
+        print("🔐 [TerminalVM] SSH password prompt detected!")
+        
+        // Parse user@host from active command
+        guard let connectionString = activeSSHConnectionString else {
+            print("🔐 [TerminalVM] ⚠️ Cannot parse connection string from command")
+            return
+        }
+        
+        let parts = connectionString.components(separatedBy: "@")
+        guard parts.count == 2 else {
+            print("🔐 [TerminalVM] ⚠️ Invalid connection format: \(connectionString)")
+            return
+        }
+        
+        let username = parts[0]
+        let hostAndPort = parts[1]
+        let host = hostAndPort.components(separatedBy: ":").first ?? hostAndPort
+        
+        print("🔐 [TerminalVM] Looking for password: \(username)@\(host)")
+        
+        // Find matching connection and get password from keychain
+        let manager = SSHManager()
+        
+        print("🔐 [TerminalVM] Saved connections: \(manager.connections.count)")
+        for conn in manager.connections {
+            print("🔐 [TerminalVM]   - \(conn.username)@\(conn.host):\(conn.port)")
+        }
+        
+        if let conn = manager.connections.first(where: {
+            $0.host.lowercased() == host.lowercased() &&
+            $0.username.lowercased() == username.lowercased()
+        }) {
+            if let password = manager.getPassword(for: conn) {
+                print("🔐 [TerminalVM] ✅ Found password (\(password.count) chars), injecting...")
+
+                // Set flag BEFORE async to prevent duplicate detection during delay
+                // But actual injection happens in the async block
+                sshPasswordInjected = true
+
+                // Small delay to ensure SSH is ready, then send password
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+                    guard let self = self else { return }
+                    self.terminalEngine.sendInput("\(password)\r")
+                    print("🔐 [TerminalVM] ✅ Password sent to terminal")
+                }
+            } else {
+                print("🔐 [TerminalVM] ⚠️ Connection found but no password in keychain")
+            }
+        } else {
+            print("🔐 [TerminalVM] ⚠️ No matching saved connection found")
+        }
     }
 
     // MARK: - Detect PTY Requirement
@@ -394,9 +475,10 @@ final class TerminalViewModel: ObservableObject, Identifiable {
     // MARK: - Send Interactive Input
     /// Send input to running PTY process (for SSH sessions, sudo prompts, etc.)
     func sendInteractiveInput(_ text: String, addNewline: Bool = true) {
-        let finalText = addNewline ? text + "\n" : text
+        // Use \r for PTY input as shells often expect Carriage Return, not Line Feed
+        let finalText = addNewline ? text + "\r" : text
         terminalEngine.sendInput(finalText)
-
+        
         // Add to input history if it's a command (not password)
         if inputMode != .password && !text.isEmpty && addNewline {
             inputService.inputHistory.append(text)
@@ -732,12 +814,24 @@ final class TerminalViewModel: ObservableObject, Identifiable {
             }
             .store(in: &cancellables)
 
-        // Throttled prompt detection (separate from UI updates to reduce CPU)
+        // IMMEDIATE prompt detection - no throttle for interactive SSH
+        // Password prompts, sudo, yes/no questions must be detected instantly
         terminalEngine.$outputLines
-            .throttle(for: .milliseconds(100), scheduler: DispatchQueue.main, latest: true)
-            .compactMap { $0.last?.text }
-            .sink { [weak self] lastLineText in
-                self?.inputService.processOutput(lastLineText)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] lines in
+                guard let self = self else { return }
+
+                // Process the last line for input service
+                if let lastLine = lines.last {
+                    self.inputService.processOutput(lastLine.text)
+                }
+
+                // Check the last 5 lines for password prompts (not just last line)
+                // This handles cases where prompt is followed by cursor positioning or other output
+                let recentLines = lines.suffix(5)
+                for line in recentLines {
+                    self.handleSSHPasswordPrompt(line.text)
+                }
             }
             .store(in: &cancellables)
 
@@ -1163,7 +1257,7 @@ final class TerminalViewModel: ObservableObject, Identifiable {
             if let pwd = passwordToInject, !self.downloadPasswordInjected, isPasswordPrompt {
                 print("[\(timestamp)] 🔐 Injecting password (length: \(pwd.count))")
                 self.downloadLogs += "\n🔐 Auto-injecting password...\n"
-                self.downloadProcess?.write(pwd + "\n")
+                self.downloadProcess?.write(pwd + "\r")
                 self.downloadPasswordInjected = true
                 print("[\(timestamp)] ✓ Password injected successfully")
             } else if isPasswordPrompt && passwordToInject == nil {
@@ -1347,7 +1441,7 @@ final class TerminalViewModel: ObservableObject, Identifiable {
             
             if let pwd = passwordToInject, !self.uploadPasswordInjected, isPasswordPrompt {
                 self.downloadLogs += "\n🔐 Auto-injecting password...\n"
-                self.uploadProcess?.write(pwd + "\n")
+                self.uploadProcess?.write(pwd + "\r")
                 self.uploadPasswordInjected = true
             }
         }
@@ -1457,7 +1551,7 @@ final class TerminalViewModel: ObservableObject, Identifiable {
             
             if let pwd = passwordToInject, !self.fileFetchPasswordInjected, isPasswordPrompt {
                 print("🔐 [TerminalVM] Injecting password for file fetch")
-                self.fileFetchProcess?.write(pwd + "\n")
+                self.fileFetchProcess?.write(pwd + "\r")
                 self.fileFetchPasswordInjected = true
             }
         }
@@ -1570,7 +1664,7 @@ final class TerminalViewModel: ObservableObject, Identifiable {
             if !self.fileFetchPasswordInjected && (lowerText.contains("password:") || lowerText.contains("passphrase:")) {
                 if let pwd = passwordToInject {
                     print("🔐 [TerminalVM] Injecting password for file save")
-                    self.fileFetchProcess?.write(pwd + "\n")
+                    self.fileFetchProcess?.write(pwd + "\r")
                     self.fileFetchPasswordInjected = true
                 }
             }

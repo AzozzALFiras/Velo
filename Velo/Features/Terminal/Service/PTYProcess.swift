@@ -59,9 +59,46 @@ final class PTYProcess {
             ws_ypixel: 0
         )
         
-        // Use forkpty to create PTY and fork
+        // Setup sane terminal settings (termios)
+        // This is CRITICAL for SSH to recognize input correctly (especially ENTER key)
+        var term = termios()
+        
+        // Input flags - Turn on ICRNL (Map CR to NL on input) so \r works as Enter
+        term.c_iflag = tcflag_t(ICRNL | IXON | IXOFF | IUTF8)
+        
+        // Output flags - Turn on OPOST and ONLCR (Map NL to CR-NL on output)
+        term.c_oflag = tcflag_t(OPOST | ONLCR)
+        
+        // Control flags - CS8 (8-bit chars), CREAD (enable receiver), CLOCAL (ignore modem lines)
+        term.c_cflag = tcflag_t(CS8 | CREAD | CLOCAL)
+        
+        // Local flags - ISIG (signals), ICANON (canonical mode), IEXTEN (extended processing), ECHO (echo input), ECHOE (echo erase)
+        term.c_lflag = tcflag_t(ISIG | ICANON | IEXTEN | ECHO | ECHOE | ECHOCTL | ECHOKE)
+        
+        // Set standard control characters
+        term.c_cc.0 = 4   // VEOF (Ctrl+D)
+        term.c_cc.1 = 255 // VEOL
+        term.c_cc.2 = 255 // VEOL2
+        term.c_cc.3 = 127 // VERASE (Delete)
+        term.c_cc.4 = 23  // VWERASE (Ctrl+W)
+        term.c_cc.5 = 21  // VKILL (Ctrl+U)
+        term.c_cc.6 = 18  // VREPRINT (Ctrl+R)
+        term.c_cc.7 = 8   // VINTR (Ctrl+?) - usually delete in shell, but 8 is Backspace
+        term.c_cc.8 = 3   // VQUIT (Ctrl+\)
+        term.c_cc.9 = 28  // VSUSP (Ctrl+Z)
+        term.c_cc.10 = 26 // VDSUSP
+        term.c_cc.11 = 17 // VSTART (Ctrl+Q)
+        term.c_cc.12 = 19 // VSTOP (Ctrl+S)
+        term.c_cc.13 = 22 // VLNEXT (Ctrl+V)
+        term.c_cc.14 = 15 // VDISCARD
+        term.c_cc.15 = 25 // VMIN
+        term.c_cc.16 = 0  // VTIME
+        term.c_cc.17 = 20 // VSTATUS (Ctrl+T)
+        // Note: Array indexing might vary by swift strictness, assigning known indices
+        
+        // Use forkpty to create PTY and fork with explicit termios
         var masterFD: Int32 = 0
-        let pid = forkpty(&masterFD, nil, nil, &winSize)
+        let pid = forkpty(&masterFD, nil, &term, &winSize)
         
         if pid < 0 {
             throw PTYError.forkFailed
@@ -104,12 +141,17 @@ final class PTYProcess {
     
     // MARK: - Write Input
     func write(_ text: String) {
-        guard isRunning, masterFD >= 0 else { return }
+        print("⌨️ [PTYProcess] write() called. isRunning: \(isRunning), masterFD: \(masterFD), text: '\(text.prefix(20))...'")
+        guard isRunning, masterFD >= 0 else { 
+            print("⌨️ [PTYProcess] ⚠️ Cannot write - process not running or invalid FD!")
+            return 
+        }
         
         if let data = text.data(using: .utf8) {
             data.withUnsafeBytes { buffer in
                 if let ptr = buffer.baseAddress {
-                    _ = Darwin.write(masterFD, ptr, buffer.count)
+                    let result = Darwin.write(masterFD, ptr, buffer.count)
+                    print("⌨️ [PTYProcess] Wrote \(result) bytes to masterFD \(masterFD)")
                 }
             }
         }
@@ -245,8 +287,21 @@ final class PTYProcess {
         }
     }
 
-    /// Batch output delivery to reduce main thread dispatch overhead
+    /// Deliver output to the main thread
+    /// CRITICAL: Small outputs (< 512 bytes) are delivered immediately without batching.
+    /// This ensures interactive prompts (password:, yes/no, sudo) are processed instantly.
+    /// Large outputs are batched to reduce main thread dispatch overhead.
     private func deliverOutput(_ text: String) {
+        // IMMEDIATE PATH: Small outputs are likely interactive prompts
+        // Password prompts, yes/no questions, sudo prompts MUST be delivered immediately
+        if text.count < 512 {
+            DispatchQueue.main.async { [weak self] in
+                self?.outputHandler(text)
+            }
+            return
+        }
+
+        // BATCHED PATH: Large outputs (logs, file contents, command output)
         outputLock.lock()
         pendingOutput += text
 
@@ -271,17 +326,17 @@ final class PTYProcess {
             guard let self = self else { return }
             self.outputHandler(output)
 
-            // Check if more output accumulated while we were delivering
+            // Drain ALL remaining accumulated output
             self.outputLock.lock()
-            if !self.pendingOutput.isEmpty {
+            while !self.pendingOutput.isEmpty {
                 let moreOutput = self.pendingOutput
                 self.pendingOutput = ""
                 self.outputLock.unlock()
                 self.outputHandler(moreOutput)
-            } else {
-                self.outputScheduled = false
-                self.outputLock.unlock()
+                self.outputLock.lock()
             }
+            self.outputScheduled = false
+            self.outputLock.unlock()
         }
     }
 
