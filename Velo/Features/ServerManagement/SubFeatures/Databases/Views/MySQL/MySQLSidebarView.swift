@@ -9,24 +9,12 @@ struct MySQLSidebarView: View {
             // Header
             HStack(spacing: 12) {
                 // Icon
-                if let iconURL = viewModel.capabilityIcon, let url = URL(string: iconURL) {
-                    AsyncImage(url: url) { phase in
-                        if let image = phase.image {
-                            image
-                                .resizable()
-                                .scaledToFit()
-                        } else {
-                            Image(systemName: "cylinder.split.1x2.fill")
-                                .foregroundStyle(.blue)
-                        }
-                    }
-                    .frame(width: 32, height: 32)
-                } else {
-                    Image(systemName: "cylinder.split.1x2.fill")
-                        .font(.system(size: 24))
-                        .foregroundStyle(.blue)
-                        .frame(width: 32, height: 32)
-                }
+                SoftwareIconView(
+                    iconURL: viewModel.capabilityIcon ?? "",
+                    slug: "mysql",
+                    color: .blue,
+                    size: 32
+                )
                 
                 VStack(alignment: .leading, spacing: 2) {
                     Text("MySQL \(viewModel.version)")

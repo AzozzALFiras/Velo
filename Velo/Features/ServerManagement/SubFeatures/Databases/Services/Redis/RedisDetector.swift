@@ -28,14 +28,17 @@ struct RedisDetector {
 
     private func checkBinary(via session: TerminalViewModel) async -> Bool {
         let result = await SSHBaseService.shared.execute("which redis-server", via: session)
-        return result.exitCode == 0 && !result.output.isEmpty
+        print("🔍 [RedisDetector] checkBinary output: '\(result.output)', exitCode: \(result.exitCode)")
+        return result.exitCode == 0 && !result.output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
     
     private func checkService(via session: TerminalViewModel) async -> String? {
         // Check common service names
         let services = ["redis", "redis-server"]
         for svc in services {
-            if await LinuxServiceHelper.serviceExists(serviceName: svc, via: session) {
+            let exists = await LinuxServiceHelper.serviceExists(serviceName: svc, via: session)
+            print("🔍 [RedisDetector] Checking service '\(svc)': \(exists)")
+            if exists {
                 return svc
             }
         }

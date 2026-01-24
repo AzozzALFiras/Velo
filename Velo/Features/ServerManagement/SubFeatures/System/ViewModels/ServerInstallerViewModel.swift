@@ -125,9 +125,15 @@ final class ServerInstallerViewModel: ObservableObject {
                     }
 
                     await appendLog("> Executing: \(installCommand)")
-                    
-                    try await executeRealInstallation(command: installCommand)
-                    await appendLog("✅ \(capability.name) installed successfully")
+
+                    // Use fallback-enabled installation
+                    let success = try await executeInstallationWithFallback(command: installCommand, slug: slug)
+
+                    if success {
+                        await appendLog("✅ \(capability.name) installed successfully")
+                    } else {
+                        await appendLog("⚠️ \(capability.name) installation had issues, continuing...")
+                    }
 
                     await appendLog("> Enabling and starting \(slug) service...")
                     
@@ -181,13 +187,17 @@ final class ServerInstallerViewModel: ObservableObject {
             await appendLog("> Installation command prepared.")
             await appendLog("> Executing: \(installCmd)")
 
-            try await executeRealInstallation(command: installCmd)
+            // Use fallback-enabled installation (retries without version if specific version unavailable)
+            let success = try await executeInstallationWithFallback(command: installCmd, slug: capability.slug)
 
-            if let session = session {
-                await enableAndStartService(slug: capability.slug, via: session)
+            if success {
+                if let session = session {
+                    await enableAndStartService(slug: capability.slug, via: session)
+                }
+                await completion(success: true)
+            } else {
+                await completion(success: false)
             }
-            
-            await completion(success: true)
 
         } catch {
             await appendLog("> Error: \(error.localizedDescription)")
@@ -196,12 +206,119 @@ final class ServerInstallerViewModel: ObservableObject {
     }
     
     // MARK: - Private Helpers
-    
+
+    /// Execute installation with automatic fallback for version-pinning failures
+    /// If a versioned install fails (e.g., `apt install redis-server=7.2.4*`),
+    /// automatically retries without version pinning (e.g., `apt install redis-server`)
+    private func executeInstallationWithFallback(command: String, slug: String) async throws -> Bool {
+        guard let session = session else {
+            throw NSError(domain: "ServerInstaller", code: 1, userInfo: [NSLocalizedDescriptionKey: "No SSH session"])
+        }
+
+        // Auto-inject non-interactive flags for known tools
+        var effectiveCommand = command
+        if command.contains("composer") {
+            effectiveCommand = "export COMPOSER_ALLOW_SUPERUSER=1; " + effectiveCommand
+        }
+        if command.contains("apt") || command.contains("apt-get") {
+             if !effectiveCommand.contains("-y") {
+                 effectiveCommand = effectiveCommand.replacingOccurrences(of: "install", with: "install -y")
+             }
+             effectiveCommand = "export DEBIAN_FRONTEND=noninteractive; " + effectiveCommand
+        }
+
+        // First attempt: Try the original versioned command
+        await appendLog("> Attempting versioned install...")
+        let result = await sshService.execute(effectiveCommand, via: session, timeout: 600)
+
+        await MainActor.run {
+            self.installLog += result.output + "\n"
+        }
+
+        if result.exitCode == 0 {
+            await MainActor.run { self.installProgress = 1.0 }
+            return true
+        }
+
+        // Check if failure is due to version not found (apt/dnf version errors)
+        let output = result.output.lowercased()
+        let isVersionError = output.contains("version") && (
+            output.contains("not found") ||
+            output.contains("has no installation candidate") ||
+            output.contains("no match") ||
+            output.contains("unable to locate") ||
+            output.contains("e: version")
+        )
+
+        guard isVersionError else {
+            // Not a version error, don't retry
+            await appendLog("❌ Installation failed (exit code \(result.exitCode))")
+            return false
+        }
+
+        // Generate fallback command without version pinning
+        guard let fallbackCommand = generateFallbackCommand(from: command, slug: slug) else {
+            await appendLog("❌ Version not available and no fallback possible")
+            return false
+        }
+
+        await appendLog("> ⚠️ Specific version not available in repository")
+        await appendLog("> 🔄 Retrying with latest available version...")
+        await appendLog("> Executing: \(fallbackCommand)")
+
+        // Second attempt: Try without version pinning
+        let fallbackResult = await sshService.execute(fallbackCommand, via: session, timeout: 600)
+
+        await MainActor.run {
+            self.installLog += fallbackResult.output + "\n"
+        }
+
+        if fallbackResult.exitCode == 0 {
+            await MainActor.run { self.installProgress = 1.0 }
+            await appendLog("> ✅ Installed latest available version successfully")
+            return true
+        } else {
+            await appendLog("❌ Fallback installation also failed (exit code \(fallbackResult.exitCode))")
+            return false
+        }
+    }
+
+    /// Generate a fallback command without version pinning
+    /// Transforms: "apt install -y redis-server=7.2.4*" → "apt install -y redis-server"
+    /// Transforms: "dnf install -y redis-7.2.4" → "dnf install -y redis"
+    private func generateFallbackCommand(from command: String, slug: String) -> String? {
+        var fallback = command
+
+        // Remove apt version pinning: package=version* or package=version
+        // Pattern: packagename=anything (until space or end)
+        if let regex = try? NSRegularExpression(pattern: "=\\S+", options: []) {
+            let range = NSRange(location: 0, length: fallback.utf16.count)
+            fallback = regex.stringByReplacingMatches(in: fallback, options: [], range: range, withTemplate: "")
+        }
+
+        // Remove dnf/yum version pinning: package-version (where version starts with digit)
+        // Pattern: -X.X.X or -X.X or -X (version numbers after package name)
+        // Be careful not to remove legitimate package name parts like "redis-server"
+        // Only remove version-like suffixes: -7.2.4, -3.2, etc.
+        if let regex = try? NSRegularExpression(pattern: "-\\d+(\\.\\d+)*\\*?(?=\\s|$)", options: []) {
+            let range = NSRange(location: 0, length: fallback.utf16.count)
+            fallback = regex.stringByReplacingMatches(in: fallback, options: [], range: range, withTemplate: "")
+        }
+
+        // Clean up any double spaces
+        while fallback.contains("  ") {
+            fallback = fallback.replacingOccurrences(of: "  ", with: " ")
+        }
+
+        // Return nil if nothing changed (no version to strip)
+        return fallback != command ? fallback.trimmingCharacters(in: .whitespaces) : nil
+    }
+
     private func executeRealInstallation(command: String) async throws {
         guard let session = session else {
             throw NSError(domain: "ServerInstaller", code: 1, userInfo: [NSLocalizedDescriptionKey: "No SSH session"])
         }
-        
+
         let result = await sshService.execute(command, via: session, timeout: 600) // Longer timeout for installs
         await MainActor.run {
             self.installLog += result.output + "\n"
@@ -217,24 +334,30 @@ final class ServerInstallerViewModel: ObservableObject {
         guard let commands = version.installCommands else { return nil }
         let osKey = os.lowercased()
         
-        // Helper to join commands
-        func join(_ cmds: [String]?) -> String? {
-            guard let cmds = cmds, !cmds.isEmpty else { return nil }
-            return cmds.joined(separator: " && ")
+        // Helper to resolve instruction
+        func resolve(_ instruction: InstallInstruction?) -> String? {
+            guard let instruction = instruction else { return nil }
+            switch instruction {
+            case .list(let cmds):
+                return cmds.isEmpty ? nil : cmds.joined(separator: " && ")
+            case .keyed(let dict):
+                // Prefer "default" key, otherwise check if there's only one key or take first
+                return dict["default"] ?? dict.values.first
+            }
         }
         
         // 1. Try exact OS match (e.g. "ubuntu")
-        if let cmd = join(commands[osKey]) {
+        if let cmd = resolve(commands[osKey]) {
             return cmd
         }
         
         // 2. Try generic "linux"
-        if let cmd = join(commands["linux"]) {
+        if let cmd = resolve(commands["linux"]) {
             return cmd
         }
         
         // 3. Try "default"
-        if let cmd = join(commands["default"]) {
+        if let cmd = resolve(commands["default"]) {
             return cmd
         }
         

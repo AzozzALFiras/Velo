@@ -52,20 +52,12 @@ struct UnifiedSidebarView: View {
         HStack {
             HStack(spacing: 12) {
                 // App icon
-                AsyncImage(url: app.iconURL) { phase in
-                    if let image = phase.image {
-                        image
-                            .resizable()
-                            .scaledToFit()
-                    } else {
-                        Image(systemName: app.category.icon)
-                            .font(.system(size: 18))
-                            .foregroundStyle(themeColor)
-                    }
-                }
-                .frame(width: 32, height: 32)
-                .background(themeColor.opacity(0.1))
-                .clipShape(RoundedRectangle(cornerRadius: 6))
+                SoftwareIconView(
+                    iconURL: app.iconURL?.absoluteString ?? "",
+                    slug: app.name.lowercased(),
+                    color: themeColor,
+                    size: 32
+                )
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(app.name)

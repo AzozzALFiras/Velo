@@ -62,12 +62,7 @@ private struct ModernAppCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .top) {
-                Image(systemName: software.iconName)
-                    .font(.system(size: 24))
-                    .foregroundStyle(.white)
-                    .frame(width: 44, height: 44)
-                    .background(Color.white.opacity(0.1))
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                SoftwareIconView(iconURL: software.iconName, slug: software.slug)
                 
                 Spacer()
                 

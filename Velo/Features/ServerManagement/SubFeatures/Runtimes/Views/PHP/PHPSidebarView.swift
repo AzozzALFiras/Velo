@@ -9,24 +9,12 @@ struct PHPSidebarView: View {
             // Header
             HStack(spacing: 12) {
                 // PHP Icon
-                if let iconURL = viewModel.capabilityIcon, let url = URL(string: iconURL) {
-                    AsyncImage(url: url) { phase in
-                        if let image = phase.image {
-                            image
-                                .resizable()
-                                .scaledToFit()
-                        } else {
-                            Image(systemName: "chevron.left.forwardslash.chevron.right")
-                                .foregroundStyle(.purple)
-                        }
-                    }
-                    .frame(width: 32, height: 32)
-                } else {
-                    Image(systemName: "chevron.left.forwardslash.chevron.right")
-                        .font(.system(size: 24))
-                        .foregroundStyle(.purple)
-                        .frame(width: 32, height: 32)
-                }
+                SoftwareIconView(
+                    iconURL: viewModel.capabilityIcon ?? "",
+                    slug: "php",
+                    color: .purple,
+                    size: 32
+                )
                 
                 VStack(alignment: .leading, spacing: 2) {
                     Text("php.version".localized(viewModel.activeVersion))

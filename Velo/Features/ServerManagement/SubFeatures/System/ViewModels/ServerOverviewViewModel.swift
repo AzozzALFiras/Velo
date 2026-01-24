@@ -21,9 +21,11 @@ final class ServerOverviewViewModel: ObservableObject {
     private let phpService = PHPService.shared
     private let mysqlService = MySQLService.shared
     private let postgresService = PostgreSQLService.shared
+    private let redisService = RedisService.shared
     private let nodeService = NodeService.shared
     private let pythonService = PythonService.shared
     private let gitService = GitService.shared
+    private let apiService = ApiService.shared
 
     // MARK: - Published State
 
@@ -58,6 +60,9 @@ final class ServerOverviewViewModel: ObservableObject {
     @Published var isLoadingStatus = false
     @Published var isLiveUpdating = false
     @Published var dataLoadedOnce = false
+    
+    // Capabilities for dynamic slugs
+    private var capabilities: [Capability] = []
 
     // History for charts
     @Published var cpuHistory: [HistoryPoint] = []
@@ -87,6 +92,9 @@ final class ServerOverviewViewModel: ObservableObject {
         guard let session = session else { return }
 
         isLoading = true
+        
+        // Fetch capabilities first for accurate slugs
+        await fetchCapabilities()
 
         // Load stats and status in parallel
         async let statsTask: () = fetchStats()
@@ -128,6 +136,15 @@ final class ServerOverviewViewModel: ObservableObject {
 
         isLoadingStats = false
     }
+    
+    /// Fetch available capabilities for dynamic slugs
+    func fetchCapabilities() async {
+        do {
+            capabilities = try await apiService.fetchCapabilities()
+        } catch {
+            print("Failed to fetch capabilities: \(error)")
+        }
+    }
 
     /// Fetch server software status
     func fetchServerStatus() async {
@@ -142,25 +159,31 @@ final class ServerOverviewViewModel: ObservableObject {
         async let phpStatus = phpService.getStatus(via: session)
         async let mysqlStatus = mysqlService.getStatus(via: session)
         async let pgStatus = postgresService.getStatus(via: session)
+        async let redisStatus = redisService.getStatus(via: session)
+        
         async let nodeStatus = nodeService.getStatus(via: session)
         async let npmStatus = nodeService.getNPMStatus(via: session)
         async let pythonStatus = pythonService.getStatus(via: session)
         async let gitStatus = gitService.getStatus(via: session)
         async let composerStatus = phpService.getComposerStatus(via: session)
 
-        let statusResult = await (nginxStatus, apacheStatus, phpStatus, mysqlStatus, pgStatus, nodeStatus, npmStatus, pythonStatus, gitStatus, composerStatus)
+        // Web & DB
+        let (n, a, p, m, pg, r) = await (nginxStatus, apacheStatus, phpStatus, mysqlStatus, pgStatus, redisStatus)
+        // Runtimes & Tools
+        let (nd, np, py, g, c) = await (nodeStatus, npmStatus, pythonStatus, gitStatus, composerStatus)
         
         var status = ServerStatus()
-        status.nginx = statusResult.0
-        status.apache = statusResult.1
-        status.php = statusResult.2
-        status.mysql = statusResult.3
-        status.postgresql = statusResult.4
-        status.nodejs = statusResult.5
-        status.npm = statusResult.6
-        status.python = statusResult.7
-        status.git = statusResult.8
-        status.composer = statusResult.9
+        status.nginx = n
+        status.apache = a
+        status.php = p
+        status.mysql = m
+        status.postgresql = pg
+        status.redis = r
+        status.nodejs = nd
+        status.npm = np
+        status.python = py
+        status.git = g
+        status.composer = c
 
         serverStatus = status
         updateInstalledSoftwareFromStatus()
@@ -248,46 +271,48 @@ final class ServerOverviewViewModel: ObservableObject {
         if ramHistory.count > maxHistoryPoints { ramHistory.removeFirst() }
     }
 
+    private func resolveCapability(key: String) -> Capability? {
+        capabilities.first { $0.slug.lowercased() == key.lowercased() || $0.name.lowercased() == key.lowercased() }
+    }
+
     private func updateInstalledSoftwareFromStatus() {
         var software: [InstalledSoftware] = []
 
+        // Helper to add software using API data if available
+        func addSoftware(key: String, version: String?, defaultName: String, isRunning: Bool) {
+            guard let version = version else { return }
+            let cap = resolveCapability(key: key)
+            
+            software.append(InstalledSoftware(
+                name: cap?.name ?? defaultName,
+                slug: cap?.slug ?? key.lowercased(),
+                version: version,
+                iconName: cap?.icon ?? "", // Strictly use API icon or empty
+                isRunning: isRunning
+            ))
+        }
+
         // Web Servers
-        if let v = serverStatus.nginx.version {
-            software.append(InstalledSoftware(name: "Nginx", version: v, iconName: "nginx", isRunning: serverStatus.nginx.isRunning))
-        }
-        if let v = serverStatus.apache.version {
-            software.append(InstalledSoftware(name: "Apache", version: v, iconName: "apache", isRunning: serverStatus.apache.isRunning))
-        }
+        addSoftware(key: "nginx", version: serverStatus.nginx.version, defaultName: "Nginx", isRunning: serverStatus.nginx.isRunning)
+        addSoftware(key: "apache", version: serverStatus.apache.version, defaultName: "Apache", isRunning: serverStatus.apache.isRunning)
 
         // Databases
-        if let v = serverStatus.mysql.version {
-            software.append(InstalledSoftware(name: "MySQL", version: v, iconName: "mysql", isRunning: serverStatus.mysql.isRunning))
-        }
-        if let v = serverStatus.mariadb.version {
-            software.append(InstalledSoftware(name: "MariaDB", version: v, iconName: "mariadb", isRunning: serverStatus.mariadb.isRunning))
-        }
-        if let v = serverStatus.postgresql.version {
-            software.append(InstalledSoftware(name: "PostgreSQL", version: v, iconName: "postgresql", isRunning: serverStatus.postgresql.isRunning))
-        }
-        if let v = serverStatus.redis.version {
-            software.append(InstalledSoftware(name: "Redis", version: v, iconName: "redis", isRunning: serverStatus.redis.isRunning))
-        }
+        addSoftware(key: "mysql", version: serverStatus.mysql.version, defaultName: "MySQL", isRunning: serverStatus.mysql.isRunning)
+        addSoftware(key: "mariadb", version: serverStatus.mariadb.version, defaultName: "MariaDB", isRunning: serverStatus.mariadb.isRunning)
+        // PostgreSQL slug in API is "postgres", so we search by that key
+        addSoftware(key: "postgres", version: serverStatus.postgresql.version, defaultName: "PostgreSQL", isRunning: serverStatus.postgresql.isRunning)
+        addSoftware(key: "redis", version: serverStatus.redis.version, defaultName: "Redis", isRunning: serverStatus.redis.isRunning)
 
         // Runtimes
-        if let v = serverStatus.php.version {
-            software.append(InstalledSoftware(name: "PHP", version: v, iconName: "php", isRunning: serverStatus.php.isRunning))
-        }
-        if let v = serverStatus.python.version {
-            software.append(InstalledSoftware(name: "Python", version: v, iconName: "python", isRunning: false))
-        }
-        if let v = serverStatus.nodejs.version {
-            software.append(InstalledSoftware(name: "Node.js", version: v, iconName: "nodejs", isRunning: false))
-        }
+        addSoftware(key: "php", version: serverStatus.php.version, defaultName: "PHP", isRunning: serverStatus.php.isRunning)
+        addSoftware(key: "python", version: serverStatus.python.version, defaultName: "Python", isRunning: false)
+        // Node.js slug in API is "node", name is "Node.js". Searching by "node" finds it.
+        addSoftware(key: "node", version: serverStatus.nodejs.version, defaultName: "Node.js", isRunning: false)
 
         // Tools
-        if let v = serverStatus.git.version {
-            software.append(InstalledSoftware(name: "Git", version: v, iconName: "git-scm", isRunning: false))
-        }
+        addSoftware(key: "git", version: serverStatus.git.version, defaultName: "Git", isRunning: false)
+        // Composer
+        addSoftware(key: "composer", version: serverStatus.composer.version, defaultName: "Composer", isRunning: false)
 
         installedSoftware = software
     }

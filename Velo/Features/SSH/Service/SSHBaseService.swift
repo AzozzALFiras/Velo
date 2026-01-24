@@ -112,7 +112,7 @@ actor SSHBaseService: TerminalOutputDelegate {
         // 1. Warmup / Reset logic
         if forceResetNextCommand {
             forceResetNextCommand = false
-            await MainActor.run { engine.sendInput("\u{03}\n") }
+            await MainActor.run { engine.sendInput("\u{03}\r") }
             try? await Task.sleep(nanoseconds: 500_000_000)
         }
         
@@ -130,11 +130,11 @@ actor SSHBaseService: TerminalOutputDelegate {
                 printf "\\033[?2004l\\x1b[?2004l" 2>/dev/null; \
                 alias which='which' 2>/dev/null;
                 """
-                engine.sendInput("\n\(setupCmd)\n")
+                engine.sendInput("\r\(setupCmd)\r")
                 
                 // Silence kernel logs if root
                 if session.activeSSHConnectionString?.lowercased().hasPrefix("root@") ?? false {
-                    engine.sendInput("dmesg -n 1 2>/dev/null; echo 0 > /proc/sys/kernel/printk 2>/dev/null || true\n")
+                    engine.sendInput("dmesg -n 1 2>/dev/null; echo 0 > /proc/sys/kernel/printk 2>/dev/null || true\r")
                 }
             }
             try? await Task.sleep(nanoseconds: 1_500_000_000) // Increased to 1.5 seconds
@@ -177,13 +177,14 @@ actor SSHBaseService: TerminalOutputDelegate {
         
         await MainActor.run {
             AppLogger.shared.log("Executing: \(cleanCommand)", level: .cmd)
-            engine.sendInput("\n")
+            // Use \r for PTY line termination - terminals expect Carriage Return
+            engine.sendInput("\r")
             // Note: We use printf to avoid 'echo' escaping issues and add a trailing marker check
-            engine.sendInput("printf '\(sm)\\n'\n")
-            engine.sendInput("\(cleanCommand)\n")
-            engine.sendInput("EXIT_CODE=$?\n")
-            engine.sendInput("printf \"$EXIT_CODE\\n\(em)\\n\"\n")
-            engine.sendInput("\n")
+            engine.sendInput("printf '\(sm)\\n'\r")
+            engine.sendInput("\(cleanCommand)\r")
+            engine.sendInput("EXIT_CODE=$?\r")
+            engine.sendInput("printf \"$EXIT_CODE\\n\(em)\\n\"\r")
+            engine.sendInput("\r")
         }
         
         // 3. Wait for continuation or timeout
@@ -515,11 +516,14 @@ actor SSHBaseService: TerminalOutputDelegate {
         }
         
         // 2. Comprehensive ANSI regex - covers colors, cursor, and private modes
+        // Expanded to include more complex CSI sequences and OSC
         let pattern = [
-            "[\\u001B\\u009B][[\\]()#;?]*((?:[a-zA-Z\\d]*(?:;[-a-zA-Z\\d\\/#&.:=?%@~_]*)*)?\\u0007|(?:(?:\\d{1,4}(?:;\\d{0,4})*)?[\\dA-PR-TZcf-ntqry=><~]))",
-            "\\u001B\\[[\\?\\d;]*[hl]",
-            "\\u001B\\][\\d;]*\\u0007", // OSC sequences
-            "\\r"
+            "(?:\u{1B}\\[|\\x9B)[\\d;?]*[ -/]*[@-~]", // CSI sequences
+            "\u{1B}\\][^\u{0007}\u{1B}]*(?:\u{0007}|\u{1B}\\\\)", // OSC sequences
+            "\u{1B}[PX^_].*?\u{1B}\\\\", // DCS, PM, APC
+            "\u{1B}[@-_]", // Fe escape sequences
+            "[\u{0080}-\u{009F}]", // C1 control codes
+            "\r" // Carriage return
         ].joined(separator: "|")
         
         guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else { return clean }

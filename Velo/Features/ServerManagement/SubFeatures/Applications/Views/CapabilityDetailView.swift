@@ -2,8 +2,6 @@
 //  CapabilityDetailView.swift
 //  Velo
 //
-//  Created for Velo Server Management
-//
 
 import SwiftUI
 
@@ -19,17 +17,12 @@ struct CapabilityDetailView: View {
                 
                 // MARK: - Header
                 HStack(spacing: 20) {
-                    AsyncImage(url: URL(string: capability.icon)) { phase in
-                        if let image = phase.image {
-                            image.resizable().scaledToFit()
-                        } else {
-                            Image(systemName: "cube.box.fill")
-                                .foregroundStyle(Color(hex: capability.color ?? "#3B82F6"))
-                        }
-                    }
-                    .frame(width: 80, height: 80)
-                    .background(Color(hex: capability.color ?? "#3B82F6").opacity(0.1))
-                    .clipShape(RoundedRectangle(cornerRadius: 20))
+                    SoftwareIconView(
+                        iconURL: capability.icon,
+                        slug: capability.slug,
+                        color: Color(hex: capability.color ?? "#3B82F6"),
+                        size: 80
+                    )
                     
                     VStack(alignment: .leading, spacing: 6) {
                         Text(capability.name)
@@ -137,7 +130,7 @@ struct VersionRow: View {
                     }
                 }
                 
-                Text("apps.detail.released".localized(formatDate(version.releaseDate)))
+                Text(formatDate(version.releaseDate))
                     .font(.caption)
                     .foregroundStyle(.gray)
             }
@@ -166,13 +159,12 @@ struct VersionRow: View {
     }
     
     func formatDate(_ dateString: String?) -> String {
-        guard let dateString = dateString else { return "N/A" }
-        // Simple formatter
+        guard let dateString = dateString else { return "" }
         let formatter = ISO8601DateFormatter()
         if let date = formatter.date(from: dateString) {
             let displayFormatter = DateFormatter()
             displayFormatter.dateStyle = .medium
-            return displayFormatter.string(from: date)
+            return "apps.detail.released".localized(displayFormatter.string(from: date))
         }
         return dateString
     }

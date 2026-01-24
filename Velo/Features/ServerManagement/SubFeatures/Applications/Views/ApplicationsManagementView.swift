@@ -170,19 +170,7 @@ struct InstalledAppCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                AsyncImage(url: URL(string: "https://velo.3zozz.com/assets/icons/\(software.name.lowercased()).png")) { phase in
-                    if let image = phase.image {
-                        image
-                            .resizable()
-                            .scaledToFit()
-                    } else {
-                        Image(systemName: "cube.box.fill")
-                            .foregroundStyle(.white)
-                    }
-                }
-                .frame(width: 40, height: 40)
-                .background(Color.blue.opacity(0.2))
-                .clipShape(RoundedRectangle(cornerRadius: 10))
+                SoftwareIconView(iconURL: software.iconName, slug: software.slug, size: 40)
                 
                 Spacer()
                 
@@ -216,17 +204,12 @@ struct CapabilityCard: View {
     
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            AsyncImage(url: URL(string: "https://velo.3zozz.com/assets/icons/\(capability.slug).png")) { phase in
-                if let image = phase.image {
-                    image
-                        .resizable()
-                        .scaledToFit()
-                } else {
-                    Image(systemName: "cube.box.fill")
-                        .foregroundStyle(Color(hex: capability.color ?? "#3B82F6"))
-                }
-            }
-            .frame(width: 32, height: 32)
+                    SoftwareIconView(
+                        iconURL: capability.icon,
+                        slug: capability.slug,
+                        color: Color(hex: capability.color ?? "#3B82F6"),
+                        size: 32
+                    )
             
             VStack(alignment: .leading, spacing: 4) {
                 Text(capability.name)
@@ -301,4 +284,3 @@ struct InstallationStatusOverlay: View {
         )
     }
 }
-

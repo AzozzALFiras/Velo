@@ -364,8 +364,21 @@ final class ApplicationDetailViewModel: ObservableObject {
         )
         let osId = osResult.output.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
 
+        // Helper to resolve instruction
+        func resolve(_ instruction: InstallInstruction?) -> [String]? {
+            guard let instruction = instruction else { return nil }
+            switch instruction {
+            case .list(let cmds): return cmds
+            case .keyed(let dict):
+                if let cmd = dict["default"] ?? dict.values.first {
+                    return [cmd]
+                }
+                return nil
+            }
+        }
+
         // Find matching commands
-        let osCommands = commands[osId] ?? commands["ubuntu"] ?? commands["debian"] ?? []
+        let osCommands = resolve(commands[osId]) ?? resolve(commands["ubuntu"]) ?? resolve(commands["debian"]) ?? []
         guard !osCommands.isEmpty else {
             errorMessage = "No install commands for this OS (\(osId))"
             return

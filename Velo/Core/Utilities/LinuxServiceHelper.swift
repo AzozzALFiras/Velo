@@ -44,11 +44,11 @@ final class LinuxServiceHelper {
         let sshBase = SSHBaseService.shared
         // Check loaded state
         let loadedCheck = await sshBase.execute("systemctl list-units --full -all | grep -F \"\(serviceName).service\"", via: session, timeout: 5)
-        if !loadedCheck.output.isEmpty { return true }
+        if !loadedCheck.output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return true }
         
         // Check unit file
         let fileCheck = await sshBase.execute("systemctl list-unit-files | grep -F \"\(serviceName).service\"", via: session, timeout: 5)
-        return !fileCheck.output.isEmpty
+        return !fileCheck.output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
     
     // MARK: - Convenience Wrappers

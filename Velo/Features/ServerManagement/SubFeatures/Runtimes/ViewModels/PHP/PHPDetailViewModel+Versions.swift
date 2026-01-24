@@ -41,8 +41,21 @@ extension PHPDetailViewModel {
         
         // Get install commands from API - API uses "default" key, not "install"
         // Get install commands from API
+        // Helper to resolve instruction
+        func resolve(_ instruction: InstallInstruction?) -> [String]? {
+            guard let instruction = instruction else { return nil }
+            switch instruction {
+            case .list(let cmds): return cmds
+            case .keyed(let dict):
+                if let cmd = dict["default"] ?? dict.values.first {
+                    return [cmd]
+                }
+                return nil
+            }
+        }
+
         guard let installCommands = version.installCommands,
-              let commandsList = installCommands[osName] ?? installCommands["ubuntu"] ?? installCommands["debian"],
+              let commandsList = resolve(installCommands[osName]) ?? resolve(installCommands["ubuntu"]) ?? resolve(installCommands["debian"]),
               !commandsList.isEmpty else {
             errorMessage = "No install commands available for \(osName)"
             isInstallingVersion = false
