@@ -179,7 +179,37 @@ final class ServerInstallerViewModel: ObservableObject {
                 }
             }
             
-            guard let installCmd = getInstallCommand(from: versionDetail, os: osType) else {
+            var installCommandToUse = getInstallCommand(from: versionDetail, os: osType)
+
+            // Fallback: If no command found for this specific version (e.g. "3.12"), 
+            // try to find a compatible version (e.g. "3.12.1") that HAS commands.
+            if installCommandToUse == nil {
+                await appendLog("> ⚠️ No instructions for v\(version). Looking for alternatives...")
+                
+                if let versions = capability.versions {
+                    // Look for versions sharing the same major.minor prefix
+                    let prefix = version.components(separatedBy: ".").prefix(2).joined(separator: ".")
+                    if let alternative = versions.first(where: { 
+                        $0.version.hasPrefix(prefix) && 
+                        !($0.installCommands?.isEmpty ?? true)
+                    }) {
+                        await appendLog("> Found alternative instructions from v\(alternative.version)")
+                        // We need the full details for this alternative to get the command
+                        let altDetail = try await ApiService.shared.fetchCapabilityVersion(slug: capability.slug, version: alternative.version)
+                        installCommandToUse = getInstallCommand(from: altDetail, os: osType)
+                    }
+                }
+            }
+            
+            // Final Fallback: Generic package installation if still nil
+            if installCommandToUse == nil {
+                if let genericCmd = getGenericInstallCommand(slug: capability.slug, os: osType) {
+                    await appendLog("> Using generic installation command.")
+                    installCommandToUse = genericCmd
+                }
+            }
+
+            guard let installCmd = installCommandToUse else {
                 await appendLog("> Error: No installation instruction found for \(osType).")
                 await completion(success: false)
                 return
@@ -248,11 +278,19 @@ final class ServerInstallerViewModel: ObservableObject {
             output.contains("has no installation candidate") ||
             output.contains("no match") ||
             output.contains("unable to locate") ||
-            output.contains("e: version")
+            output.contains("unable to locate") ||
+            output.contains("not available") ||
+            output.contains("e: version") ||
+            output.contains("e: package")
         )
 
-        guard isVersionError else {
-            // Not a version error, don't retry
+        // Aggressive fallback: If we were trying to pin a version (contains "=" or similar) 
+        // and it failed, and we have a fallback command, we should strictly try the fallback.
+        // It is safer to install the repo version than to fail completely.
+        let isPinnedVersion = command.contains("=") || (command.contains("install") && command.contains("-") && slug == "redis")
+        
+        guard isPinnedVersion || isVersionError else {
+            // If it wasn't a pinned version install that failed, then it's a real system error (network, disk, etc)
             await appendLog("❌ Installation failed (exit code \(result.exitCode))")
             return false
         }
@@ -312,7 +350,20 @@ final class ServerInstallerViewModel: ObservableObject {
         }
 
         // Return nil if nothing changed (no version to strip)
-        return fallback != command ? fallback.trimmingCharacters(in: .whitespaces) : nil
+        return fallback != command ? makeCommandRobust(fallback) : nil
+    }
+    
+    // Helper to make apt commands more robust against post-invoke hook failures (exit code 100)
+    private func makeCommandRobust(_ command: String) -> String {
+        var robust = command
+        // Replace "apt update &&" with "apt update || true &&" to ignore update hook failures
+        if robust.contains("apt update &&") {
+            robust = robust.replacingOccurrences(of: "apt update &&", with: "apt update || true &&")
+        }
+        if robust.contains("apt-get update &&") {
+            robust = robust.replacingOccurrences(of: "apt-get update &&", with: "apt-get update || true &&")
+        }
+        return robust
     }
 
     private func executeRealInstallation(command: String) async throws {
@@ -422,7 +473,9 @@ final class ServerInstallerViewModel: ObservableObject {
         case "postgresql": return "postgresql"
         case "redis": return "redis-server"
         case "mongodb": return "mongod"
-        case "php-fpm": return "php-fpm" // simplified
+        case "php-fpm": return "php-fpm"
+        // Runtimes and tools have no systemd service
+        case "python", "python3", "node", "nodejs", "git", "composer": return ""
         default: return slug
         }
     }
@@ -440,6 +493,21 @@ final class ServerInstallerViewModel: ObservableObject {
         case "python", "python3": return "python"
         case "nodejs", "node": return "nodejs"
         case "git": return "git"
+        default: return nil
+        }
+    }
+    
+    private func getGenericInstallCommand(slug: String, os: String) -> String? {
+        // Only safely fallback for Debian/Ubuntu environments where package names are predictable
+        guard os == "ubuntu" || os == "debian" else { return nil }
+        
+        switch slug.lowercased() {
+        case "python": return "apt update || true && apt install -y python3"
+        case "redis": return "apt update || true && apt install -y redis-server"
+        case "postgresql", "postgres": return "apt update || true && apt install -y postgresql"
+        case "nginx": return "apt update || true && apt install -y nginx"
+        case "php": return "apt update || true && apt install -y php-fpm"
+        case "git": return "apt update || true && apt install -y git"
         default: return nil
         }
     }

@@ -36,16 +36,30 @@ struct UnifiedServiceSectionView: View {
                     .font(.caption)
                     .foregroundStyle(.gray)
 
-                HStack(spacing: 8) {
-                    Circle()
-                        .fill(state.isRunning ? Color.green : Color.red)
-                        .frame(width: 12, height: 12)
-                        .shadow(color: state.isRunning ? .green : .red, radius: 4)
+                if app.capabilities.contains(.controllable) {
+                    HStack(spacing: 8) {
+                        Circle()
+                            .fill(state.isRunning ? Color.green : Color.red)
+                            .frame(width: 12, height: 12)
+                            .shadow(color: state.isRunning ? .green : .red, radius: 4)
 
-                    Text(state.isRunning ? "Running" : "Stopped")
-                        .font(.title3)
-                        .fontWeight(.semibold)
-                        .foregroundStyle(.white)
+                        Text(state.isRunning ? "Running" : "Stopped")
+                            .font(.title3)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(.white)
+                    }
+                } else {
+                     HStack(spacing: 8) {
+                        Circle()
+                            .fill(state.version.isEmpty || state.version == "Not Installed" ? Color.red : Color.green)
+                            .frame(width: 12, height: 12)
+                            .shadow(color: state.version.isEmpty || state.version == "Not Installed" ? .red : .green, radius: 4)
+
+                        Text(state.version.isEmpty || state.version == "Not Installed" ? "Not Installed" : "Installed")
+                            .font(.title3)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(.white)
+                    }
                 }
             }
 

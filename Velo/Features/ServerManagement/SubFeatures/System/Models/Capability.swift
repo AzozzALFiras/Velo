@@ -45,7 +45,12 @@ public struct CapabilityVersion: Identifiable, Codable {
         features = try container.decodeIfPresent([CapabilityFeature].self, forKey: .features)
         
         // Use InstallInstruction for polymorphic decoding
-        installCommands = try container.decodeIfPresent([String: InstallInstruction].self, forKey: .installCommands)
+        // Handle case where API returns [] (empty array) instead of {} (dictionary)
+        if let _ = try? container.decode([String].self, forKey: .installCommands) {
+            installCommands = nil
+        } else {
+            installCommands = try container.decodeIfPresent([String: InstallInstruction].self, forKey: .installCommands)
+        }
     }
 }
 

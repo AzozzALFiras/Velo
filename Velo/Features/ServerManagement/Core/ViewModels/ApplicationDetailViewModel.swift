@@ -134,15 +134,27 @@ final class ApplicationDetailViewModel: ObservableObject {
         case .stopped(let ver):
             state.isRunning = false
             state.version = ver
+        case .installed(let ver):
+            state.isRunning = false // Python/Node are just runtimes, not services (usually)
+            state.version = ver
         default:
             state.isRunning = false
             state.version = "Not Installed"
         }
 
-        // Get binary path
-        let whichResult = await SSHBaseService.shared.execute("which \(app.id)", via: session)
+        // Get binary path logic
+        // Use configured binary path name if available, otherwise fallback to app.id
+        let binaryName = app.serviceConfig.binaryPath.isEmpty ? app.id : URL(fileURLWithPath: app.serviceConfig.binaryPath).lastPathComponent
+        
+        let whichResult = await SSHBaseService.shared.execute("which \(binaryName) 2>/dev/null", via: session)
         if !whichResult.output.isEmpty && whichResult.exitCode == 0 {
             state.binaryPath = whichResult.output.trimmingCharacters(in: .whitespacesAndNewlines)
+        } else if !app.serviceConfig.binaryPath.isEmpty {
+             // Fallback: check if the configured full path exists
+             let existCheck = await SSHBaseService.shared.execute("[ -f \(app.serviceConfig.binaryPath) ] && echo 'yes'", via: session)
+             if existCheck.output.contains("yes") {
+                 state.binaryPath = app.serviceConfig.binaryPath
+             }
         }
 
         state.configPath = app.serviceConfig.configPath

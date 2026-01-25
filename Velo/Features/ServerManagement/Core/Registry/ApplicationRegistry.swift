@@ -179,7 +179,7 @@ final class ApplicationRegistry {
         ApplicationDefinition(
             id: "postgresql",
             name: "PostgreSQL",
-            slug: "postgresql",
+            slug: "postgres",
             icon: "cylinder.split.1x2",
             category: .database,
             themeColor: "#336791",
@@ -293,7 +293,7 @@ final class ApplicationRegistry {
         ApplicationDefinition(
             id: "node",
             name: "Node.js",
-            slug: "nodejs",
+            slug: "node",
             icon: "terminal",
             category: .runtime,
             themeColor: "#339933",
