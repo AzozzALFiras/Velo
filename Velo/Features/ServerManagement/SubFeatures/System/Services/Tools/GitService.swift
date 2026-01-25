@@ -30,4 +30,35 @@ final class GitService: ObservableObject, ServerModuleService {
         let version = await getVersion(via: session) ?? "installed"
         return .installed(version: version)
     }
+
+    // MARK: - Git Configuration
+
+    func getGlobalConfig(via session: TerminalViewModel) async -> [String: String] {
+        let result = await baseService.execute(
+            "git config --global --list 2>/dev/null",
+            via: session,
+            timeout: 10
+        )
+
+        var config: [String: String] = [:]
+        for line in result.output.split(separator: "\n") {
+            let parts = line.split(separator: "=", maxSplits: 1)
+            if parts.count == 2 {
+                let key = String(parts[0]).trimmingCharacters(in: .whitespaces)
+                let value = String(parts[1]).trimmingCharacters(in: .whitespaces)
+                config[key] = value
+            }
+        }
+
+        return config
+    }
+
+    func setGlobalConfig(key: String, value: String, via session: TerminalViewModel) async -> Bool {
+        let result = await baseService.execute(
+            "git config --global '\(key)' '\(value)'",
+            via: session,
+            timeout: 10
+        )
+        return result.exitCode == 0
+    }
 }

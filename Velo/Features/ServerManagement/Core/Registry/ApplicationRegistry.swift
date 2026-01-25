@@ -52,6 +52,7 @@ final class ApplicationRegistry {
         register(mongoDefinition)
         register(pythonDefinition)
         register(nodeDefinition)
+        register(gitDefinition)
     }
 
     // MARK: - Nginx
@@ -313,6 +314,37 @@ final class ApplicationRegistry {
                 binaryPath: "/usr/bin/node"
             ),
             capabilities: [.multiVersion]
+        )
+    }
+
+    // MARK: - Git
+
+    private var gitDefinition: ApplicationDefinition {
+        ApplicationDefinition(
+            id: "git",
+            name: "Git",
+            slug: "git",
+            icon: "arrow.triangle.branch",
+            category: .tool,
+            themeColor: "#F05032",
+            sections: [
+                SectionBuilder.service(order: 0),
+                SectionBuilder.section(
+                    id: "config",
+                    name: "Global Config",
+                    icon: "slider.horizontal.3",
+                    providerType: .configuration,
+                    order: 1
+                )
+            ],
+            serviceConfig: ServiceConfiguration(
+                serviceName: "",
+                configPath: "/etc/gitconfig",
+                logPaths: [],
+                binaryPath: "/usr/bin/git",
+                socketPath: nil
+            ),
+            capabilities: []
         )
     }
 }

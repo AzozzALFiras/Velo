@@ -1,50 +1,110 @@
+//
+//  NodeService.swift
+//  Velo
+//
+//  Service for managing Node.js installations and versions.
+//
+
 import Foundation
 import Combine
 
-
 @MainActor
-final class NodeService: ObservableObject, ServerModuleService {
+final class NodeService: ObservableObject, RuntimeService {
     static let shared = NodeService()
-    
+
     let baseService = SSHBaseService.shared
-    
-    // Node doesn't really have a single systemd service name usually (often managed by pm2, or just binary), 
-    // for detection we rely on binary check.
-    
+    private let detector = NodeDetector()
+    private let versionResolver = NodeVersionResolver()
+
+    var serviceName: String { "" } // Node has no systemd service
+
+    var versionDetectionStrategy: VersionDetectionStrategy {
+        versionResolver.detectionStrategy
+    }
+
+    var versionSwitchStrategy: VersionSwitchStrategy {
+        versionResolver.switchStrategy
+    }
+
+    var packageManager: PackageManagerInfo? {
+        PackageManagerInfo(name: "npm", binary: "npm", versionFlag: "--version")
+    }
+
     private init() {}
-    
+
+    // MARK: - ServerModuleService
+
     func isInstalled(via session: TerminalViewModel) async -> Bool {
-        let result = await baseService.execute("which node 2>/dev/null", via: session, timeout: 5)
-        let path = result.output.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
-        return !path.isEmpty && path.hasPrefix("/")
+        await detector.isInstalled(via: session)
     }
-    
+
     func getVersion(via session: TerminalViewModel) async -> String? {
-        let result = await baseService.execute("node -v 2>/dev/null | head -n 1", via: session, timeout: 5)
-        let output = result.output.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
-        return output.isEmpty ? nil : output
+        await versionResolver.getActiveVersion(via: session)
     }
-    
+
     func isRunning(via session: TerminalViewModel) async -> Bool {
-        // Node itself isn't a service, it's a runtime. Always return false for "service running" 
-        // unless we check specific pm2 processes, which is out of scope for basic check.
-        return false 
+        return false // Node is not a service
     }
-    
-    func getNPMStatus(via session: TerminalViewModel) async -> SoftwareStatus {
-        let result = await baseService.execute("which npm 2>/dev/null", via: session, timeout: 5)
-        if result.output.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines).isEmpty {
-            return .notInstalled
-        }
-        
-        let versionRes = await baseService.execute("npm -v 2>/dev/null | head -n 1", via: session, timeout: 5)
-        let version = versionRes.output.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
-        return .installed(version: version.isEmpty ? "installed" : version)
-    }
-    
+
     func getStatus(via session: TerminalViewModel) async -> SoftwareStatus {
         guard await isInstalled(via: session) else { return .notInstalled }
         let version = await getVersion(via: session) ?? "installed"
         return .installed(version: version)
+    }
+
+    // MARK: - ControllableService (No-ops for Node)
+
+    func start(via session: TerminalViewModel) async -> Bool { false }
+    func stop(via session: TerminalViewModel) async -> Bool { false }
+    func restart(via session: TerminalViewModel) async -> Bool { false }
+    func reload(via session: TerminalViewModel) async -> Bool { false }
+    func enable(via session: TerminalViewModel) async -> Bool { false }
+    func disable(via session: TerminalViewModel) async -> Bool { false }
+
+    // MARK: - MultiVersionCapable
+
+    func listAvailableVersions(via session: TerminalViewModel) async -> [String] {
+        // Get from API
+        do {
+            let capabilities = try await ApiService.shared.fetchCapabilities()
+            if let nodeCap = capabilities.first(where: { $0.slug.lowercased() == "nodejs" }) {
+                return nodeCap.versions?.map { $0.version } ?? []
+            }
+        } catch {
+            print("Failed to fetch Node versions from API: \(error)")
+        }
+        return []
+    }
+
+    func listInstalledVersions(via session: TerminalViewModel) async -> [String] {
+        await versionResolver.getInstalledVersions(via: session)
+    }
+
+    func getActiveVersion(via session: TerminalViewModel) async -> String? {
+        await versionResolver.getActiveVersion(via: session)
+    }
+
+    func switchActiveVersion(to version: String, via session: TerminalViewModel) async throws -> Bool {
+        try await versionResolver.switchVersion(to: version, via: session)
+    }
+
+    // MARK: - RuntimeService
+
+    func getInstalledVersions(via session: TerminalViewModel) async -> [String] {
+        await listInstalledVersions(via: session)
+    }
+
+    func getPackageManagerStatus(via session: TerminalViewModel) async -> SoftwareStatus {
+        guard await detector.isNpmInstalled(via: session) else {
+            return .notInstalled
+        }
+
+        let result = await baseService.execute("npm --version", via: session, timeout: 5)
+        let version = result.output.trimmingCharacters(in: .whitespacesAndNewlines)
+        return version.isEmpty ? .notInstalled : .installed(version: version)
+    }
+
+    func getNPMStatus(via session: TerminalViewModel) async -> SoftwareStatus {
+        await getPackageManagerStatus(via: session)
     }
 }

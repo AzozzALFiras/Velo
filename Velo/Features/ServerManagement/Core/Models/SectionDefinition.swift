@@ -269,4 +269,25 @@ enum SectionBuilder {
             order: order
         )
     }
+
+    /// Creates a custom section
+    static func section(
+        id: String,
+        name: String,
+        icon: String,
+        providerType: SectionProviderType,
+        isDefault: Bool = false,
+        requiresRunning: Bool = false,
+        order: Int
+    ) -> SectionDefinition {
+        SectionDefinition(
+            id: id,
+            name: name,
+            icon: icon,
+            providerType: providerType,
+            isDefault: isDefault,
+            requiresRunning: requiresRunning,
+            order: order
+        )
+    }
 }

@@ -28,6 +28,8 @@ struct ConfigurationSectionProvider: SectionProvider {
         let configValues: [SharedConfigValue]
 
         switch app.id.lowercased() {
+        case "git":
+            configValues = await parseGitConfig(session: session)
         case "nginx":
             configValues = parseNginxConfig(content)
         case "apache", "apache2":
@@ -47,6 +49,22 @@ struct ConfigurationSectionProvider: SectionProvider {
         await MainActor.run {
             state.configValues = configValues
         }
+    }
+
+    // MARK: - Git Config
+
+    private func parseGitConfig(session: TerminalViewModel) async -> [SharedConfigValue] {
+        let gitConfig = await GitService.shared.getGlobalConfig(via: session)
+
+        return gitConfig.map { key, value in
+            SharedConfigValue(
+                key: key,
+                value: value,
+                displayName: key,
+                description: "Git global configuration",
+                type: .string
+            )
+        }.sorted { $0.key < $1.key }
     }
 
     // MARK: - Nginx Config

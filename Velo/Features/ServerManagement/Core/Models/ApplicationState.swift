@@ -8,9 +8,51 @@
 import Foundation
 import Combine
 
+/// Comprehensive lifecycle state for applications
+enum ApplicationLifecycleState: Equatable {
+    case notInstalled
+    case installing(progress: Double, phase: InstallPhase)
+    case installed(version: String)
+    case multipleVersionsInstalled(versions: [String], active: String?)
+    case running(version: String)
+    case stopped(version: String)
+    case broken(reason: String)
+
+    var isActionable: Bool {
+        switch self {
+        case .installing:
+            return false
+        default:
+            return true
+        }
+    }
+
+    var displayText: String {
+        switch self {
+        case .notInstalled:
+            return "Not Installed"
+        case .installing(let progress, let phase):
+            return "Installing (\(Int(progress * 100))%)"
+        case .installed(let version):
+            return "Installed: \(version)"
+        case .multipleVersionsInstalled(let versions, let active):
+            return "Installed: \(versions.count) versions" + (active.map { " (Active: \($0))" } ?? "")
+        case .running(let version):
+            return "Running: \(version)"
+        case .stopped(let version):
+            return "Stopped: \(version)"
+        case .broken(let reason):
+            return "Error: \(reason)"
+        }
+    }
+}
+
 /// Holds the runtime state of an application
 @MainActor
 final class ApplicationState: ObservableObject {
+    // Lifecycle State (New)
+    @Published var lifecycleState: ApplicationLifecycleState = .notInstalled
+
     // Service State
     @Published var isRunning: Bool = false
     @Published var version: String = ""
@@ -65,6 +107,7 @@ final class ApplicationState: ObservableObject {
 
     // Reset all state
     func reset() {
+        lifecycleState = .notInstalled
         isRunning = false
         version = ""
         binaryPath = ""

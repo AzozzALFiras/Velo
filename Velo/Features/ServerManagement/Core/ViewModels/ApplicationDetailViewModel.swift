@@ -24,6 +24,9 @@ final class ApplicationDetailViewModel: ObservableObject {
     private var serviceResolver: ServiceResolver {
         ServiceResolver.shared
     }
+    private var lifecycleManager: ApplicationLifecycleManager {
+        ApplicationLifecycleManager.shared
+    }
 
     // MARK: - Published State
 
@@ -51,6 +54,15 @@ final class ApplicationDetailViewModel: ObservableObject {
                 self?.objectWillChange.send()
             }
             .store(in: &cancellables)
+
+        // Observe lifecycle state changes
+        lifecycleManager.$lifecycleStates
+            .map { $0[app.id] ?? .notInstalled }
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] newLifecycleState in
+                self?.state.lifecycleState = newLifecycleState
+            }
+            .store(in: &cancellables)
     }
 
     // MARK: - Data Loading
@@ -72,6 +84,11 @@ final class ApplicationDetailViewModel: ObservableObject {
         // This prevents double-execution of status commands on open
         if selectedSection.name != "Service" {
             await loadServiceStatus()
+        }
+
+        // Refresh lifecycle state
+        if let session = session {
+            await lifecycleManager.refreshState(for: app.id, via: session)
         }
 
         // Load current section data

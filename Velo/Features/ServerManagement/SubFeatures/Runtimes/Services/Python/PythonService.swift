@@ -1,33 +1,104 @@
+//
+//  PythonService.swift
+//  Velo
+//
+//  Service for managing Python installations and versions.
+//
+
 import Foundation
 import Combine
 
 @MainActor
-final class PythonService: ObservableObject, ServerModuleService {
+final class PythonService: ObservableObject, RuntimeService {
     static let shared = PythonService()
-    
+
     let baseService = SSHBaseService.shared
-    
+    private let detector = PythonDetector()
+    private let versionResolver = PythonVersionResolver()
+
+    var serviceName: String { "" } // Python has no systemd service
+
+    var versionDetectionStrategy: VersionDetectionStrategy {
+        versionResolver.detectionStrategy
+    }
+
+    var versionSwitchStrategy: VersionSwitchStrategy {
+        versionResolver.switchStrategy
+    }
+
+    var packageManager: PackageManagerInfo? {
+        PackageManagerInfo(name: "pip", binary: "pip3", versionFlag: "--version")
+    }
+
     private init() {}
-    
+
+    // MARK: - ServerModuleService
+
     func isInstalled(via session: TerminalViewModel) async -> Bool {
-        let result = await baseService.execute("which python3 2>/dev/null", via: session, timeout: 5)
-        let path = result.output.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
-        return !path.isEmpty && path.hasPrefix("/")
+        await detector.isInstalled(via: session)
     }
-    
+
     func getVersion(via session: TerminalViewModel) async -> String? {
-        let result = await baseService.execute("python3 --version 2>/dev/null | head -n 1", via: session, timeout: 5)
-        let output = result.output.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
-        return output.isEmpty ? nil : output
+        await versionResolver.getActiveVersion(via: session)
     }
-    
+
     func isRunning(via session: TerminalViewModel) async -> Bool {
-        return false
+        return false // Python is not a service
     }
-    
+
     func getStatus(via session: TerminalViewModel) async -> SoftwareStatus {
         guard await isInstalled(via: session) else { return .notInstalled }
         let version = await getVersion(via: session) ?? "installed"
+        return .installed(version: version)
+    }
+
+    // MARK: - ControllableService (No-ops for Python)
+
+    func start(via session: TerminalViewModel) async -> Bool { false }
+    func stop(via session: TerminalViewModel) async -> Bool { false }
+    func restart(via session: TerminalViewModel) async -> Bool { false }
+    func reload(via session: TerminalViewModel) async -> Bool { false }
+    func enable(via session: TerminalViewModel) async -> Bool { false }
+    func disable(via session: TerminalViewModel) async -> Bool { false }
+
+    // MARK: - MultiVersionCapable
+
+    func listAvailableVersions(via session: TerminalViewModel) async -> [String] {
+        // Get from API
+        do {
+            let capabilities = try await ApiService.shared.fetchCapabilities()
+            if let pythonCap = capabilities.first(where: { $0.slug.lowercased() == "python" }) {
+                return pythonCap.versions?.map { $0.version } ?? []
+            }
+        } catch {
+            print("Failed to fetch Python versions from API: \(error)")
+        }
+        return []
+    }
+
+    func listInstalledVersions(via session: TerminalViewModel) async -> [String] {
+        await versionResolver.getInstalledVersions(via: session)
+    }
+
+    func getActiveVersion(via session: TerminalViewModel) async -> String? {
+        await versionResolver.getActiveVersion(via: session)
+    }
+
+    func switchActiveVersion(to version: String, via session: TerminalViewModel) async throws -> Bool {
+        try await versionResolver.switchVersion(to: version, via: session)
+    }
+
+    // MARK: - RuntimeService
+
+    func getInstalledVersions(via session: TerminalViewModel) async -> [String] {
+        await listInstalledVersions(via: session)
+    }
+
+    func getPackageManagerStatus(via session: TerminalViewModel) async -> SoftwareStatus {
+        guard await detector.isPipInstalled(via: session) else {
+            return .notInstalled
+        }
+        let version = await detector.getPipVersion(via: session) ?? "installed"
         return .installed(version: version)
     }
 }

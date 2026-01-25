@@ -224,3 +224,46 @@ final class PostgreSQLService: ObservableObject, DatabaseServerService {
         return trimmed.unicodeScalars.allSatisfy { allowedChars.contains($0) }
     }
 }
+
+// MARK: - MultiVersionCapable Extension
+
+extension PostgreSQLService: MultiVersionCapable {
+    var versionDetectionStrategy: VersionDetectionStrategy {
+        .directoryBased(path: "/etc/postgresql", pattern: "[0-9]+")
+    }
+
+    var versionSwitchStrategy: VersionSwitchStrategy {
+        .updateAlternatives(binary: "psql", path: "/usr/bin")
+    }
+
+    func listAvailableVersions(via session: TerminalViewModel) async -> [String] {
+        do {
+            let capabilities = try await ApiService.shared.fetchCapabilities()
+            if let pgCap = capabilities.first(where: { $0.slug.lowercased() == "postgresql" }) {
+                return pgCap.versions?.map { $0.version } ?? []
+            }
+        } catch {}
+        return []
+    }
+
+    func listInstalledVersions(via session: TerminalViewModel) async -> [String] {
+        await VersionManagementService.detectVersions(
+            using: versionDetectionStrategy,
+            via: session
+        )
+    }
+
+    func getActiveVersion(via session: TerminalViewModel) async -> String? {
+        await getVersion(via: session)
+    }
+
+    func switchActiveVersion(to version: String, via session: TerminalViewModel) async throws -> Bool {
+        // PostgreSQL supports multiple versions via port configuration
+        // For now, use update-alternatives for CLI tools
+        return try await VersionManagementService.switchVersion(
+            to: version,
+            using: versionSwitchStrategy,
+            via: session
+        )
+    }
+}

@@ -59,26 +59,69 @@ final class PHPService: ObservableObject, RuntimeService {
         return running ? .running(version: version) : .stopped(version: version)
     }
 
-    // MARK: - RuntimeService
+    // MARK: - MultiVersionCapable
 
-    func getInstalledVersions(via session: TerminalViewModel) async -> [String] {
+    var versionDetectionStrategy: VersionDetectionStrategy {
+        .directoryBased(path: "/etc/php", pattern: "^[0-9]")
+    }
+
+    var versionSwitchStrategy: VersionSwitchStrategy {
+        .updateAlternatives(binary: "php", path: "/usr/bin")
+    }
+
+    func listAvailableVersions(via session: TerminalViewModel) async -> [String] {
+        // Get from API
+        do {
+            let capabilities = try await ApiService.shared.fetchCapabilities()
+            if let phpCap = capabilities.first(where: { $0.slug.lowercased() == "php" }) {
+                return phpCap.versions?.map { $0.version } ?? []
+            }
+        } catch {
+            print("Failed to fetch PHP versions from API: \(error)")
+        }
+        return []
+    }
+
+    func listInstalledVersions(via session: TerminalViewModel) async -> [String] {
         await versionResolver.getInstalledVersions(via: session)
     }
 
     func getActiveVersion(via session: TerminalViewModel) async -> String? {
         await versionResolver.getActiveVersion(via: session)
     }
-    
-    func getComposerStatus(via session: TerminalViewModel) async -> SoftwareStatus {
+
+    func switchActiveVersion(to version: String, via session: TerminalViewModel) async throws -> Bool {
+        let success = await versionResolver.switchVersion(to: version, via: session)
+        if !success {
+            throw InstallationError.switchFailed("Failed to switch PHP version to \(version)")
+        }
+        return success
+    }
+
+    // MARK: - RuntimeService
+
+    var packageManager: PackageManagerInfo? {
+        PackageManagerInfo(name: "composer", binary: "composer", versionFlag: "--version")
+    }
+
+    func getInstalledVersions(via session: TerminalViewModel) async -> [String] {
+        await listInstalledVersions(via: session)
+    }
+
+    func getPackageManagerStatus(via session: TerminalViewModel) async -> SoftwareStatus {
         let result = await baseService.execute("which composer 2>/dev/null", via: session, timeout: 5)
         let path = result.output.trimmingCharacters(in: .whitespacesAndNewlines)
         if path.isEmpty {
             return .notInstalled
         }
-        
+
         let versionRes = await baseService.execute("\(path) --version 2>/dev/null | head -n 1 | awk '{print $2}'", via: session, timeout: 5)
         let version = versionRes.output.trimmingCharacters(in: .whitespacesAndNewlines)
         return .installed(version: version.isEmpty ? "installed" : version)
+    }
+
+    func getComposerStatus(via session: TerminalViewModel) async -> SoftwareStatus {
+        await getPackageManagerStatus(via: session)
     }
 
     // MARK: - ControllableService

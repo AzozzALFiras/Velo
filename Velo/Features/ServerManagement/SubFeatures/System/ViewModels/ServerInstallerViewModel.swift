@@ -16,7 +16,8 @@ final class ServerInstallerViewModel: ObservableObject {
     // MARK: - Dependencies
     weak var session: TerminalViewModel?
     private let sshService = SSHBaseService.shared
-    
+    private let lifecycleManager = ApplicationLifecycleManager.shared
+
     // MARK: - Published State
     @Published var availableCapabilities: [Capability] = []
     @Published var searchQuery: String = ""
@@ -375,7 +376,19 @@ final class ServerInstallerViewModel: ObservableObject {
         if success {
             self.installLog += "\n> Installation Completed Successfully! ✅"
             self.installProgress = 1.0
-            
+
+            // Register installation with lifecycle manager
+            if let appId = getAppIdForSlug(currentInstallingCapability?.lowercased() ?? ""),
+               let session = session {
+                Task {
+                    await lifecycleManager.registerInstallation(
+                        appId: appId,
+                        version: "latest",
+                        via: session
+                    )
+                }
+            }
+
             // Notify parent
             Task {
                 try? await Task.sleep(nanoseconds: 2_000_000_000)
@@ -411,6 +424,23 @@ final class ServerInstallerViewModel: ObservableObject {
         case "mongodb": return "mongod"
         case "php-fpm": return "php-fpm" // simplified
         default: return slug
+        }
+    }
+
+    private func getAppIdForSlug(_ slug: String) -> String? {
+        // Map capability slugs to application IDs
+        switch slug.lowercased() {
+        case "nginx": return "nginx"
+        case "apache", "apache2": return "apache"
+        case "php", "php-fpm": return "php"
+        case "mysql", "mariadb": return "mysql"
+        case "postgresql", "postgres": return "postgresql"
+        case "redis": return "redis"
+        case "mongodb", "mongo": return "mongodb"
+        case "python", "python3": return "python"
+        case "nodejs", "node": return "nodejs"
+        case "git": return "git"
+        default: return nil
         }
     }
 }

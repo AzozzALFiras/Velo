@@ -118,13 +118,86 @@ protocol DatabaseServerService: ControllableService {
     func backupDatabase(name: String, via session: TerminalViewModel) async -> String?
 }
 
-/// Protocol for runtime services (PHP-FPM)
-protocol RuntimeService: ControllableService {
-    /// Get available versions installed on the system
-    func getInstalledVersions(via session: TerminalViewModel) async -> [String]
+/// Protocol for runtime services (PHP, Python, Node, etc.)
+protocol RuntimeService: ControllableService, MultiVersionCapable {
+    /// Package manager integration (pip, npm, composer)
+    var packageManager: PackageManagerInfo? { get }
 
-    /// Get the currently active version
+    /// Get package manager status
+    func getPackageManagerStatus(via session: TerminalViewModel) async -> SoftwareStatus
+}
+
+// MARK: - Version Management Types
+
+/// Strategies for detecting installed versions
+enum VersionDetectionStrategy {
+    case directoryBased(path: String, pattern: String)  // e.g., /etc/php/*
+    case updateAlternatives(name: String)               // update-alternatives --list
+    case versionManager(tool: String, command: String)  // nvm ls, pyenv versions
+    case packageManager(pattern: String)                // rpm -qa | grep pattern
+    case binaryPattern(pattern: String)                 // ls /usr/bin/python3.*
+}
+
+/// Version switching strategies
+enum VersionSwitchStrategy {
+    case updateAlternatives(binary: String, path: String)
+    case symlink(from: String, to: String)
+    case versionManager(tool: String, command: String)
+}
+
+/// Installation progress tracking
+struct InstallProgress {
+    let phase: InstallPhase
+    let percentage: Double
+    let message: String
+}
+
+enum InstallPhase {
+    case queued
+    case downloading
+    case installing
+    case configuring
+    case registered
+}
+
+enum InstallationError: Error {
+    case versionNotAvailable
+    case installationFailed(String)
+    case insufficientPermissions
+    case switchFailed(String)
+}
+
+// MARK: - MultiVersionCapable Protocol
+
+/// Protocol for applications that support multiple versions
+protocol MultiVersionCapable: ServerModuleService {
+    /// Detection strategy for this runtime
+    var versionDetectionStrategy: VersionDetectionStrategy { get }
+
+    /// Switch strategy for this runtime
+    var versionSwitchStrategy: VersionSwitchStrategy { get }
+
+    /// Get versions available from API/repository
+    func listAvailableVersions(via session: TerminalViewModel) async -> [String]
+
+    /// Get versions actually installed on server
+    func listInstalledVersions(via session: TerminalViewModel) async -> [String]
+
+    /// Get the currently active/default version
     func getActiveVersion(via session: TerminalViewModel) async -> String?
+
+    /// Switch the active/default version
+    func switchActiveVersion(
+        to version: String,
+        via session: TerminalViewModel
+    ) async throws -> Bool
+}
+
+/// Package manager information for runtime services
+struct PackageManagerInfo {
+    let name: String
+    let binary: String
+    let versionFlag: String
 }
 
 // MARK: - Default Implementations

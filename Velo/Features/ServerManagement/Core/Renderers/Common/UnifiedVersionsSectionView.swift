@@ -63,10 +63,8 @@ struct UnifiedVersionsSectionView: View {
                 .font(.headline)
                 .foregroundStyle(.white)
 
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 120))], spacing: 12) {
-                ForEach(state.installedVersions, id: \.self) { version in
-                    installedVersionChip(version)
-                }
+            ForEach(state.installedVersions, id: \.self) { version in
+                installedVersionRow(version)
             }
         }
         .padding(16)
@@ -74,25 +72,51 @@ struct UnifiedVersionsSectionView: View {
         .clipShape(RoundedRectangle(cornerRadius: 12))
     }
 
-    private func installedVersionChip(_ version: String) -> some View {
-        HStack(spacing: 8) {
-            Text(version)
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(.white)
+    private func installedVersionRow(_ version: String) -> some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(version)
+                    .font(.system(.body, design: .monospaced))
+                    .foregroundStyle(.white)
 
-            if version == state.activeVersion {
-                Text("Active")
-                    .font(.caption2)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(Color.green.opacity(0.2))
-                    .foregroundStyle(.green)
+                if version == state.activeVersion {
+                    Text("Active")
+                        .font(.caption)
+                        .foregroundStyle(.green)
+                }
+            }
+
+            Spacer()
+
+            if version != state.activeVersion {
+                Button {
+                    Task {
+                        await switchToVersion(version)
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "arrow.triangle.2.circlepath")
+                            .font(.system(size: 10))
+                        Text("Switch")
+                            .font(.caption)
+                    }
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(Color.blue.opacity(0.8))
                     .clipShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .disabled(viewModel.isPerformingAction)
+            } else {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(.green)
+                    .font(.system(size: 16))
             }
         }
-        .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .background(version == state.activeVersion ? Color.green.opacity(0.1) : Color.white.opacity(0.05))
+        .padding(.horizontal, 12)
+        .background(version == state.activeVersion ? Color.green.opacity(0.05) : Color.clear)
         .clipShape(RoundedRectangle(cornerRadius: 8))
     }
 
@@ -205,6 +229,47 @@ struct UnifiedVersionsSectionView: View {
         case "mainline", "lts": return .blue
         case "legacy", "eol": return .orange
         default: return .gray
+        }
+    }
+
+    // MARK: - Version Switching
+
+    private func switchToVersion(_ version: String) async {
+        guard let service = ServiceResolver.shared.resolve(for: app.id) as? MultiVersionCapable,
+              let session = viewModel.session else {
+            return
+        }
+
+        await MainActor.run {
+            viewModel.isPerformingAction = true
+            viewModel.errorMessage = nil
+        }
+
+        do {
+            let success = try await service.switchActiveVersion(to: version, via: session)
+
+            await MainActor.run {
+                if success {
+                    viewModel.successMessage = "Switched to version \(version)"
+                    state.activeVersion = version
+                } else {
+                    viewModel.errorMessage = "Failed to switch version"
+                }
+                viewModel.isPerformingAction = false
+            }
+
+            // Refresh state
+            await viewModel.loadData()
+        } catch let error as InstallationError {
+            await MainActor.run {
+                viewModel.errorMessage = error.localizedDescription
+                viewModel.isPerformingAction = false
+            }
+        } catch {
+            await MainActor.run {
+                viewModel.errorMessage = "Failed to switch version: \(error.localizedDescription)"
+                viewModel.isPerformingAction = false
+            }
         }
     }
 }

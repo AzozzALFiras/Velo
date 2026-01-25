@@ -263,11 +263,51 @@ final class MySQLService: ObservableObject, DatabaseServerService {
         if systemDbs.contains(where: { $0.caseInsensitiveCompare(trimmed) == .orderedSame }) { return false }
 
         // Skip exact invalid names (not substrings)
-        let invalidNames = ["root", "test"] 
+        let invalidNames = ["root", "test"]
         if invalidNames.contains(where: { $0.caseInsensitiveCompare(trimmed) == .orderedSame }) { return false }
-        
+
         // Skip invalid characters, but allow alphanumeric, underscore, hyphen
         let allowedChars = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "_-"))
         return trimmed.unicodeScalars.allSatisfy { allowedChars.contains($0) }
+    }
+}
+
+// MARK: - MultiVersionCapable Extension
+
+extension MySQLService: MultiVersionCapable {
+    var versionDetectionStrategy: VersionDetectionStrategy {
+        .packageManager(pattern: "mysql-server")
+    }
+
+    var versionSwitchStrategy: VersionSwitchStrategy {
+        // MySQL doesn't support easy version switching
+        // Return dummy strategy - switching will fail with helpful error
+        .updateAlternatives(binary: "mysql", path: "/usr/bin")
+    }
+
+    func listAvailableVersions(via session: TerminalViewModel) async -> [String] {
+        do {
+            let capabilities = try await ApiService.shared.fetchCapabilities()
+            if let mysqlCap = capabilities.first(where: { $0.slug.lowercased() == "mysql" }) {
+                return mysqlCap.versions?.map { $0.version } ?? []
+            }
+        } catch {}
+        return []
+    }
+
+    func listInstalledVersions(via session: TerminalViewModel) async -> [String] {
+        // MySQL typically only has one version installed
+        if let version = await getVersion(via: session) {
+            return [version]
+        }
+        return []
+    }
+
+    func getActiveVersion(via session: TerminalViewModel) async -> String? {
+        await getVersion(via: session)
+    }
+
+    func switchActiveVersion(to version: String, via session: TerminalViewModel) async throws -> Bool {
+        throw InstallationError.switchFailed("MySQL does not support version switching. Uninstall current version and install desired version.")
     }
 }
