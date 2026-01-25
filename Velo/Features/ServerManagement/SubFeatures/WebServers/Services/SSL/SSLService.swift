@@ -10,8 +10,36 @@ actor SSLService {
     
     /// Check if certbot is installed on the server
     func isCertbotInstalled(via session: TerminalViewModel) async -> Bool {
-        let result = await baseService.execute("which certbot 2>/dev/null", via: session, timeout: 10)
-        return !result.output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        // 1. Check if binary exists
+        let whichResult = await baseService.execute("which certbot 2>/dev/null", via: session, timeout: 5)
+        guard !whichResult.output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return false
+        }
+        
+        // 2. Check if python3 (needed by certbot) is working
+        // This handles cases where python3 symlink is broken (encountered on some Ubuntu systems)
+        let pythonCheck = await baseService.execute("python3 --version 2>&1", via: session, timeout: 5)
+        if pythonCheck.exitCode != 0 || pythonCheck.output.contains("Not a directory") || pythonCheck.output.contains("No such file") {
+            print("⚠️ [SSLService] Python 3 appears to be broken. Attempting to fix symlink...")
+            // Attempt hotfix: link python3 to the actual binary if it's the 3.12/3.12 mess we saw earlier
+            _ = await baseService.execute("sudo ln -sf /usr/bin/python3.12 /usr/bin/python3 2>/dev/null", via: session)
+            
+            // Re-verify
+            let reCheck = await baseService.execute("python3 --version 2>&1", via: session, timeout: 5)
+            if reCheck.exitCode != 0 {
+                print("❌ [SSLService] Python 3 is still broken after hotfix.")
+                return false
+            }
+        }
+        
+        // 3. Check if nginx plugin is available (common failure point)
+        let pluginsCheck = await baseService.execute("certbot plugins 2>/dev/null | grep -q 'nginx' && echo 'YES'", via: session, timeout: 5)
+        if !pluginsCheck.output.contains("YES") {
+            print("⚠️ [SSLService] Certbot is installed but Nginx plugin is missing.")
+            return false
+        }
+        
+        return true
     }
     
     /// Install certbot on the server
@@ -75,9 +103,11 @@ actor SSLService {
         
         var result = await baseService.execute(certbotCmd, via: session, timeout: 180)
         
-        // If it failed and we suspect it's because of the www subdomain (e.g. NXDOMAIN)
-        if result.exitCode != 0 && (result.output.contains("NXDOMAIN") || result.output.contains("DNS problem")) {
-            print("⚠️ [SSLService] Failed with www subdomain, retrying with only \(domain)...")
+        // If it failed, retry with only the main domain. 
+        // We do this for ANY failure (including DNS, rate limiting on one, or config issues)
+        // to maximize the chance of getting a certificate for the primary domain.
+        if result.exitCode != 0 {
+            print("⚠️ [SSLService] Failed with www subdomain (Error: \(result.exitCode)). Retrying with only \(domain)...")
             let retryCmd = """
             certbot --\(plugin) -d \(domain) \
             --non-interactive --agree-tos --email \(email) \

@@ -155,6 +155,11 @@ final class NginxService: ObservableObject, WebServerService {
 
         // Detect Proxy Port (Node/Python)
         var proxyPort: Int? = nil
+        if framework.lowercased().contains("node") {
+            proxyPort = 3000
+        } else if framework.lowercased().contains("python") {
+            proxyPort = 8000
+        }
         
         // Build Nginx config
         let config = buildSiteConfig(domain: safeDomain, path: safePath, port: port, phpSocket: phpSocketPath, proxyPort: proxyPort)
@@ -257,6 +262,12 @@ final class NginxService: ObservableObject, WebServerService {
         let availablePath = await pathResolver.getSitesAvailablePath(via: session)
         let enabledPath = await pathResolver.getSitesEnabledPath(via: session)
 
+        // If they are the same directory (e.g. RHEL/CentOS), no need to symlink
+        if pathResolver.isSamePath(availablePath, enabledPath) {
+            print("ℹ️ [NginxService] Sites-available and sites-enabled are the same. Skipping symlink.")
+            return true
+        }
+
         let result = await baseService.execute(
             "sudo ln -sf '\(availablePath)/\(domain)' '\(enabledPath)/\(domain)' && echo 'LINKED'",
             via: session, timeout: 10
@@ -266,7 +277,17 @@ final class NginxService: ObservableObject, WebServerService {
     }
 
     func disableSite(domain: String, via session: TerminalViewModel) async -> Bool {
+        let availablePath = await pathResolver.getSitesAvailablePath(via: session)
         let enabledPath = await pathResolver.getSitesEnabledPath(via: session)
+        
+        // If they are the same directory, 'disabling' would mean deleting the config
+        // which we usually don't want to do here (deleteSite handles that).
+        // For Nginx, we'll just skip to avoid deleting the source config.
+        if pathResolver.isSamePath(availablePath, enabledPath) {
+            print("ℹ️ [NginxService] Sites-available and sites-enabled are the same. Skipping removal to avoid data loss.")
+            return true
+        }
+
         let result = await baseService.execute("sudo rm -f '\(enabledPath)/\(domain)' && echo 'REMOVED'", via: session, timeout: 10)
         return result.output.contains("REMOVED")
     }
@@ -402,62 +423,65 @@ final class NginxService: ObservableObject, WebServerService {
         server {
             listen \(port);
             listen [::]:\(port);
-
+        
             server_name \(domain) www.\(domain);
             root \(path);
             index index.html index.htm index.php;
-            
+        
             # Security headers
             add_header X-Frame-Options "SAMEORIGIN";
             add_header X-XSS-Protection "1; mode=block";
             add_header X-Content-Type-Options "nosniff";
-
-            location / {
-                try_files $uri $uri/ /index.php?$query_string;
-            }
+        
         """
-
-        if let socketPath = phpSocket {
+        
+        if let internalPort = proxyPort {
+            // Proxy Configuration (Node.js/Python/etc.)
             config += """
-
-
-            location ~ \\.php$ {
-                try_files $uri =404;
-                fastcgi_split_path_info ^(.+\\.php)(/.+)$;
-                fastcgi_pass unix:\(socketPath);
-                fastcgi_index index.php;
-                include fastcgi_params;
-                fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
-                fastcgi_param PATH_INFO $fastcgi_path_info;
+                location / {
+                    proxy_pass http://127.0.0.1:\(internalPort);
+                    proxy_http_version 1.1;
+                    proxy_set_header Upgrade $http_upgrade;
+                    proxy_set_header Connection 'upgrade';
+                    proxy_set_header Host $host;
+                    proxy_cache_bypass $http_upgrade;
+                    proxy_set_header X-Real-IP $remote_addr;
+                    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                    proxy_set_header X-Forwarded-Proto $scheme;
+                }
+            """
+        } else {
+            // Standard Static/PHP Configuration
+            config += """
+                location / {
+                    try_files $uri $uri/ /index.php?$query_string;
+                }
+            """
+            
+            if let socketPath = phpSocket {
+                config += """
+            
+                location ~ \\.php$ {
+                    try_files $uri =404;
+                    fastcgi_split_path_info ^(.+\\.php)(/.+)$;
+                    fastcgi_pass unix:\(socketPath);
+                    fastcgi_index index.php;
+                    include fastcgi_params;
+                    fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+                    fastcgi_param PATH_INFO $fastcgi_path_info;
+                }
+            """
             }
-
+        }
+        
+        config += """
+        
             location ~ /\\.ht {
                 deny all;
             }
+        }
         """
-        }
         
-        // Basic Proxy setup for Node/Python
-        if let internalPort = proxyPort {
-             config = """
-             server {
-                 listen \(port);
-                 listen [::]:\(port);
-                 server_name \(domain) www.\(domain);
-
-                 location / {
-                     proxy_pass http://127.0.0.1:\(internalPort);
-                     proxy_http_version 1.1;
-                     proxy_set_header Upgrade $http_upgrade;
-                     proxy_set_header Connection 'upgrade';
-                     proxy_set_header Host $host;
-                     proxy_cache_bypass $http_upgrade;
-                 }
-             }
-             """
-        }
-
-        config += "\n}"
         return config
     }
 

@@ -189,4 +189,16 @@ struct NginxPathResolver {
         // 4. Final fallback
         return "/var/www"
     }
+
+    /// Check if two paths point to the same directory
+    func isSamePath(_ path1: String, _ path2: String) -> Bool {
+        let p1 = path1.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: "//", with: "/")
+        let p2 = path2.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: "//", with: "/")
+        
+        // Remove trailing slashes for comparison
+        let cleanP1 = p1.hasSuffix("/") && p1.count > 1 ? String(p1.dropLast()) : p1
+        let cleanP2 = p2.hasSuffix("/") && p2.count > 1 ? String(p2.dropLast()) : p2
+        
+        return cleanP1 == cleanP2
+    }
 }
