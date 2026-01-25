@@ -61,6 +61,8 @@ final class SectionRendererRegistry {
             UnifiedErrorPagesSectionView(app: app, state: state, viewModel: viewModel)
         case .wafStats:
             UnifiedWafSectionView(app: app, state: state, viewModel: viewModel)
+        case .wafBlockedIps:
+            UnifiedBlockedIpsSectionView(app: app, state: state, viewModel: viewModel)
         }
     }
 }

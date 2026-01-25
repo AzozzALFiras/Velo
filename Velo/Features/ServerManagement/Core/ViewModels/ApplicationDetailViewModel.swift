@@ -702,6 +702,9 @@ final class ApplicationDetailViewModel: ObservableObject {
             let result = await SSHBaseService.shared.execute(cmd, via: session)
             
             if result.exitCode == 0 {
+                // PATCH: Ensure security_rules.conf is included
+                await applySecurityConfigPatch(via: session)
+                
                 // Reload
                 _ = await SSHBaseService.shared.execute("sudo systemctl reload nginx", via: session)
                 return (true, "IP \(ip) blocked successfully")
@@ -709,6 +712,328 @@ final class ApplicationDetailViewModel: ObservableObject {
             return (false, "Failed to block IP")
         }
         return true
+    }
+
+    func unblockIP(_ ip: String) async -> Bool {
+        guard let session = session else { return false }
+        
+        await performAsyncAction("Unblock IP \(ip)") {
+            let configPath = "/etc/nginx/conf.d/security_rules.conf"
+            
+            // Read, Filter, Write
+            let read = await SSHBaseService.shared.execute("cat \(configPath)", via: session)
+            let lines = read.output.components(separatedBy: .newlines)
+            
+            let newLines = lines.filter { !$0.contains("deny \(ip);") }
+            let newContent = newLines.joined(separator: "\n")
+            
+            let written = await SSHBaseService.shared.writeFile(at: configPath, content: newContent, useSudo: true, via: session)
+            
+            if written {
+                _ = await SSHBaseService.shared.execute("sudo systemctl reload nginx", via: session)
+                return (true, "IP \(ip) unblocked")
+            }
+            return (false, "Failed to unblock IP")
+        }
+        return true
+    }
+    
+    private func applySecurityConfigPatch(via session: TerminalViewModel) async {
+        // 1. Global Injection (nginx.conf)
+        let globalPaths = [
+             "/etc/nginx/nginx.conf",
+             "/www/server/nginx/conf/nginx.conf",
+             "/usr/local/nginx/conf/nginx.conf"
+        ]
+        
+        let includeDirective = "include /etc/nginx/conf.d/security_rules.conf;"
+        
+        for path in globalPaths {
+             let read = await SSHBaseService.shared.execute("cat \(path)", via: session)
+             if read.exitCode == 0 && !read.output.contains("security_rules.conf") {
+                 if let range = read.output.range(of: "http {") {
+                      var newContent = read.output
+                      let insertionPoint = range.upperBound
+                      newContent.insert(contentsOf: "\n    \(includeDirective)\n", at: insertionPoint)
+                      _ = await SSHBaseService.shared.writeFile(at: path, content: newContent, useSudo: true, via: session)
+                 }
+             }
+        }
+        
+        // 2. VHost Injection (Aggressive) - DISABLED causing syntax errors
+        // Many panels (like aaPanel) don't include conf.d in their vhost configs manually.
+        // We force inject the security rules into every site's server block.
+        
+        // DISABLED LOGIC START
+        // let vhostDirs = [
+        //    "/etc/nginx/sites-enabled",
+        //    "/etc/nginx/conf.d",
+        //    "/www/server/panel/vhost/nginx",
+        //    "/usr/local/nginx/conf/vhost"
+        // ]
+        //
+        // for dir in vhostDirs {
+        //    let ls = await SSHBaseService.shared.execute("ls -1 \(dir)/*.conf", via: session)
+        //    let files = ls.output.components(separatedBy: "\n").filter { hasExtension($0, "conf") }
+        //    
+        //    for file in files {
+        //        let filePath = file.trimmingCharacters(in: .whitespaces)
+        //        guard !filePath.isEmpty, !filePath.hasSuffix("security_rules.conf") else { continue }
+        //        
+        //        let read = await SSHBaseService.shared.execute("cat '\(filePath)'", via: session)
+        //        let content = read.output
+        //        
+        //        // If contains "server {" and doesn't already include our rules
+        //        if content.contains("server {") && !content.contains("security_rules.conf") {
+        //            
+        //            // Inject at start of server block
+        //            if let range = content.range(of: "server {") {
+        //                var newContent = content
+        //                let insertionPoint = range.upperBound
+        //                newContent.insert(contentsOf: "\n    \(includeDirective)\n", at: insertionPoint)
+        //                
+        //                _ = await SSHBaseService.shared.writeFile(at: filePath, content: newContent, useSudo: true, via: session)
+        //            }
+        //        }
+        //    }
+        // }
+        // DISABLED LOGIC END
+    }
+    
+    func repairVHostConfigs() async -> String {
+        guard let session = session else { return "No session" }
+        var result = "Starting Smart Repair Process... 🛠️\n"
+        
+        let includeDirective = "include /etc/nginx/conf.d/security_rules.conf;"
+        var attempt = 1
+        let maxAttempts = 5
+        
+        // Loop: Check Config -> Find Error -> Fix File -> Repeat
+        while attempt <= maxAttempts {
+            result += "\n[Attempt \(attempt)] Checking configuration...\n"
+            
+            // 1. Run nginx -t
+            let test = await SSHBaseService.shared.execute("sudo nginx -t", via: session)
+            
+            if test.exitCode == 0 {
+                result += "✅ Configuration is valid!\n"
+                break
+            }
+            
+            // 2. Parse Error
+            // Expected format: "nginx: [emerg] ... in /path/to/file:123"
+            let output = test.output
+            result += "❌ Config Check Failed. Analyzing...\n"
+            
+            // Regex to capture file path and optional line number
+            // Matches: "in /path/to/file:123" or "in /path/to/file line 123"
+            let pattern = "in\\s+([^:]+):(\\d+)"
+            
+            if let range = output.range(of: pattern, options: .regularExpression) {
+                let match = String(output[range])
+                let components = match.components(separatedBy: ":")
+                if components.count >= 2 {
+                    let filePath = components[0].replacingOccurrences(of: "in ", with: "").trimmingCharacters(in: .whitespaces)
+                    let lineNumber = Int(components[1].trimmingCharacters(in: .whitespaces)) ?? 0
+                    
+                    result += "⚠️ Detected error in file: \(filePath) at line \(lineNumber)\n"
+                    
+                    // 3. Attempt Fix
+                    let read = await SSHBaseService.shared.execute("cat '\(filePath)'", via: session)
+                    if read.exitCode == 0 {
+                        var lines = read.output.components(separatedBy: .newlines)
+                        
+                        // Safety: Ensure we only remove lines related to our injection
+                        // If line number > 0, check that specific line
+                        if lineNumber > 0 && lineNumber <= lines.count {
+                            let targetLineIndex = lineNumber - 1
+                            let lineContent = lines[targetLineIndex]
+                            
+                            if lineContent.contains("security_rules.conf") {
+                                result += "Found problematic injection. Removing line...\n"
+                                lines.remove(at: targetLineIndex)
+                                
+                                let newContent = lines.joined(separator: "\n")
+                                let write = await SSHBaseService.shared.writeFile(at: filePath, content: newContent, useSudo: true, via: session)
+                                if write {
+                                    result += "✅ Fixed file: \(filePath)\n"
+                                } else {
+                                    result += "❌ Failed to write file: \(filePath)\n"
+                                    break // Stop if we can't write
+                                }
+                            } else {
+                                result += "⚠️ Line \(lineNumber) content: '\(lineContent.trimmingCharacters(in: .whitespaces))'.\n"
+                                
+                                // Special handling: If the error is inside 'security_rules.conf', it means the *include* is in the wrong place.
+                                if filePath.hasSuffix("security_rules.conf") {
+                                    result += "🚨 Error is inside the rules file itself. Triggering global cleanup & neutralization...\n"
+                                    await cleanupAllInjections(via: session, directive: includeDirective)
+                                    // Move to next attempt to verify fix
+                                } else {
+                                    result += "Aborting auto-fix for specific file safety. Falling back to global cleanup.\n"
+                                    await cleanupAllInjections(via: session, directive: includeDirective)
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+               result += "Could not parse specific file location from error output. Trying global cleanup...\n"
+               await cleanupAllInjections(via: session, directive: includeDirective)
+            }
+            
+            attempt += 1
+            // Small delay to allow file system to sync
+            try? await Task.sleep(nanoseconds: 500_000_000)
+        }
+        
+        // Final Start Attempt
+        result += "\nAttempting to start Nginx...\n"
+        let reload = await SSHBaseService.shared.execute("sudo systemctl start nginx", via: session)
+        if reload.exitCode == 0 {
+             result += "✅ Nginx started successfully.\n"
+        } else {
+             result += "❌ Failed to start Nginx: \(reload.output)\n"
+             let status = await SSHBaseService.shared.execute("systemctl status nginx --no-pager", via: session)
+             result += "\nStatus Output:\n\(status.output)"
+        }
+        
+        return result
+    }
+    
+    private func cleanupAllInjections(via session: TerminalViewModel, directive: String) async {
+        // 1. Config Directories
+        let configDirs = [
+             "/etc/nginx/sites-enabled",
+             "/etc/nginx/conf.d",
+             "/www/server/panel/vhost/nginx",
+             "/usr/local/nginx/conf/vhost"
+        ]
+        
+        // 2. Global Config Files
+        let globalFiles = [
+            "/etc/nginx/nginx.conf",
+            "/www/server/nginx/conf/nginx.conf",
+            "/usr/local/nginx/conf/nginx.conf"
+        ]
+        
+        var filesToScan: [String] = globalFiles
+        
+        // Gather all config files
+        for dir in configDirs {
+             let ls = await SSHBaseService.shared.execute("ls -1 \(dir)/*.conf", via: session)
+             if ls.exitCode == 0 {
+                 let files = ls.output.components(separatedBy: "\n").filter { hasExtension($0, "conf") }
+                 filesToScan.append(contentsOf: files.map { $0.trimmingCharacters(in: .whitespaces) })
+             }
+        }
+        
+        // Regex for robust removal: 'include \s* /path... \s* ;'
+        // We match optional whitespace around the path and semicolon
+        let pattern = "include\\s+/etc/nginx/conf.d/security_rules\\.conf\\s*;"
+        
+        // Remove directive from all files
+        for filePath in filesToScan {
+             guard !filePath.isEmpty, !filePath.hasSuffix("security_rules.conf") else { continue }
+             
+             let read = await SSHBaseService.shared.execute("cat '\(filePath)'", via: session)
+             if read.exitCode == 0 && read.output.contains("security_rules.conf") {
+                 
+                 // Use Regex replacement
+                 let newContent = read.output.replacingOccurrences(
+                    of: pattern,
+                    with: "",
+                    options: .regularExpression
+                 )
+                 
+                 // Only write if changed
+                 if newContent != read.output {
+                     _ = await SSHBaseService.shared.writeFile(at: filePath, content: newContent, useSudo: true, via: session)
+                 }
+             }
+        }
+        
+        // Failsafe: Truncate security_rules.conf to be empty
+        // This ensures that even if 'include' remains somewhere, the file is empty/valid and won't crash Nginx.
+        _ = await SSHBaseService.shared.writeFile(at: "/etc/nginx/conf.d/security_rules.conf", content: "# Neutralized by Velo Repair\n", useSudo: true, via: session)
+    }
+
+    // MARK: - WAF Pagination
+    
+    func loadMoreWafLogs() async {
+        guard let session = session, !state.wafLogsIsLoading else { return }
+        
+        let nextPage = state.wafLogsPage + 1
+        let pageSize = 100
+        
+        // Check if we reached the end
+        if state.wafLogs.count >= state.wafLogsTotal && state.wafLogsTotal > 0 {
+            return
+        }
+        
+        await MainActor.run {
+            state.wafLogsIsLoading = true
+        }
+        
+        let service = NginxSecurityService.shared
+        let (newLogs, _) = await service.fetchWafLogs(
+            site: state.currentWafSite,
+            page: nextPage,
+            pageSize: pageSize,
+            via: session
+        )
+        
+        await MainActor.run {
+            if !newLogs.isEmpty {
+                state.wafLogs.append(contentsOf: newLogs)
+                state.wafLogsPage = nextPage
+            }
+            state.wafLogsIsLoading = false
+        }
+    }
+
+    // MARK: - Diagnostics
+    
+    func diagnoseSecurity() async -> String {
+        guard let session = session else { return "No session" }
+        
+        var report = "--- Security Diagnostics ---\n"
+        
+        // 1. Check Config Inclusion
+        report += "\n[1] Checking Config Inclusion:\n"
+        let checkInclude = await SSHBaseService.shared.execute("sudo nginx -T 2>/dev/null | grep 'security_rules.conf'", via: session)
+        if checkInclude.output.contains("security_rules.conf") {
+            report += "✅ security_rules.conf is included in the active configuration.\n"
+        } else {
+            report += "❌ security_rules.conf is NOT found in the active configuration dump (nginx -T).\n"
+        }
+        
+        // 2. Check File Content
+        report += "\n[2] Checking Rule File:\n"
+        let checkFile = await SSHBaseService.shared.execute("cat /etc/nginx/conf.d/security_rules.conf", via: session)
+        if checkFile.exitCode == 0 {
+            report += "File exists. Content:\n\(checkFile.output.trimmingCharacters(in: .whitespacesAndNewlines))\n"
+        } else {
+            report += "❌ File not found at /etc/nginx/conf.d/security_rules.conf\n"
+        }
+        
+        // 3. Check Recent Traffic (Real IP Detection)
+        report += "\n[3] Recent Access Logs (Last 5):\n"
+        // Try to find access log
+        let findLog = await SSHBaseService.shared.execute("find /var/log/nginx /www/wwwlogs -name 'access.log' 2>/dev/null | head -n 1", via: session)
+        let logPath = findLog.output.trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        if !logPath.isEmpty {
+            report += "Log found at: \(logPath)\n"
+            let logTail = await SSHBaseService.shared.execute("tail -n 5 \(logPath)", via: session)
+            report += logTail.output
+        } else {
+             // Fallback to checking config for log path
+             let configLog = await SSHBaseService.shared.execute("nginx -T 2>/dev/null | grep 'access_log' | head -n 1", via: session)
+             report += "Could not find standard log. Config says: \(configLog.output.trimmingCharacters(in: .whitespacesAndNewlines))\n"
+        }
+        
+        return report
     }
 
     // MARK: - Helper Methods

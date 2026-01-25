@@ -106,6 +106,12 @@ final class ApplicationState: ObservableObject {
     @Published var wafLogs: [WafLogEntry] = []
     @Published var wafSites: [String] = [] // List of available sites
     @Published var currentWafSite: String = "All"
+    @Published var blockedIps: [String] = [] // List of blocked IPs
+    
+    // WAF Pagination
+    @Published var wafLogsPage: Int = 1
+    @Published var wafLogsTotal: Int = 0
+    @Published var wafLogsIsLoading: Bool = false
 
     // Version Installation
     @Published var availableVersions: [CapabilityVersion] = []

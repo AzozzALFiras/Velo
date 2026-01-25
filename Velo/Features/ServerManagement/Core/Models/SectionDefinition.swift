@@ -52,6 +52,7 @@ enum SectionProviderType: String, Codable, CaseIterable, Identifiable {
     case modules            // Compiled modules (nginx)
     case security           // WAF/security rules
     case wafStats           // WAF/Access Log Analytics
+    case wafBlockedIps      // Blocked IPs List
     case sites              // Virtual hosts/sites
     case errorPages         // Custom error pages
     
@@ -82,6 +83,7 @@ enum SectionProviderType: String, Codable, CaseIterable, Identifiable {
         case .modules: return "cpu"
         case .security: return "shield.lefthalf.filled"
         case .wafStats: return "chart.xyaxis.line"
+        case .wafBlockedIps: return "hand.raised.slash.fill"
         case .sites: return "globe"
         case .errorPages: return "exclamationmark.triangle"
         case .extensions: return "puzzlepiece.extension"
@@ -108,6 +110,7 @@ enum SectionProviderType: String, Codable, CaseIterable, Identifiable {
         case .modules: return "Modules"
         case .security: return "Security"
         case .wafStats: return "WAF Logs"
+        case .wafBlockedIps: return "Blocked IPs"
         case .sites: return "Sites"
         case .errorPages: return "Error Pages"
         case .extensions: return "Extensions"
@@ -225,6 +228,17 @@ enum SectionBuilder {
             name: "WAF Logs",
             icon: "chart.xyaxis.line",
             providerType: .wafStats,
+            order: order
+        )
+    }
+
+    /// Creates a WAF Blocked IPs section
+    static func wafBlockedIps(order: Int = 9) -> SectionDefinition {
+        SectionDefinition(
+            id: "wafBlockedIps",
+            name: "Blocked IPs",
+            icon: "hand.raised.slash.fill",
+            providerType: .wafBlockedIps,
             order: order
         )
     }

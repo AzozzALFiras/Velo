@@ -77,5 +77,6 @@ final class SectionProviderRegistry {
         
         // WAF Logs
         register(WafSectionProvider())
+        register(BlockedIpsSectionProvider())
     }
 }

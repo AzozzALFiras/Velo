@@ -126,6 +126,29 @@ struct UnifiedWafSectionView: View {
                                         selectedEntry = log
                                     }
                             }
+                            
+                            // Load More Button
+                            if state.wafLogs.count < state.wafLogsTotal {
+                                Button {
+                                    Task {
+                                        await viewModel.loadMoreWafLogs()
+                                    }
+                                } label: {
+                                    HStack {
+                                        if state.wafLogsIsLoading {
+                                            ProgressView()
+                                                .controlSize(.small)
+                                        }
+                                        Text(state.wafLogsIsLoading ? "Loading..." : "Load More")
+                                    }
+                                    .frame(maxWidth: .infinity)
+                                    .padding()
+                                    .background(Color.white.opacity(0.05))
+                                    .foregroundStyle(.blue)
+                                }
+                                .buttonStyle(.plain)
+                                .disabled(state.wafLogsIsLoading)
+                            }
                         }
                     }
                 }

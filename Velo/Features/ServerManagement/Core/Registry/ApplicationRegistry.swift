@@ -74,6 +74,7 @@ final class ApplicationRegistry {
                 SectionBuilder.logs(order: 5),
                 SectionBuilder.status(order: 6),
                 SectionBuilder.wafStats(order: 7),
+                SectionBuilder.wafBlockedIps(order: 9),
                 SectionBuilder.errorPages(order: 8)
             ],
             serviceConfig: ServiceConfiguration(
