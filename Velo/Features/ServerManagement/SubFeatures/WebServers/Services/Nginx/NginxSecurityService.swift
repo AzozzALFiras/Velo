@@ -6,6 +6,24 @@ actor NginxSecurityService {
     static let shared = NginxSecurityService()
     private let baseService = SSHBaseService.shared
     
+    enum SecurityRule: String, CaseIterable {
+        case ccDefense = "ccDefense"
+        case sqlInjection = "sqlInjection"
+        case xss = "xss"
+        case scanner = "scanner"
+        case userAgent = "userAgent"
+        
+        var description: String {
+            switch self {
+            case .ccDefense: return "CC Defense"
+            case .sqlInjection: return "SQL Injection Protection"
+            case .xss: return "XSS Protection"
+            case .scanner: return "Anti-Scanner"
+            case .userAgent: return "User-Agent Filter"
+            }
+        }
+    }
+    
     // Dynamic security config path
     private var securityConfigPath: String = "/etc/nginx/conf.d/security_rules.conf"
     private var isConfigPathResolved = false

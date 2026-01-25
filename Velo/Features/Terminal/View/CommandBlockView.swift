@@ -152,15 +152,10 @@ struct BlocksEmptyState: View {
                             .strokeBorder(ColorTokens.border, lineWidth: 1)
                     )
                     .overlay(
-                        Image(systemName: "terminal")
-                            .font(.system(size: 32, weight: .medium))
-                            .foregroundStyle(
-                                LinearGradient(
-                                    colors: [ColorTokens.accentPrimary, ColorTokens.accentSecondary],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                )
-                            )
+                        Image(nsImage: NSImage(named: "AppIcon") ?? NSImage(systemSymbolName: "terminal", accessibilityDescription: nil)!)
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                            .frame(width: 48, height: 48)
                     )
             }
             
