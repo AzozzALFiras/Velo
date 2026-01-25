@@ -51,8 +51,10 @@ enum SectionProviderType: String, Codable, CaseIterable, Identifiable {
     // Web server specific
     case modules            // Compiled modules (nginx)
     case security           // WAF/security rules
+    case wafStats           // WAF/Access Log Analytics
     case sites              // Virtual hosts/sites
-
+    case errorPages         // Custom error pages
+    
     // PHP specific
     case extensions         // PHP extensions
     case disabledFunctions  // Disabled functions
@@ -79,7 +81,9 @@ enum SectionProviderType: String, Codable, CaseIterable, Identifiable {
         case .status: return "chart.bar.xaxis"
         case .modules: return "cpu"
         case .security: return "shield.lefthalf.filled"
+        case .wafStats: return "chart.xyaxis.line"
         case .sites: return "globe"
+        case .errorPages: return "exclamationmark.triangle"
         case .extensions: return "puzzlepiece.extension"
         case .disabledFunctions: return "xmark.circle"
         case .fpmProfile: return "cpu"
@@ -103,7 +107,9 @@ enum SectionProviderType: String, Codable, CaseIterable, Identifiable {
         case .status: return "Status"
         case .modules: return "Modules"
         case .security: return "Security"
+        case .wafStats: return "WAF Logs"
         case .sites: return "Sites"
+        case .errorPages: return "Error Pages"
         case .extensions: return "Extensions"
         case .disabledFunctions: return "Disabled Functions"
         case .fpmProfile: return "FPM Profile"
@@ -197,6 +203,28 @@ enum SectionBuilder {
             name: "Security",
             icon: "shield.lefthalf.filled",
             providerType: .security,
+            order: order
+        )
+    }
+
+    /// Creates an error pages section
+    static func errorPages(order: Int = 7) -> SectionDefinition {
+        SectionDefinition(
+            id: "errorPages",
+            name: "Error Pages",
+            icon: "exclamationmark.triangle",
+            providerType: .errorPages,
+            order: order
+        )
+    }
+
+    /// Creates a WAF Stats section
+    static func wafStats(order: Int = 8) -> SectionDefinition {
+        SectionDefinition(
+            id: "wafStats",
+            name: "WAF Logs",
+            icon: "chart.xyaxis.line",
+            providerType: .wafStats,
             order: order
         )
     }

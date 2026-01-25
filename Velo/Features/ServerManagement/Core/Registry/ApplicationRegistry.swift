@@ -72,7 +72,9 @@ final class ApplicationRegistry {
                 SectionBuilder.modules(order: 3),
                 SectionBuilder.security(order: 4),
                 SectionBuilder.logs(order: 5),
-                SectionBuilder.status(order: 6)
+                SectionBuilder.status(order: 6),
+                SectionBuilder.wafStats(order: 7),
+                SectionBuilder.errorPages(order: 8)
             ],
             serviceConfig: ServiceConfiguration(
                 serviceName: "nginx",
@@ -81,7 +83,7 @@ final class ApplicationRegistry {
                 binaryPath: "/usr/sbin/nginx",
                 pidPath: "/run/nginx.pid"
             ),
-            capabilities: [.controllable, .configurable, .hasModules, .hasLogs, .hasStatus, .hasSites, .hasSecurity, .multiVersion]
+            capabilities: [.controllable, .configurable, .hasModules, .hasLogs, .hasStatus, .hasSites, .hasSecurity, .multiVersion, .supportsGracefulReload, .supportsWAF, .hasErrorPages]
         )
     }
 

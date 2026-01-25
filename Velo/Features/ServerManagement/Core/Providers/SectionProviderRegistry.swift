@@ -71,5 +71,11 @@ final class SectionProviderRegistry {
         // Database providers
         register(DatabasesSectionProvider())
         register(UsersSectionProvider())
+        
+        // Error Pages
+        register(ErrorPagesSectionProvider())
+        
+        // WAF Logs
+        register(WafSectionProvider())
     }
 }

@@ -98,27 +98,53 @@ struct UnifiedSecuritySectionView: View {
     }
 
     private func securityRuleRow(name: String, isEnabled: Bool) -> some View {
-        HStack {
+        let binding = Binding<Bool>(
+            get: { isEnabled },
+            set: { newValue in
+                Task {
+                    await viewModel.toggleSecurityRule(name, enabled: newValue)
+                }
+            }
+        )
+
+        return HStack {
             Image(systemName: isEnabled ? "checkmark.shield.fill" : "shield.slash")
                 .foregroundStyle(isEnabled ? .green : .gray)
                 .frame(width: 24)
 
-            Text(name)
+            Text(friendlyName(for: name))
                 .font(.system(size: 14, weight: .medium))
                 .foregroundStyle(.white)
 
             Spacer()
 
-            Text(isEnabled ? "Enabled" : "Disabled")
-                .font(.caption)
-                .foregroundStyle(isEnabled ? .green : .gray)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background((isEnabled ? Color.green : Color.gray).opacity(0.15))
-                .clipShape(Capsule())
+            if app.capabilities.contains(.hasSecurity) { // Use .hasSecurity or .supportsWAF check
+                 Toggle("", isOn: binding)
+                    .labelsHidden()
+                    .toggleStyle(SwitchToggleStyle(tint: .green))
+            } else {
+                Text(isEnabled ? "Enabled" : "Disabled")
+                    .font(.caption)
+                    .foregroundStyle(isEnabled ? .green : .gray)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background((isEnabled ? Color.green : Color.gray).opacity(0.15))
+                    .clipShape(Capsule())
+            }
         }
         .padding(12)
         .background(Color.white.opacity(0.03))
         .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+
+    private func friendlyName(for key: String) -> String {
+        switch key {
+        case "CC_DEFENSE": return "CC Attack Defense"
+        case "SQL_INJECTION": return "SQL Injection Protection"
+        case "XSS_PROTECTION": return "XSS Protection"
+        case "ANTI_SCANNER": return "Anti-Scanner"
+        case "UA_FILTER": return "User-Agent Filter"
+        default: return key.replacingOccurrences(of: "_", with: " ").capitalized
+        }
     }
 }

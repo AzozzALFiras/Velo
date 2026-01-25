@@ -20,6 +20,9 @@ struct ServerHomeView: View {
     @State private var showMySQLDetail = false
     @State private var selectedSoftware: InstalledSoftware? = nil
     
+    // Feature Flags
+    private let useUnifiedNginx = true
+    
     var body: some View {
         ZStack {
             ScrollView {
@@ -134,11 +137,19 @@ struct ServerHomeView: View {
             }
             
             if showNginxDetail {
-                NginxDetailView(session: viewModel.session, onDismiss: {
-                    showNginxDetail = false
-                })
-                .transition(.move(edge: .trailing).combined(with: .opacity))
-                .zIndex(101)
+                if useUnifiedNginx, let nginxApp = ApplicationRegistry.shared.application(for: "nginx") {
+                    UnifiedApplicationDetailView(app: nginxApp, session: viewModel.session, onDismiss: {
+                        showNginxDetail = false
+                    })
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
+                    .zIndex(101)
+                } else {
+                    NginxDetailView(session: viewModel.session, onDismiss: {
+                        showNginxDetail = false
+                    })
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
+                    .zIndex(101)
+                }
             }
             
             if showMySQLDetail {

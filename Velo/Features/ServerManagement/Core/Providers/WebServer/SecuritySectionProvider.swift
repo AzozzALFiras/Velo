@@ -29,53 +29,18 @@ struct SecuritySectionProvider: SectionProvider {
     }
 
     private func loadNginxSecurity(state: ApplicationState, session: TerminalViewModel, baseService: SSHBaseService) async throws {
-        // Check for ModSecurity or other WAF
-        let modsecResult = await baseService.execute(
-            "nginx -V 2>&1 | grep -i modsecurity || ls /etc/nginx/modsec/ 2>/dev/null",
-            via: session
-        )
-
-        var securityRulesStatus: [String: Bool] = [:]
-
-        // Check common security rules/configurations
-        let securityChecks = [
-            ("ModSecurity", "ls /etc/nginx/modsec/modsecurity.conf 2>/dev/null"),
-            ("OWASP CRS", "ls /etc/nginx/modsec/crs-setup.conf 2>/dev/null || ls /usr/share/modsecurity-crs/ 2>/dev/null"),
-            ("Rate Limiting", "grep -r 'limit_req_zone' /etc/nginx/ 2>/dev/null"),
-            ("SSL/TLS", "grep -r 'ssl_certificate' /etc/nginx/sites-enabled/ 2>/dev/null"),
-            ("Headers Security", "grep -r 'add_header.*X-Frame-Options\\|X-Content-Type-Options\\|X-XSS-Protection' /etc/nginx/ 2>/dev/null")
-        ]
-
-        for (name, command) in securityChecks {
-            let result = await baseService.execute(command, via: session)
-            securityRulesStatus[name] = result.exitCode == 0 && !result.output.isEmpty
-        }
-
-        // Get blocked requests stats if available
-        var totalBlocked = "0"
-        var last24h = "0"
-
-        // Try to get ModSecurity audit log stats
-        let auditLogResult = await baseService.execute(
-            "wc -l /var/log/modsec_audit.log 2>/dev/null | awk '{print $1}'",
-            via: session
-        )
-        if auditLogResult.exitCode == 0 && !auditLogResult.output.isEmpty {
-            totalBlocked = auditLogResult.output.trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-
-        // Get last 24h blocks
-        let recentResult = await baseService.execute(
-            "find /var/log/modsec_audit.log -mtime -1 -exec wc -l {} \\; 2>/dev/null | awk '{print $1}'",
-            via: session
-        )
-        if recentResult.exitCode == 0 && !recentResult.output.isEmpty {
-            last24h = recentResult.output.trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-
+        // Use the dedicated NginxSecurityService for consistent status and stats
+        let service = NginxSecurityService.shared
+        
+        // Fetch Rules Status
+        let rulesStatus = await service.getRulesStatus(via: session)
+        
+        // Fetch WAF Stats
+        let stats = await service.getStats(via: session)
+        
         await MainActor.run {
-            state.securityRulesStatus = securityRulesStatus
-            state.securityStats = (total: totalBlocked, last24h: last24h)
+            state.securityRulesStatus = rulesStatus
+            state.securityStats = (total: stats.total, last24h: stats.last24h)
         }
     }
 

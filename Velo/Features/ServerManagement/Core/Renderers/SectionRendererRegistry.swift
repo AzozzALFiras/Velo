@@ -57,6 +57,10 @@ final class SectionRendererRegistry {
             UnifiedUsersSectionView(app: app, state: state, viewModel: viewModel)
         case .backup:
             UnifiedBackupSectionView(app: app, state: state, viewModel: viewModel)
+        case .errorPages:
+            UnifiedErrorPagesSectionView(app: app, state: state, viewModel: viewModel)
+        case .wafStats:
+            UnifiedWafSectionView(app: app, state: state, viewModel: viewModel)
         }
     }
 }

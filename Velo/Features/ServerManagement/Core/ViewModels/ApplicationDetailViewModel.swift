@@ -441,6 +441,276 @@ final class ApplicationDetailViewModel: ObservableObject {
         await loadSectionData()
     }
 
+    // MARK: - Security Actions
+    
+    func toggleSecurityRule(_ key: String, enabled: Bool) async {
+        guard let session = session else { return }
+        
+        // Dispatch based on app
+        if app.id == "nginx" {
+            await performAsyncAction("Toggle Security Rule") {
+                // Convert string key to enum if possible, or pass string
+                // NginxSecurityService uses SecurityRule enum.
+                // We need to map the string key back to the enum.
+                
+                // Since NginxSecurityService is internal/actor, we need to access via shared.
+                // We'll map the key string manually or add a helper in NginxSecurityService.
+                // For now, let's map manually here for common rules.
+                
+                guard let rule = NginxSecurityService.SecurityRule(rawValue: key) else {
+                    return (false, "Unknown rule: \(key)")
+                }
+                
+                let success = await NginxSecurityService.shared.toggleRule(rule, enabled: enabled, via: session)
+                if success {
+                    // localized hardcoded for now, ideal to use String(localized:)
+                    await self.loadSectionData() // Reload status
+                    return (true, "\(rule.description) \(enabled ? "enabled" : "disabled")")
+                } else {
+                    return (false, "Failed to toggle \(rule.description)")
+                }
+            }
+        } else {
+            errorMessage = "Security control not supported for this application"
+        }
+    }
+    
+    // MARK: - Error Pages Actions
+    
+    func updateErrorPage(code: String, path: String) async {
+         guard let session = session, app.id == "nginx" else { return }
+         
+         await performAsyncAction("Update Error Page \(code)") {
+             let configPath = "/etc/nginx/conf.d/error_pages.conf"
+             
+             // Simple implementation: Read, Filter out old code, Append new
+             let read = await SSHBaseService.shared.execute("cat \(configPath)", via: session)
+             let content = read.output
+             
+             var lines = content.components(separatedBy: "\n").filter {
+                 !$0.trimmingCharacters(in: .whitespaces).hasPrefix("error_page \(code)")
+             }
+             
+             if !path.isEmpty {
+                 lines.append("error_page \(code) \(path);")
+             }
+             
+             // Ensure fastcgi_intercept_errors is on
+             if !lines.contains(where: { $0.contains("fastcgi_intercept_errors") }) {
+                 lines.insert("fastcgi_intercept_errors on;", at: 0)
+             }
+             
+             // Ensure fastcgi_intercept_errors is on
+             if !lines.contains(where: { $0.contains("fastcgi_intercept_errors") }) {
+                 lines.insert("fastcgi_intercept_errors on;", at: 0)
+             }
+             
+             let newContent = lines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+             
+             let written = await SSHBaseService.shared.writeFile(
+                 at: configPath,
+                 content: newContent,
+                 useSudo: true,
+                 via: session
+             )
+             
+             if written {
+                 // FORCE: Inject location block into site configs
+                 await applyGlobalErrorPagePatch(via: session)
+                 
+                 // Test and Reload
+                 let test = await SSHBaseService.shared.execute("sudo nginx -t", via: session)
+                 if test.exitCode == 0 {
+                     _ = await SSHBaseService.shared.execute("sudo systemctl reload nginx", via: session)
+                     await self.loadSectionData()
+                     return (true, "Error page for \(code) updated and sites patched")
+                 } else {
+                     return (false, "Invalid configuration: \(test.output)")
+                 }
+             } else {
+                 return (false, "Failed to write config")
+             }
+         }
+    }
+    
+    // MARK: - Aggressive Patching
+    
+    private func applyGlobalErrorPagePatch(via session: TerminalViewModel) async {
+        // Known vhost paths
+        let paths = [
+            "/etc/nginx/sites-enabled",
+            "/etc/nginx/conf.d",
+            "/www/server/panel/vhost/nginx",
+            "/usr/local/nginx/conf/vhost"
+        ]
+        
+        let locationBlock = """
+        
+            # Velo Error Page Support
+            location ^~ /custom_errors/ {
+                root /usr/share/nginx/html;
+                internal;
+            }
+        """
+        
+        for path in paths {
+            // List files
+            let ls = await SSHBaseService.shared.execute("ls -1 \(path)/*.conf", via: session)
+            let files = ls.output.components(separatedBy: "\n").filter { hasExtension($0, "conf") }
+            
+            for file in files {
+                let filePath = file.trimmingCharacters(in: .whitespaces)
+                guard !filePath.isEmpty else { continue }
+                
+                let read = await SSHBaseService.shared.execute("cat '\(filePath)'", via: session)
+                let content = read.output
+                
+                // Check if meaningful server block exists and not already patched
+                if content.contains("server {") && !content.contains("location ^~ /custom_errors/") {
+                    // Naive Injection: Inject before the last closing brace
+                    // This is risky if file has multiple server blocks or nested braces, but "Force" requested.
+                    // Safer: Inject after "server {"
+                    
+                    if let range = content.range(of: "server {") {
+                        var newContent = content
+                        let insertionPoint = range.upperBound
+                        newContent.insert(contentsOf: locationBlock, at: insertionPoint)
+                        
+                        _ = await SSHBaseService.shared.writeFile(at: filePath, content: newContent, useSudo: true, via: session)
+                    }
+                }
+            }
+        }
+    }
+    
+    private func hasExtension(_ path: String, _ ext: String) -> Bool {
+        return path.hasSuffix(".\(ext)")
+    }
+    
+    // MARK: - Error Page Content Editing
+    
+    func getErrorPageContent(path: String) async -> String {
+        guard let session = session else { return "" }
+        // Determine absolute path. If it's a relative URL, assume mapped to /usr/share/nginx/html
+        let fsPath = resolveFileSystemPath(for: path)
+        let result = await SSHBaseService.shared.execute("cat '\(fsPath)'", via: session)
+        return result.output
+    }
+    
+    func saveErrorPageContent(path: String, content: String) async -> Bool {
+        guard let session = session else { return false }
+        let fsPath = resolveFileSystemPath(for: path)
+        return await SSHBaseService.shared.writeFile(at: fsPath, content: content, useSudo: true, via: session)
+    }
+    
+    func createDefaultErrorPage(code: String) async -> String? {
+        guard let session = session else { return nil }
+        
+        let targetDir = "/usr/share/nginx/html/custom_errors"
+        let fileName = "\(code).html"
+        let fullPath = "\(targetDir)/\(fileName)"
+        let urlPath = "/custom_errors/\(fileName)"
+        
+        // Ensure directory
+        _ = await SSHBaseService.shared.execute("sudo mkdir -p \(targetDir)", via: session)
+        
+        // Write default template
+        let template = defaultErrorTemplate(code: code)
+        let written = await SSHBaseService.shared.writeFile(at: fullPath, content: template, useSudo: true, via: session)
+        
+        if written {
+            // Update config to point to it
+            await updateErrorPage(code: code, path: urlPath)
+            return urlPath
+        }
+        return nil
+    }
+    
+    private func resolveFileSystemPath(for urlPath: String) -> String {
+        // Simple heuristic mapping
+        // If starts with /, and inside typical webroot locations
+        if urlPath.hasPrefix("/custom_errors/") {
+            return "/usr/share/nginx/html" + urlPath
+        }
+        // Fallback for direct paths
+        if urlPath.hasPrefix("/") {
+            // It might be a direct absolute path or relative to default root
+             if urlPath.contains("nginx") || urlPath.contains("www") {
+                 return urlPath
+             }
+             return "/usr/share/nginx/html" + urlPath
+        }
+        return urlPath
+    }
+    
+    private func defaultErrorTemplate(code: String) -> String {
+        return """
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>\(code) Error</title>
+            <style>
+                body {
+                    background-color: #0d0d0d;
+                    color: white;
+                    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+                    display: flex;
+                    height: 100vh;
+                    align-items: center;
+                    justify-content: center;
+                    margin: 0;
+                    text-align: center;
+                }
+                .container {
+                    padding: 40px;
+                    background: rgba(255, 255, 255, 0.05);
+                    border-radius: 20px;
+                    backdrop-filter: blur(10px);
+                    border: 1px solid rgba(255, 255, 255, 0.1);
+                }
+                h1 { font-size: 6rem; margin: 0; background: linear-gradient(to right, #4facfe 0%, #00f2fe 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+                p { font-size: 1.5rem; color: #888; margin-top: 10px; }
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <h1>\(code)</h1>
+                <p>Something went wrong.</p>
+            </div>
+        </body>
+        </html>
+        """
+    }
+    
+    // MARK: - WAF Actions
+    
+    func blockIP(_ ip: String) async -> Bool {
+        guard let session = session else { return false }
+        
+        await performAsyncAction("Block IP \(ip)") {
+            // We'll append to security_rules.conf or a dedicated block list
+            let configPath = "/etc/nginx/conf.d/security_rules.conf"
+            
+            // simple check if already blocked
+            let check = await SSHBaseService.shared.execute("grep 'deny \(ip);' \(configPath)", via: session)
+            if check.exitCode == 0 {
+                return (true, "IP \(ip) is already blocked")
+            }
+            
+            // Append deny rule
+            let cmd = "echo 'deny \(ip); # Blocked via Velo WAF' | sudo tee -a \(configPath)"
+            let result = await SSHBaseService.shared.execute(cmd, via: session)
+            
+            if result.exitCode == 0 {
+                // Reload
+                _ = await SSHBaseService.shared.execute("sudo systemctl reload nginx", via: session)
+                return (true, "IP \(ip) blocked successfully")
+            }
+            return (false, "Failed to block IP")
+        }
+        return true
+    }
+
     // MARK: - Helper Methods
 
     func performAsyncAction(
@@ -463,8 +733,9 @@ final class ApplicationDetailViewModel: ObservableObject {
 
         isPerformingAction = false
     }
+    
     // Strip ANSI escape codes from a string
-    private func stripANSI(_ input: String) -> String {
+    func stripANSI(_ input: String) -> String {
         // Remove ANSI escape codes
         let pattern = "\\x1B\\[[0-9;]*[mGKHF]|\\[\\d*(;\\d+)*m"
         return input.replacingOccurrences(of: pattern, with: "", options: .regularExpression)

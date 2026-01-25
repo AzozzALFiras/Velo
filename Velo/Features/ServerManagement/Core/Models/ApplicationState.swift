@@ -98,6 +98,14 @@ final class ApplicationState: ObservableObject {
     @Published var nginxStatus: NginxStatusInfo?
     @Published var securityRulesStatus: [String: Bool] = [:]
     @Published var securityStats: (total: String, last24h: String) = ("0", "0")
+    
+    // Error Pages
+    @Published var errorPages: [String: String] = [:]
+    
+    // WAF Logs
+    @Published var wafLogs: [WafLogEntry] = []
+    @Published var wafSites: [String] = [] // List of available sites
+    @Published var currentWafSite: String = "All"
 
     // Version Installation
     @Published var availableVersions: [CapabilityVersion] = []
@@ -183,4 +191,15 @@ struct DatabaseInfo: Identifiable, Hashable {
         self.size = size
         self.tableCount = tableCount
     }
+}
+struct WafLogEntry: Identifiable, Hashable, Codable {
+    let id = UUID()
+    let ip: String
+    let time: String
+    let request: String
+    let status: String
+    let bytes: String
+    let referrer: String
+    let userAgent: String
+    let country: String // Placeholder or GeoIP
 }

@@ -82,8 +82,16 @@ struct UnifiedServiceSectionView: View {
                         await viewModel.restartService()
                     }
 
-                    actionButton(title: "Reload", icon: "arrow.triangle.2.circlepath", color: .blue) {
-                        await viewModel.reloadService()
+                    if app.capabilities.contains(.supportsGracefulReload) {
+                        actionButton(title: "Reload", icon: "arrow.triangle.2.circlepath", color: .blue) {
+                            await viewModel.reloadService()
+                        }
+                        .help("Zero-downtime reload")
+                    } else if app.capabilities.contains(.controllable) {
+                         // Fallback for controllable services that might just map reload to restart or specific logic
+                         actionButton(title: "Reload", icon: "arrow.triangle.2.circlepath", color: .blue) {
+                             await viewModel.reloadService()
+                         }
                     }
                 }
             }

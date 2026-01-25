@@ -115,6 +115,12 @@ enum ApplicationCapability: String, Codable, CaseIterable {
     case hasSites           // Manages websites/virtual hosts
     case hasSecurity        // Has security/WAF features
     case hasFPM             // Has FPM process manager (php)
+    case hasErrorPages      // Can configure custom error pages
+    
+    // Advanced Capabilities
+    case supportsGracefulReload // Supports zero-downtime reload
+    case supportsWAF            // Supports Web Application Firewall features
+    case supportsAdvancedConfig // Supports advanced configuration editing
 }
 
 // MARK: - Service Configuration
