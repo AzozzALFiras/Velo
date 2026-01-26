@@ -167,15 +167,8 @@ struct ServiceSectionProvider: SectionProvider {
     }
 
     private func loadMySQLStatus(state: ApplicationState, session: TerminalViewModel) async {
-        let result = await SSHBaseService.shared.execute(
-            "mysql -e \"SHOW GLOBAL STATUS; SHOW VARIABLES;\" 2>/dev/null || echo 'access_denied'",
-            via: session
-        )
-
-        if result.output.contains("access_denied") { return }
-
-        // Parse basic metrics from output
-        // This is a simplified version - full implementation would parse more metrics
+        // StatusSectionProvider handles the detailed metrics.
+        // We don't need to load anything extra here.
     }
 
     private func loadPHPFPMStatus(state: ApplicationState, session: TerminalViewModel) async {

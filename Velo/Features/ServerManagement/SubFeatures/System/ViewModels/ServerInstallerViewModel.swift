@@ -383,8 +383,12 @@ final class ServerInstallerViewModel: ObservableObject {
     }
     
     private func getInstallCommand(from version: CapabilityVersion, os: String) -> String? {
-        guard let commands = version.installCommands else { return nil }
+        guard let commands = version.installCommands else { 
+            print("SERVER_INSTALLER: installCommands is NIL for version \(version.version)")
+            return nil 
+        }
         let osKey = os.lowercased()
+        print("SERVER_INSTALLER: Resolving command for OS: '\(osKey)'. Available keys: \(commands.keys.sorted())")
         
         // Helper to resolve instruction
         func resolve(_ instruction: InstallInstruction?) -> String? {
@@ -398,20 +402,40 @@ final class ServerInstallerViewModel: ObservableObject {
             }
         }
         
-        // 1. Try exact OS match (e.g. "ubuntu")
-        if let cmd = resolve(commands[osKey]) {
-            return cmd
+        // Strategy 1: Exact Match (e.g. "ubuntu")
+        if let cmd = resolve(commands[osKey]) { return cmd }
+        
+        // Strategy 2: OS Family Fallback
+        // Common derivations
+        let families: [String: [String]] = [
+            "ubuntu": ["debian"],
+            "linuxmint": ["ubuntu", "debian"],
+            "pop": ["ubuntu", "debian"],
+            "kali": ["debian"],
+            "centos": ["rhel", "fedora"],
+            "almalinux": ["rhel", "centos", "fedora"],
+            "rocky": ["rhel", "centos", "fedora"],
+            "fedora": ["rhel"]
+        ]
+        
+        if let fallbacks = families[osKey] {
+            for fallback in fallbacks {
+                if let cmd = resolve(commands[fallback]) { return cmd }
+            }
         }
         
-        // 2. Try generic "linux"
-        if let cmd = resolve(commands["linux"]) {
+        // Strategy 3: Prefix Matching (e.g. "ubuntu-22.04" when we have "ubuntu")
+        // Check if any key in `commands` starts with osKey
+        if let key = commands.keys.first(where: { $0.lowercased().hasPrefix(osKey) }),
+           let cmd = resolve(commands[key]) {
             return cmd
         }
+
+        // Strategy 4: Generic "linux"
+        if let cmd = resolve(commands["linux"]) { return cmd }
         
-        // 3. Try "default"
-        if let cmd = resolve(commands["default"]) {
-            return cmd
-        }
+        // Strategy 5: "default"
+        if let cmd = resolve(commands["default"]) { return cmd }
         
         return nil
     }

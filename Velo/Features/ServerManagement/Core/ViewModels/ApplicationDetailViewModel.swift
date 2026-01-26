@@ -146,11 +146,27 @@ final class ApplicationDetailViewModel: ObservableObject {
         // Use configured binary path name if available, otherwise fallback to app.id
         let binaryName = app.serviceConfig.binaryPath.isEmpty ? app.id : URL(fileURLWithPath: app.serviceConfig.binaryPath).lastPathComponent
         
-        let whichResult = await SSHBaseService.shared.execute("which \(binaryName) 2>/dev/null", via: session)
-        if !whichResult.output.isEmpty && whichResult.exitCode == 0 {
-            state.binaryPath = whichResult.output.trimmingCharacters(in: .whitespacesAndNewlines)
-        } else if !app.serviceConfig.binaryPath.isEmpty {
-             // Fallback: check if the configured full path exists
+        // Extended binary search
+        var finalBinaryPath = ""
+        let directWhich = await SSHBaseService.shared.execute("which \(binaryName) 2>/dev/null", via: session)
+        
+        if !directWhich.output.isEmpty && directWhich.exitCode == 0 {
+            finalBinaryPath = directWhich.output.trimmingCharacters(in: .whitespacesAndNewlines)
+        } else {
+            // Fallback: Check common paths
+            let commonPaths = ["/usr/sbin/\(binaryName)", "/usr/bin/\(binaryName)", "/usr/local/bin/\(binaryName)", "/usr/local/sbin/\(binaryName)", "/bin/\(binaryName)", "/sbin/\(binaryName)"]
+            let checkCmd = "ls " + commonPaths.joined(separator: " ") + " 2>/dev/null | head -n 1"
+            let fallbackResult = await SSHBaseService.shared.execute(checkCmd, via: session)
+            
+            if !fallbackResult.output.isEmpty {
+                 finalBinaryPath = fallbackResult.output.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        }
+        
+        state.binaryPath = finalBinaryPath
+        
+        // If no binary path found yet, and a specific path is configured, check if that path exists
+        if state.binaryPath.isEmpty && !app.serviceConfig.binaryPath.isEmpty {
              let existCheck = await SSHBaseService.shared.execute("[ -f \(app.serviceConfig.binaryPath) ] && echo 'yes'", via: session)
              if existCheck.output.contains("yes") {
                  state.binaryPath = app.serviceConfig.binaryPath
@@ -392,6 +408,9 @@ final class ApplicationDetailViewModel: ObservableObject {
             via: session
         )
         let osId = osResult.output.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        
+        print("[Install] Detected OS: '\(osId)'")
+        print("[Install] Available command keys: \(commands.keys.joined(separator: ", "))")
 
         // Helper to resolve instruction
         func resolve(_ instruction: InstallInstruction?) -> [String]? {
@@ -407,38 +426,129 @@ final class ApplicationDetailViewModel: ObservableObject {
         }
 
         // Find matching commands
-        let osCommands = resolve(commands[osId]) ?? resolve(commands["ubuntu"]) ?? resolve(commands["debian"]) ?? []
+        // Add "linux" as a fallback
+        let osCommands = resolve(commands[osId]) ?? 
+                         resolve(commands["ubuntu"]) ?? 
+                         resolve(commands["debian"]) ?? 
+                         resolve(commands["linux"]) ?? []
+                         
         guard !osCommands.isEmpty else {
             errorMessage = "No install commands for this OS (\(osId))"
+            print("[Install] Failed to find commands for \(osId). Keys available: \(commands.keys)")
             return
         }
 
-        state.isInstallingVersion = true
-        state.installingVersionName = version.version
-        state.installStatus = "Starting installation..."
+        await MainActor.run {
+            state.isInstallingVersion = true
+            state.installingVersionName = version.version
+            state.installStatus = "Starting installation..."
+        }
 
-        for (index, command) in osCommands.enumerated() {
-            state.installStatus = "Step \(index + 1)/\(osCommands.count): Running..."
+        for (index, originalCommand) in osCommands.enumerated() {
+            await MainActor.run {
+                state.installStatus = "Step \(index + 1)/\(osCommands.count): Running..."
+            }
+            
+            // SANITIZE AND FORTIFY COMMANDS
+            var command = originalCommand
+            
+            // 1. Force non-interactive for apt/dpkg
+            // We inject the variable directly before the command to ensure it survives 'sudo' (which often drops env vars)
+            // transforming "sudo apt install" -> "sudo DEBIAN_FRONTEND=noninteractive apt install"
+            if command.contains("apt") || command.contains("dpkg") {
+                let targets = ["apt-get", "apt ", "dpkg"]
+                for target in targets {
+                    if command.contains(target) && !command.contains("DEBIAN_FRONTEND=noninteractive " + target) {
+                        command = command.replacingOccurrences(of: target, with: "DEBIAN_FRONTEND=noninteractive " + target)
+                    }
+                }
+                
+                // Ensure -y is used for install/upgrade/remove
+                if (command.contains("install") || command.contains("upgrade") || command.contains("remove")) && !command.contains("-y") {
+                     command = command + " -y"
+                }
+                // Fix for interactions: pass -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold"
+                if command.contains("apt-get") && !command.contains("force-conf") {
+                    command = command + " -o Dpkg::Options::=\"--force-confdef\" -o Dpkg::Options::=\"--force-confold\""
+                }
+            }
+            
+            // 2. Add wait for lock if apt
+            if command.contains("apt") {
+                // Prepend a wait for lock check (simple version)
+                // "while fuser /var/lib/dpkg/lock >/dev/null 2>&1 ; do sleep 1 ; done; " is risky if user doesn't have fuser
+                // Better to just rely on APT's acquire-retries if possible, but that's config.
+                // We'll trust the modified command for now, but handle the specific lock error in output.
+            }
 
-            let result = await SSHBaseService.shared.execute(command, via: session, timeout: 300)
+            let result = await SSHBaseService.shared.execute(command, via: session, timeout: 600) // Increased timeout
 
-            if result.exitCode != 0 && !command.contains("apt-get update") {
-                state.isInstallingVersion = false
-                state.installingVersionName = ""
-                state.installStatus = ""
-                errorMessage = "Installation failed at step \(index + 1)"
+            if result.exitCode != 0 {
+                // Allow "apt-get update" to fail (often network issues) but warn
+                if command.contains("apt-get update") {
+                   print("[Install] Warning: apt-get update failed, but continuing. Output: \(result.output)")
+                   continue
+                }
+                
+                await MainActor.run {
+                    state.isInstallingVersion = false
+                    state.installingVersionName = ""
+                    state.installStatus = ""
+                    
+                    // Check for lock error
+                    if result.output.contains("Could not get lock") || result.output.contains("Resource temporarily unavailable") {
+                        errorMessage = "System update in progress. Please wait a moment and try again."
+                    } else {
+                        errorMessage = "Installation failed: \(result.output)" // Show output in error
+                    }
+                }
+                print("[Install] Command failed: \(command)")
+                print("[Install] Output: \(result.output)")
                 return
             }
         }
 
-        state.isInstallingVersion = false
-        state.installingVersionName = ""
-        state.installStatus = ""
-        successMessage = "\(app.name) \(version.version) installed successfully"
+        await MainActor.run {
+            state.isInstallingVersion = false
+            state.installingVersionName = ""
+            state.installStatus = ""
+            successMessage = "\(app.name) \(version.version) installed successfully"
+        }
 
         // Refresh data
         await loadServiceStatus()
         await loadSectionData()
+    }
+    
+    // MARK: - Version Switching
+    
+    func switchVersion(_ version: CapabilityVersion) async {
+        guard let session = session else { return }
+        
+        await performAsyncAction("Switching to \(version.version)") {
+            // Logic differs by app
+            if app.id == "php" {
+                 // For PHP, use update-alternatives
+                 // Extract version number like "8.1" from "PHP 8.1" or "8.1"
+                 let ver = version.version.replacingOccurrences(of: "PHP", with: "").trimmingCharacters(in: .whitespaces)
+                 
+                 let cmd = "sudo update-alternatives --set php /usr/bin/php\(ver) && sudo update-alternatives --set php-fpm /usr/sbin/php-fpm\(ver) 2>/dev/null"
+                 let result = await SSHBaseService.shared.execute(cmd, via: session)
+                 
+                 if result.exitCode == 0 {
+                     await self.loadData() // Reload all info
+                     return (true, "Switched to PHP \(ver)")
+                 } else {
+                     return (false, "Failed to switch: \(result.output)")
+                 }
+            } else {
+                // For others like MySQL/Nginx, usually the installed version IS the active one.
+                // If it's installed but not running, maybe we need to stop the other and start this one?
+                // But usually package managers replace the binary.
+                // We'll treat "Switch" as "Restart Service" or a no-op if detected correctly.
+                return (false, "Switching not supported for \(app.name) (Reinstall to switch)")
+            }
+        }
     }
 
     // MARK: - Security Actions

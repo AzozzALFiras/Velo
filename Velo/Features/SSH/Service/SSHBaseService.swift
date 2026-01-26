@@ -44,8 +44,9 @@ actor SSHBaseService: TerminalOutputDelegate {
         let startTime: Date
         let status: OutputStatus
         let terminalViewModel: TerminalViewModel?
-        let password: String?
+        var password: String?
         var passwordInjected: Bool = false
+        var isRequestingPassword: Bool = false
     }
     private var activeCommands = [UUID: ActiveCommand]()
     
@@ -399,25 +400,95 @@ actor SSHBaseService: TerminalOutputDelegate {
             if commandFinished { continue }
             
             let lowerAll = currentAll.lowercased()
+            
+            // 🤖 INTELLIGENT AUTO-REPLY: YES/NO Prompts
+            // Matches: [Y/n], (y/n), "Do you want to continue?", etc.
+            if lowerAll.contains("[y/n]") || lowerAll.contains("(y/n)") || lowerAll.contains("do you want to continue") {
+                 // Only answer if we haven't already answered recently? 
+                 // Simple output matching is stateless, so we check if the LAST line looks like a prompt.
+                 let lines = lowerAll.components(separatedBy: .newlines)
+                 if let last = lines.last?.trimmingCharacters(in: .whitespaces), 
+                    (last.hasSuffix("[y/n]") || last.hasSuffix("(y/n)") || last.hasSuffix("?") || last.hasSuffix("]")) {
+                     
+                     print("🔧 [SSHBase] 🤖 Auto-answering YES to prompt")
+                     await MainActor.run {
+                         active.terminalViewModel?.terminalEngine.sendInput("y\r")
+                     }
+                     // Clear buffer slightly to prevent loop? No, engine handles input echo.
+                 }
+            }
+            
             let isPasswordPrompt = lowerAll.contains("password:") || 
                                  lowerAll.contains("passphrase:") ||
                                  lowerAll.contains("password for") ||
                                  lowerAll.contains("رمز المرور") // Arabic support for user
             
-            if isPasswordPrompt && !active.passwordInjected {
+            if isPasswordPrompt && !active.passwordInjected && !active.isRequestingPassword {
+                // PRIORITY 1: Active Command Cache
                 if let pwd = active.password {
                     var updated = active
                     updated.passwordInjected = true
                     activeCommands[sessionId] = updated
                     
-                    print("🔧 [SSHBase] 🔐 Injecting sudo password for command: \(active.cleanCommand.prefix(20))")
+                    print("🔧 [SSHBase] 🔐 Injecting sudo password (Cache) for: \(active.cleanCommand.prefix(20))")
                     await MainActor.run {
-                        // Use \r for PTY - terminals expect Carriage Return, not Line Feed
                         active.terminalViewModel?.terminalEngine.sendInput("\(pwd)\r")
                     }
                 } else {
-                    // Log why we didn't inject
-                    print("🔧 [SSHBase] ⚠️ Password prompt detected for '\(active.cleanCommand.prefix(20))' but no password available for this session.")
+                    // PRIORITY 2: Re-check Keychain (Just in case it was added recently or missed)
+                    if let session = active.terminalViewModel, 
+                       let refetched = await fetchPasswordForSession(session) {
+                        
+                        var updated = active
+                        updated.passwordInjected = true
+                        updated.password = refetched // Update active command with found password
+                        activeCommands[sessionId] = updated
+                        
+                        print("🔧 [SSHBase] 🔐 Injecting sudo password (Late Keychain Fetch) for: \(active.cleanCommand.prefix(20))")
+                        await MainActor.run {
+                             session.terminalEngine.sendInput("\(refetched)\r")
+                        }
+                    } else {
+                        // PRIORITY 3: Ask User (UI Prompt)
+                        print("🔧 [SSHBase] ⚠️ Password prompt detected for '\(active.cleanCommand.prefix(20))', requesting from user...")
+                        
+                        var updated = active
+                        updated.isRequestingPassword = true
+                        activeCommands[sessionId] = updated
+                        
+                        if let session = active.terminalViewModel {
+                             let host = await MainActor.run { session.activeConnectionDisplayString }
+                             
+                             // Suspend and ask user
+                             if let userPwd = await session.requestRootPassword(host: host) {
+                                 print("🔧 [SSHBase] ✅ User provided password")
+                                 
+                                 // Cache for session
+                                 sessionPasswords[sessionId] = userPwd
+                                 
+                                 // Inject
+                                 await MainActor.run {
+                                     session.terminalEngine.sendInput("\(userPwd)\r")
+                                 }
+                                 
+                                 // Update state
+                                 if var currentVal = activeCommands[sessionId] {
+                                     currentVal.passwordInjected = true
+                                     currentVal.isRequestingPassword = false
+                                     currentVal.password = userPwd
+                                     activeCommands[sessionId] = currentVal
+                                 }
+                             } else {
+                                 print("🔧 [SSHBase] ❌ User cancelled password request")
+                                 if var currentVal = activeCommands[sessionId] {
+                                     currentVal.isRequestingPassword = false
+                                     activeCommands[sessionId] = currentVal
+                                 }
+                             }
+                        } else {
+                            print("🔧 [SSHBase] ❌ No session viewModel available to ask user")
+                        }
+                    }
                 }
             }
         }

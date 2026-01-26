@@ -134,6 +134,36 @@ final class TerminalViewModel: ObservableObject, Identifiable {
     @Published var toastMessage = ""
     @Published var toastIsSuccess = true
 
+    // MARK: - Root Password Prompt (SSH Fallback)
+    @Published var showingRootPasswordPrompt = false
+    @Published var rootPasswordPromptHost = ""
+    private var rootPasswordContinuation: CheckedContinuation<String?, Never>?
+
+    @MainActor
+    func requestRootPassword(host: String) async -> String? {
+        // If already showing, ignore or queue? For now key only one.
+        guard !showingRootPasswordPrompt else { return nil }
+        
+        return await withCheckedContinuation { continuation in
+            self.rootPasswordPromptHost = host
+            self.rootPasswordContinuation = continuation
+            self.showingRootPasswordPrompt = true
+        }
+    }
+
+    func submitRootPassword(_ password: String) {
+        showingRootPasswordPrompt = false
+        rootPasswordContinuation?.resume(returning: password)
+        rootPasswordContinuation = nil
+    }
+
+    func cancelRootPasswordRequest() {
+        showingRootPasswordPrompt = false
+        rootPasswordContinuation?.resume(returning: nil)
+        rootPasswordContinuation = nil
+    }
+
+
     // MARK: - Server Management (SSH High-Level UI)
     @Published var showServerManagement = false
     @Published var activeServerManagementTab: ServerManagementTab = .home

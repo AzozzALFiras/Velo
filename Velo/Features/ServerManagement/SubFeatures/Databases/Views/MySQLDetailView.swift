@@ -69,9 +69,7 @@ struct MySQLDetailView: View {
                         case .status:
                             MySQLStatusView(viewModel: viewModel)
                         case .databases:
-                            // Fallback or list
-                            Text("Databases list managed in Databases tab.")
-                                .foregroundStyle(.gray)
+                            MySQLDatabasesView(viewModel: viewModel)
                         }
                     }
                 }

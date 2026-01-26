@@ -81,7 +81,15 @@ struct MySQLDetector {
     func getBinaryPath(via session: TerminalViewModel) async -> String? {
         let result = await baseService.execute("which mysql 2>/dev/null", via: session, timeout: 10)
         let path = result.output.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
-        return path.isEmpty ? nil : path
+        if !path.isEmpty { return path }
+        
+        // Fallback: Check common paths
+        let commonPaths = ["/usr/sbin/mysql", "/usr/bin/mysql", "/usr/local/bin/mysql", "/usr/local/sbin/mysql", "/bin/mysql"]
+        let checkCmd = "ls " + commonPaths.joined(separator: " ") + " 2>/dev/null | head -n 1"
+        let fallbackResult = await baseService.execute(checkCmd, via: session)
+        let fallbackPath = fallbackResult.output.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+        
+        return fallbackPath.isEmpty ? nil : fallbackPath
     }
 
     /// Check if MySQL was installed via package manager

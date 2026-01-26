@@ -3,6 +3,9 @@ import SwiftUI
 struct MySQLUsersView: View {
     @ObservedObject var viewModel: MySQLDetailViewModel
     
+    @State private var showingDeleteAlert = false
+    @State private var userToDelete: DatabaseUser?
+    
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
             
@@ -43,18 +46,39 @@ struct MySQLUsersView: View {
             } else {
                 VStack(spacing: 1) {
                     ForEach(viewModel.users) { user in
-                        MySQLUserRow(user: user)
+                        MySQLUserRow(
+                            user: user,
+                            onDelete: {
+                                userToDelete = user
+                                showingDeleteAlert = true
+                            }
+                        )
                     }
                 }
                 .background(Color.white.opacity(0.03))
                 .clipShape(RoundedRectangle(cornerRadius: 12))
             }
         }
+        .alert(
+            "Delete User?",
+            isPresented: $showingDeleteAlert,
+            presenting: userToDelete
+        ) { user in
+            Button("Delete", role: .destructive) {
+                Task {
+                    await viewModel.deleteUser(user.username)
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { user in
+            Text("Are you sure you want to delete user '\(user.username)'? This action cannot be undone.")
+        }
     }
 }
 
 struct MySQLUserRow: View {
     let user: DatabaseUser
+    var onDelete: () -> Void
     
     var body: some View {
         HStack {
@@ -83,6 +107,20 @@ struct MySQLUserRow: View {
                 .padding(.vertical, 4)
                 .background((user.username == "root" ? Color.orange : Color.gray).opacity(0.1))
                 .clipShape(Capsule())
+            
+            // Delete Action
+            if user.username != "root" && user.username != "mysql.session" && user.username != "mysql.sys" && user.username != "debian-sys-maint" {
+                 Button(action: onDelete) {
+                     Image(systemName: "trash")
+                         .foregroundStyle(.red.opacity(0.7))
+                         .font(.system(size: 12))
+                         .frame(width: 24, height: 24)
+                         .background(Color.red.opacity(0.1))
+                         .clipShape(Circle())
+                 }
+                 .buttonStyle(.plain)
+                 .padding(.leading, 8)
+            }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)

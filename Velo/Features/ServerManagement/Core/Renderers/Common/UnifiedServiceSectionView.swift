@@ -195,17 +195,50 @@ struct UnifiedServiceSectionView: View {
             let isInstalling = state.isInstallingVersion && state.installingVersionName == version.version
 
             if isInstalled {
-                HStack(spacing: 4) {
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 12))
-                    Text("Installed")
-                        .font(.caption)
+                // Check if it's the active version
+                // We normalize simple version matching (e.g. "8.1" in "PHP 8.1")
+                let isActive = state.version.contains(version.version) || 
+                               (state.activeVersion.isEmpty == false && state.activeVersion.contains(version.version))
+                
+                if isActive {
+                    HStack(spacing: 4) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 12))
+                        Text("Active")
+                            .font(.caption)
+                    }
+                    .foregroundStyle(.green)
+                } else {
+                    // Installed but not active -> Show Switch
+                    HStack(spacing: 8) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "checkmark")
+                                .font(.system(size: 10))
+                            Text("Installed")
+                                .font(.caption)
+                        }
+                        .foregroundStyle(.gray)
+                        
+                        Button {
+                            Task {
+                                await viewModel.switchVersion(version)
+                            }
+                        } label: {
+                            Text("Switch")
+                                .font(.caption)
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 5)
+                                .background(Color.blue.opacity(0.8))
+                                .clipShape(Capsule())
+                        }
+                        .buttonStyle(.plain)
+                    }
                 }
-                .foregroundStyle(.green)
             } else if isInstalling {
                 HStack(spacing: 6) {
                     ProgressView()
-                        .scaleEffect(0.6)
+                    // ... (rest of installing state)
                     Text(state.installStatus.isEmpty ? "Installing..." : state.installStatus)
                         .font(.caption)
                         .foregroundStyle(.orange)

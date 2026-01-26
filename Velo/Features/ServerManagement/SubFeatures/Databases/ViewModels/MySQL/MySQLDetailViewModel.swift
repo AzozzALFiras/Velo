@@ -36,6 +36,10 @@ final class MySQLDetailViewModel: ObservableObject {
     @Published var users: [DatabaseUser] = []
     @Published var isLoadingUsers: Bool = false
     
+    // Databases
+    @Published var databases: [Database] = []
+    @Published var isLoadingDatabases: Bool = false
+    
     // Logs
     @Published var logContent: String = ""
     @Published var isLoadingLogs: Bool = false
@@ -121,7 +125,7 @@ final class MySQLDetailViewModel: ObservableObject {
         case .logs:
             await loadLogs()
         case .databases:
-            break
+            await loadDatabases()
         }
     }
     

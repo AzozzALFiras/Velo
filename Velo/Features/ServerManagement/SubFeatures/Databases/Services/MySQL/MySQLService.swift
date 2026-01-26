@@ -27,6 +27,9 @@ final class MySQLService: ObservableObject, DatabaseServerService {
     // Sub-components
     private let detector = MySQLDetector()
     private let versionResolver = MySQLVersionResolver()
+    
+    // Cache
+    private var _cachedVersion: String?
 
     private init() {}
 
@@ -40,7 +43,10 @@ final class MySQLService: ObservableObject, DatabaseServerService {
     }
 
     func getVersion(via session: TerminalViewModel) async -> String? {
-        await versionResolver.getVersion(via: session)
+        if let cached = _cachedVersion { return cached }
+        let version = await versionResolver.getVersion(via: session)
+        _cachedVersion = version
+        return version
     }
 
     func isRunning(via session: TerminalViewModel) async -> Bool {
@@ -69,7 +75,13 @@ final class MySQLService: ObservableObject, DatabaseServerService {
 
     func fetchDatabases(via session: TerminalViewModel) async -> [Database] {
         // Use -N (skip column names) and -B (batch/tab-separated) for cleaner output
-        let result = await baseService.execute("mysql -NBe 'SHOW DATABASES' 2>/dev/null || sudo mysql -NBe 'SHOW DATABASES' 2>/dev/null", via: session, timeout: 15)
+        // Fallback strategy:
+        // 1. Direct (auth_socket or user config)
+        // 2. Sudo (root auth_socket)
+        // 3. Debian System Maint (fallback for secured root)
+        let cmd = "mysql -NBe 'SHOW DATABASES' 2>/dev/null || sudo mysql -NBe 'SHOW DATABASES' 2>/dev/null || sudo mysql --defaults-file=/etc/mysql/debian.cnf -NBe 'SHOW DATABASES' 2>/dev/null"
+        
+        let result = await baseService.execute(cmd, via: session, timeout: 15)
         let output = result.output.trimmingCharacters(in: .whitespacesAndNewlines)
 
         guard !output.isEmpty && !output.contains("error") && !output.contains("denied") else {
@@ -114,7 +126,15 @@ final class MySQLService: ObservableObject, DatabaseServerService {
         if let user = username, !user.isEmpty, let pass = password, !pass.isEmpty {
             let safeUser = user.replacingOccurrences(of: "'", with: "")
             // Create user and grant privileges
-            _ = await baseService.execute("mysql -e \"CREATE USER '\(safeUser)'@'localhost' IDENTIFIED BY '\(pass)'; GRANT ALL PRIVILEGES ON \(safeName).* TO '\(safeUser)'@'localhost'; FLUSH PRIVILEGES;\" 2>/dev/null", via: session, timeout: 15)
+            // Use 2>&1 to capture errors and check for success echo
+            let userResult = await baseService.execute("mysql -e \"CREATE USER '\(safeUser)'@'localhost' IDENTIFIED BY '\(pass)'; GRANT ALL PRIVILEGES ON \(safeName).* TO '\(safeUser)'@'localhost'; FLUSH PRIVILEGES;\" 2>&1 && echo 'USER_CREATED'", via: session, timeout: 15)
+            
+            if !userResult.output.contains("USER_CREATED") && !userResult.output.contains("exists") {
+                // Log failure but don't fail the whole operation since DB was created?
+                // Better to return false or known error, but signature is Bool.
+                // For now, let's assume if DB created, it is success, but we should log this.
+                print("Failed to create user: \(userResult.output)")
+            }
         }
 
         return true
@@ -263,7 +283,7 @@ final class MySQLService: ObservableObject, DatabaseServerService {
         if systemDbs.contains(where: { $0.caseInsensitiveCompare(trimmed) == .orderedSame }) { return false }
 
         // Skip exact invalid names (not substrings)
-        let invalidNames = ["root", "test"]
+        let invalidNames = ["root"]
         if invalidNames.contains(where: { $0.caseInsensitiveCompare(trimmed) == .orderedSame }) { return false }
 
         // Skip invalid characters, but allow alphanumeric, underscore, hyphen

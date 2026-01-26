@@ -31,6 +31,8 @@ public struct CapabilityVersion: Identifiable, Codable {
     public enum CodingKeys: String, CodingKey {
         case versionId = "id"
         case version, stability, releaseDate, eolDate, recommendedUsage, isDefault, installCommands, features
+        // Robustness: Add explicit key for snake_case in case strategy fails or isn't used
+        case installCommandsSnake = "install_commands"
     }
     
     public init(from decoder: Decoder) throws {
@@ -44,13 +46,41 @@ public struct CapabilityVersion: Identifiable, Codable {
         isDefault = try container.decode(Bool.self, forKey: .isDefault)
         features = try container.decodeIfPresent([CapabilityFeature].self, forKey: .features)
         
-        // Use InstallInstruction for polymorphic decoding
-        // Handle case where API returns [] (empty array) instead of {} (dictionary)
+        // Robust Polymorphic Decoding
+        // Strategy: Try 'installCommands' (from converter) THEN 'install_commands' (raw)
+        
+        var commands: [String: InstallInstruction]? = nil
+        
+        // 1. Try standard key (installCommands)
         if let _ = try? container.decode([String].self, forKey: .installCommands) {
-            installCommands = nil
+             // It's an array (invalid for map), ignore or set nil
         } else {
-            installCommands = try container.decodeIfPresent([String: InstallInstruction].self, forKey: .installCommands)
+             commands = try container.decodeIfPresent([String: InstallInstruction].self, forKey: .installCommands)
         }
+        
+        // 2. If nil, try explicit snake_case key (install_commands)
+        if commands == nil {
+            if let _ = try? container.decode([String].self, forKey: .installCommandsSnake) {
+                // Invalid array
+            } else {
+                commands = try container.decodeIfPresent([String: InstallInstruction].self, forKey: .installCommandsSnake)
+            }
+        }
+        
+        self.installCommands = commands
+    }
+    
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(versionId, forKey: .versionId)
+        try container.encode(version, forKey: .version)
+        try container.encode(stability, forKey: .stability)
+        try container.encodeIfPresent(releaseDate, forKey: .releaseDate)
+        try container.encodeIfPresent(eolDate, forKey: .eolDate)
+        try container.encodeIfPresent(recommendedUsage, forKey: .recommendedUsage)
+        try container.encode(isDefault, forKey: .isDefault)
+        try container.encodeIfPresent(features, forKey: .features)
+        try container.encodeIfPresent(installCommands, forKey: .installCommands)
     }
 }
 

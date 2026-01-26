@@ -27,6 +27,20 @@ extension MySQLDetailViewModel {
         }
     }
     
+    func deleteUser(_ username: String) async {
+        guard let session = session else { return }
+        
+        await performAsyncAction("Delete User") {
+            let success = await service.deleteUser(username: username, via: session)
+            if success {
+                await self.loadUsers()
+                return (true, "User '\(username)' deleted successfully")
+            } else {
+                return (false, "Failed to delete user")
+            }
+        }
+    }
+    
     func loadLogs() async {
         guard let session = session else { return }
         isLoadingLogs = true
