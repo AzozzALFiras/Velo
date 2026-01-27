@@ -11,12 +11,12 @@ final class GitService: ObservableObject, ServerModuleService {
     private init() {}
     
     func isInstalled(via session: TerminalViewModel) async -> Bool {
-        let result = await baseService.execute("which git 2>/dev/null", via: session, timeout: 5)
+        let result = await baseService.execute("which git 2>/dev/null", via: session, timeout: 30)
         return !result.output.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines).isEmpty
     }
     
     func getVersion(via session: TerminalViewModel) async -> String? {
-        let result = await baseService.execute("git --version 2>/dev/null | head -n 1 | awk '{print $3}'", via: session, timeout: 5)
+        let result = await baseService.execute("git --version 2>/dev/null | head -n 1 | awk '{print $3}'", via: session, timeout: 30)
         let output = result.output.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
         return output.isEmpty ? nil : output
     }

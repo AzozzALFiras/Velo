@@ -32,7 +32,7 @@ extension RedisDetailViewModel {
         installStatus = "Installing Redis \(version)..."
         
         // Basic install command
-        let cmd = "sudo apt-get update && sudo apt-get install -y redis-server"
+        let cmd = "sudo DEBIAN_FRONTEND=noninteractive apt-get update && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y redis-server"
         _ = await baseService.execute(cmd, via: session)
         
         await loadData()

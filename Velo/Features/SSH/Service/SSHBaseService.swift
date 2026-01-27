@@ -615,6 +615,12 @@ actor SSHBaseService: TerminalOutputDelegate {
         sshPasswordInjected.remove(sessionId)
         print("🧹 [SSHBase] Cleared caches for session \(sessionId)")
     }
+    
+    /// Notify that password has been injected externally (e.g. by TerminalViewModel)
+    func markPasswordInjected(for sessionId: UUID) {
+        sshPasswordInjected.insert(sessionId)
+        print("🔧 [SSHBase] 🔓 External signal: Password injected for session \(sessionId)")
+    }
 
     // MARK: - Helpers
 

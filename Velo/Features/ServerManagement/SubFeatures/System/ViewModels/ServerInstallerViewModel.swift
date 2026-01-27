@@ -526,12 +526,12 @@ final class ServerInstallerViewModel: ObservableObject {
         guard os == "ubuntu" || os == "debian" else { return nil }
         
         switch slug.lowercased() {
-        case "python": return "apt update || true && apt install -y python3"
-        case "redis": return "apt update || true && apt install -y redis-server"
-        case "postgresql", "postgres": return "apt update || true && apt install -y postgresql"
-        case "nginx": return "apt update || true && apt install -y nginx"
-        case "php": return "apt update || true && apt install -y php-fpm"
-        case "git": return "apt update || true && apt install -y git"
+        case "python": return "DEBIAN_FRONTEND=noninteractive apt-get update || true && DEBIAN_FRONTEND=noninteractive apt-get install -y python3"
+        case "redis": return "DEBIAN_FRONTEND=noninteractive apt-get update || true && DEBIAN_FRONTEND=noninteractive apt-get install -y redis-server"
+        case "postgresql", "postgres": return "DEBIAN_FRONTEND=noninteractive apt-get update || true && DEBIAN_FRONTEND=noninteractive apt-get install -y postgresql"
+        case "nginx": return "DEBIAN_FRONTEND=noninteractive apt-get update || true && DEBIAN_FRONTEND=noninteractive apt-get install -y nginx"
+        case "php": return "DEBIAN_FRONTEND=noninteractive apt-get update || true && DEBIAN_FRONTEND=noninteractive apt-get install -y php-fpm"
+        case "git": return "DEBIAN_FRONTEND=noninteractive apt-get update || true && DEBIAN_FRONTEND=noninteractive apt-get install -y git"
         default: return nil
         }
     }

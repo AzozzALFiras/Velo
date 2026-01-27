@@ -32,7 +32,7 @@ extension NginxDetailViewModel {
             // This is risky if it replaces current. Assume user knows.
             // Force specific version is tricky with apt/system packages without pinning.
             // We'll just run install command for now.
-            let cmd = "sudo apt-get install -y nginx" // In reality: nginx=version
+            let cmd = "sudo DEBIAN_FRONTEND=noninteractive apt-get install -y nginx" // In reality: nginx=version
             
             let result = await SSHBaseService.shared.execute(cmd, via: session, timeout: 300) // 5 min
             

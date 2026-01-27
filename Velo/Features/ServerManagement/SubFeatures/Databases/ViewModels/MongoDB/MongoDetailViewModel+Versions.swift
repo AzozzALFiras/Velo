@@ -34,7 +34,7 @@ extension MongoDetailViewModel {
         // MongoDB install is slightly complex (add repo key, etc), assuming tool handles or simplest approach
         // Simplified for Velo context:
         // Assume script or direct install
-        let cmd = "sudo apt-get update && sudo apt-get install -y mongodb-org"
+        let cmd = "sudo DEBIAN_FRONTEND=noninteractive apt-get update && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y mongodb-org"
         _ = await baseService.execute(cmd, via: session)
         
         await loadData()

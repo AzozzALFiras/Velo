@@ -35,7 +35,7 @@ extension PostgresDetailViewModel {
         isPerformingAction = true
         installStatus = "Installing PostgreSQL \(version)..."
         
-        let cmd = "sudo apt-get update && sudo apt-get install -y postgresql-\(version)"
+        let cmd = "sudo DEBIAN_FRONTEND=noninteractive apt-get update && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y postgresql-\(version)"
         _ = await baseService.execute(cmd, via: session)
         
         await loadData()

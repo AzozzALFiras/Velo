@@ -109,13 +109,13 @@ final class PHPService: ObservableObject, RuntimeService {
     }
 
     func getPackageManagerStatus(via session: TerminalViewModel) async -> SoftwareStatus {
-        let result = await baseService.execute("which composer 2>/dev/null", via: session, timeout: 5)
+        let result = await baseService.execute("COMPOSER_ALLOW_SUPERUSER=1 which composer 2>/dev/null", via: session, timeout: 30)
         let path = result.output.trimmingCharacters(in: .whitespacesAndNewlines)
         if path.isEmpty {
             return .notInstalled
         }
 
-        let versionRes = await baseService.execute("\(path) --version 2>/dev/null | head -n 1 | awk '{print $2}'", via: session, timeout: 5)
+        let versionRes = await baseService.execute("COMPOSER_ALLOW_SUPERUSER=1 \(path) --version 2>/dev/null | head -n 1 | awk '{print $2}'", via: session, timeout: 30)
         let version = versionRes.output.trimmingCharacters(in: .whitespacesAndNewlines)
         return .installed(version: version.isEmpty ? "installed" : version)
     }

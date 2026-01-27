@@ -99,7 +99,7 @@ final class NodeService: ObservableObject, RuntimeService {
             return .notInstalled
         }
 
-        let result = await baseService.execute("npm --version", via: session, timeout: 5)
+        let result = await baseService.execute("npm --version", via: session, timeout: 30)
         let version = result.output.trimmingCharacters(in: .whitespacesAndNewlines)
         return version.isEmpty ? .notInstalled : .installed(version: version)
     }

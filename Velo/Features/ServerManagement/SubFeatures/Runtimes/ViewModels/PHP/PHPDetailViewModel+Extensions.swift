@@ -44,7 +44,7 @@ extension PHPDetailViewModel {
         let packageName = "php\(activeVersion)-\(name)"
         
         // Try install
-        let command = "apt-get install -y \(packageName)"
+        let command = "DEBIAN_FRONTEND=noninteractive apt-get install -y \(packageName)"
         let result = await SSHBaseService.shared.execute(command, via: session, timeout: 300)
         
         if result.exitCode == 0 {
@@ -57,7 +57,7 @@ extension PHPDetailViewModel {
             return true
         } else {
             // Try generic name if versioned failed (e.g. php-redis)
-            let resultGeneric = await SSHBaseService.shared.execute("apt-get install -y php-\(name)", via: session, timeout: 300)
+            let resultGeneric = await SSHBaseService.shared.execute("DEBIAN_FRONTEND=noninteractive apt-get install -y php-\(name)", via: session, timeout: 300)
             if resultGeneric.exitCode == 0 {
                 successMessage = "Extension \(name) installed successfully"
                 await loadExtensions()

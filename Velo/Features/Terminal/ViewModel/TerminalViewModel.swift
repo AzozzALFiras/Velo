@@ -460,6 +460,11 @@ final class TerminalViewModel: ObservableObject, Identifiable {
                     guard let self = self else { return }
                     self.terminalEngine.sendInput("\(password)\r")
                     print("🔐 [TerminalVM] ✅ Password sent to terminal")
+                    
+                    // Notify SSHBaseService to stop waiting
+                    Task {
+                        await SSHBaseService.shared.markPasswordInjected(for: self.id)
+                    }
                 }
             } else {
                 print("🔐 [TerminalVM] ⚠️ Connection found but no password in keychain")
