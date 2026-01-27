@@ -218,8 +218,22 @@ actor ServerAdminTerminalEngine {
              fortified += " -o Dpkg::Options::=\"--force-confdef\""
              fortified += " -o Dpkg::Options::=\"--force-confold\""
              
+             // Disable problematic hooks that can cause failures (e.g., cnf-update-db)
+             fortified += " -o APT::Update::Post-Invoke-Success::=''"
+             fortified += " -o APT::Update::Post-Invoke::=''"
+             
              // Ensure no prompts even for unauthenticated packages
              fortified += " --allow-unauthenticated"
+             
+             // Robustify update commands to prevent chain failure
+             // Replace 'apt-get update &&' with 'apt-get update || true &&'
+             if fortified.contains("update &&") {
+                 fortified = fortified.replacingOccurrences(of: "apt-get update &&", with: "apt-get update || true &&")
+                 fortified = fortified.replacingOccurrences(of: "apt update &&", with: "apt update || true &&")
+             }
+             
+             // Wrap with || true to continue even if apt has non-critical errors
+             fortified = "(" + fortified + ") || true"
              
              finalCommand = fortified
         } else if isYum {
@@ -330,9 +344,13 @@ actor ServerAdminTerminalEngine {
             }
         }
         
+        // Clean the output of ANSI codes before returning
+        let cleanedOutput = stripAnsiCodes(outputLines.joined(separator: "\n"))
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        
         return SSHCommandResult(
             command: originalCommand,
-            output: outputLines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines),
+            output: cleanedOutput,
             exitCode: exitCode,
             executionTime: Date().timeIntervalSince(startTime)
         )
@@ -391,12 +409,35 @@ actor ServerAdminTerminalEngine {
 
     private func stripAnsiCodes(_ text: String) -> String {
         var clean = text
+        
+        // Manual removal of common terminal codes
         let manualPatterns = ["[?2004h", "[?2004l", "\r"]
         for p in manualPatterns { clean = clean.replacingOccurrences(of: p, with: "") }
         
-        let pattern = "(?:\u{1B}\\[|\\x9B)[\\d;?]*[ -/]*[@-~]"
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else { return clean }
-        let range = NSRange(location: 0, length: clean.utf16.count)
-        return regex.stringByReplacingMatches(in: clean, options: [], range: range, withTemplate: "")
+        // Remove ESC sequences: ESC [ ... any letter, and OSC sequences
+        let patterns = [
+            "(?:\\u{1B}\\[|\\x9B)[\\d;?]*[ -/]*[@-~]",  // CSI sequences
+            "\\u{1B}\\][^\\u{07}]*\\u{07}",              // OSC sequences
+            "\\u{1B}[()][AB012]",                         // Charset switching
+            "\\u{1B}\\[[0-9;]*[a-zA-Z]"                  // General CSI
+        ]
+        
+        for pattern in patterns {
+            if let regex = try? NSRegularExpression(pattern: pattern, options: []) {
+                let range = NSRange(location: 0, length: clean.utf16.count)
+                clean = regex.stringByReplacingMatches(in: clean, options: [], range: range, withTemplate: "")
+            }
+        }
+        
+        // Remove standalone ESC characters
+        clean = clean.replacingOccurrences(of: "\u{1B}", with: "")
+        
+        // Remove any remaining control characters (except newlines and tabs)
+        clean = clean.filter { char in
+            if char.isNewline || char == "\t" { return true }
+            return char.asciiValue.map { $0 >= 32 } ?? true
+        }
+        
+        return clean
     }
 }

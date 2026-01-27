@@ -29,7 +29,7 @@ final class MySQLService: ObservableObject, DatabaseServerService {
     private let versionResolver = MySQLVersionResolver()
     
     // Cache
-    private var _cachedVersion: String?
+    // removed _cachedVersion
 
     private init() {}
 
@@ -43,10 +43,8 @@ final class MySQLService: ObservableObject, DatabaseServerService {
     }
 
     func getVersion(via session: TerminalViewModel) async -> String? {
-        if let cached = _cachedVersion { return cached }
-        let version = await versionResolver.getVersion(via: session)
-        _cachedVersion = version
-        return version
+        // Always fetch fresh version to ensure UI updates after installation/upgrade
+        return await versionResolver.getVersion(via: session)
     }
 
     func isRunning(via session: TerminalViewModel) async -> Bool {

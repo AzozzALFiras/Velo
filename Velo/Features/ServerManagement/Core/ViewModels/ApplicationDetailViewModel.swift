@@ -484,9 +484,9 @@ final class ApplicationDetailViewModel: ObservableObject {
             let result = await ServerAdminService.shared.execute(command, via: session, timeout: 600) // Increased timeout
 
             if result.exitCode != 0 {
-                // Allow "apt-get update" to fail (often network issues) but warn
-                if command.contains("apt-get update") {
-                   print("[Install] Warning: apt-get update failed, but continuing. Output: \(result.output)")
+                // Allow "apt update" commands to fail (often hook/network issues) but warn
+                if command.contains("apt-get update") || command.contains("apt update") {
+                   print("[Install] Warning: apt update failed, but continuing. Output: \(result.output)")
                    continue
                 }
                 

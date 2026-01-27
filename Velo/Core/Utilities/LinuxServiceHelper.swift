@@ -24,7 +24,27 @@ final class LinuxServiceHelper {
     static func isActive(serviceName: String, via session: TerminalViewModel) async -> Bool {
         let cmd = "systemctl is-active \(serviceName) 2>/dev/null"
         let result = await ServerAdminService.shared.execute(cmd, via: session, timeout: 10)
-        return result.output.trimmingCharacters(in: .whitespacesAndNewlines) == "active"
+        // Strip ANSI escape codes before comparison
+        let cleaned = stripANSICodes(result.output.trimmingCharacters(in: .whitespacesAndNewlines))
+        let isActive = cleaned == "active"
+        print("[LinuxServiceHelper] isActive(\(serviceName)): output='\(cleaned)' -> \(isActive)")
+        return isActive
+    }
+    
+    /// Strip ANSI escape codes from output - more comprehensive pattern
+    private static func stripANSICodes(_ input: String) -> String {
+        var result = input
+        // Pattern to match all ANSI escape sequences
+        // ESC [ ... (any letter including m, K, H, J, etc.)
+        // Also match standalone ESC characters
+        if let regex = try? NSRegularExpression(pattern: "\\x1B(?:\\[[0-9;]*[a-zA-Z]|\\].*?\\x07|\\(.|\\).)") {
+            result = regex.stringByReplacingMatches(in: result, range: NSRange(result.startIndex..., in: result), withTemplate: "")
+        }
+        // Remove any remaining standalone escape characters
+        result = result.replacingOccurrences(of: "\u{001B}", with: "")
+        // Remove any remaining control characters except newlines
+        result = result.filter { !$0.isASCII || $0.isLetter || $0.isNumber || $0.isWhitespace || $0.isPunctuation }
+        return result.trimmingCharacters(in: .whitespacesAndNewlines)
     }
     
     /// Get detailed status message

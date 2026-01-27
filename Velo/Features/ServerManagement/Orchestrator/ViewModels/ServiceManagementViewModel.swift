@@ -276,12 +276,24 @@ final class ServiceManagementViewModel: ObservableObject {
         }
 
         let statusResult = await baseService.execute("systemctl is-active \(serviceName) 2>/dev/null", via: session, timeout: 10)
-        let isActive = statusResult.output.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines) == "active"
+        let cleanedOutput = stripANSICodes(statusResult.output.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines))
+        let isActive = cleanedOutput == "active"
 
         let versionResult = await baseService.execute("\(serviceName) --version 2>&1 | head -1 | grep -oE '[0-9]+\\.[0-9]+'", via: session, timeout: 10)
         let version = versionResult.output.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
 
         return isActive ? .running(version: version.isEmpty ? "installed" : version) : .stopped(version: version.isEmpty ? "installed" : version)
+    }
+    
+    /// Strip ANSI escape codes from output - comprehensive pattern
+    private func stripANSICodes(_ input: String) -> String {
+        var result = input
+        if let regex = try? NSRegularExpression(pattern: "\\x1B(?:\\[[0-9;]*[a-zA-Z]|\\].*?\\x07|\\(.|\\).)") {
+            result = regex.stringByReplacingMatches(in: result, range: NSRange(result.startIndex..., in: result), withTemplate: "")
+        }
+        result = result.replacingOccurrences(of: "\u{001B}", with: "")
+        result = result.filter { !$0.isASCII || $0.isLetter || $0.isNumber || $0.isWhitespace || $0.isPunctuation }
+        return result.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func updateServiceStatus(_ service: ServiceInfo) async {

@@ -21,6 +21,10 @@ final class ServerManagementViewModel: ObservableObject {
     @Published var installerVM: ServerInstallerViewModel
     @Published var filesVM: FilesViewModel
     
+    // Health Check
+    let healthCheckService = ServerHealthCheckService.shared
+    @Published var showHealthIssuesSheet = false
+    
     // MARK: - Dependencies
     weak var session: TerminalViewModel? {
         didSet {
@@ -160,6 +164,18 @@ final class ServerManagementViewModel: ObservableObject {
         // Start live updates
         overviewVM.startLiveUpdates()
         
+        // Health checks disabled temporarily - slowing down UI
+        // TODO: Make health checks opt-in via settings
+        // if let session = session {
+        //     await healthCheckService.runAllChecks(via: session)
+        //     let hasImportantIssues = healthCheckService.detectedIssues.contains { 
+        //         $0.severity == .critical || $0.severity == .warning 
+        //     }
+        //     if hasImportantIssues {
+        //         showHealthIssuesSheet = true
+        //     }
+        // }
+        
         dataLoadedOnce = true
         isLoading = false
     }
@@ -172,6 +188,9 @@ final class ServerManagementViewModel: ObservableObject {
         await overviewVM.fetchServerStatus()
         await websitesVM.loadWebsites()
         await databasesVM.loadDatabases()
+        await servicesVM.loadServices()
+        // Also refresh installer capabilities to update 'installed' status in marketplace
+        await installerVM.fetchCapabilities()
     }
     
     func refreshData() {

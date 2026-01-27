@@ -74,7 +74,7 @@ struct PackageManagerCommandBuilder {
     static func updateCommand(packageManager: PackageManager) -> String {
         switch packageManager {
         case .apt:
-            return "sudo DEBIAN_FRONTEND=noninteractive apt-get update -q"
+            return "sudo apt-get update"
         case .dnf:
             return "sudo dnf makecache -q"
         case .yum:
@@ -100,7 +100,7 @@ struct PackageManagerCommandBuilder {
         switch packageManager {
         case .apt:
             let action = purge ? "purge" : "remove"
-            return "sudo DEBIAN_FRONTEND=noninteractive apt-get \(action) -y -q \(packageList)"
+            return "sudo apt-get \(action) -y \(packageList)"
         case .dnf:
             return "sudo dnf remove -y -q \(packageList)"
         case .yum:
@@ -120,11 +120,13 @@ struct PackageManagerCommandBuilder {
     /// --force-confold: keep existing config files (prevents blocking prompts)
     private static func aptInstallCommand(packages: [String], withUpdate: Bool) -> String {
         let packageList = packages.joined(separator: " ")
+        // We now rely on ServerAdminTerminalEngine to inject DEBIAN_FRONTEND and robust flags
+        // including hook disabling and conflict resolution.
         let updatePrefix = withUpdate
-            ? "sudo DEBIAN_FRONTEND=noninteractive apt-get update -q || true && "
+            ? "sudo apt-get update || true && "
             : ""
 
-        return "\(updatePrefix)sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -q -o Dpkg::Options::=\"--force-confdef\" -o Dpkg::Options::=\"--force-confold\" \(packageList)"
+        return "\(updatePrefix)sudo apt-get install -y \(packageList)"
     }
 
     private static func dnfInstallCommand(packages: [String], withUpdate: Bool) -> String {

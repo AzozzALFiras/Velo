@@ -34,6 +34,13 @@ struct ServerManagementView: View {
                 await viewModel.loadAllDataOptimized()
             }
         }
+        .sheet(isPresented: $viewModel.showHealthIssuesSheet) {
+            ServerHealthIssuesSheet(
+                healthService: viewModel.healthCheckService,
+                isPresented: $viewModel.showHealthIssuesSheet,
+                session: session
+            )
+        }
     }
     
     // MARK: - Subviews

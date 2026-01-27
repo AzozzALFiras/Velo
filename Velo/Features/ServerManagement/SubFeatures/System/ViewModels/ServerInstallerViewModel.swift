@@ -247,36 +247,24 @@ final class ServerInstallerViewModel: ObservableObject {
         }
 
         // Auto-inject non-interactive flags for known tools.
-        // For apt commands, the PackageManagerCommandBuilder already includes the golden pattern
-        // when commands are built via the builder. For API-provided commands that may not have
-        // full flags, we add safety wrappers here.
+        // We defer most APT/DNF fortification to ServerAdminTerminalEngine which has
+        // more robust logic (hook disabling, retry wrappers, etc.)
+        
         var effectiveCommand = command
         if command.contains("composer") {
             effectiveCommand = "export COMPOSER_ALLOW_SUPERUSER=1; " + effectiveCommand
         }
-        if command.contains("apt") || command.contains("apt-get") {
-            if !effectiveCommand.contains("-y") {
-                effectiveCommand = effectiveCommand.replacingOccurrences(of: "install", with: "install -y")
-            }
-            if !effectiveCommand.contains("-q") {
-                effectiveCommand = effectiveCommand.replacingOccurrences(of: "install -y", with: "install -y -q")
-            }
-            if !effectiveCommand.contains("--force-confdef") {
-                effectiveCommand += " -o Dpkg::Options::=\"--force-confdef\" -o Dpkg::Options::=\"--force-confold\""
-            }
-            if !effectiveCommand.contains("DEBIAN_FRONTEND") {
-                effectiveCommand = "export DEBIAN_FRONTEND=noninteractive; " + effectiveCommand
-            }
-        }
+        
+        // Removed manual APT/DNF fortification here to rely on ServerAdminTerminalEngine's centralized logic.
+        // This prevents double-wrapping and ensures the disabling of cnf-update-db hooks is applied.
 
         // Use centralized admin service for isolated execution
         // This ensures zero fallback to the UI terminal (SSHBaseService)
         await appendLog("> Attempting install via dedicated admin channel...")
         let result = await adminService.execute(effectiveCommand, via: session, timeout: 600)
 
-        await MainActor.run {
-            self.installLog += result.output + "\n"
-        }
+        // Use appendLog (which handles ANSI stripping now) instead of direct assignment
+        await appendLog(result.output)
 
         if result.exitCode == 0 {
             await MainActor.run { self.installProgress = 1.0 }
@@ -302,6 +290,14 @@ final class ServerInstallerViewModel: ObservableObject {
             return false
         }
 
+        // STRICT MODE: Do not fallback if version was pinned.
+        // This prevents "Fake Success" where user asks for 8.3 and gets 8.0.
+        if isPinnedVersion {
+             await appendLog("❌ Requested version is not available in the server's repositories.")
+             await appendLog("🚫 Fallback to default version disabled to prevent incorrect version installation.")
+             return false
+        }
+
         // Generate fallback command without version pinning
         guard let fallbackCommand = generateFallbackCommand(from: command, slug: slug) else {
             await appendLog("❌ Version not available and no fallback possible")
@@ -309,19 +305,19 @@ final class ServerInstallerViewModel: ObservableObject {
         }
 
         await appendLog("> ⚠️ Specific version not available in repository")
-        await appendLog("> Retrying with latest available version...")
+        await appendLog("> Retrying with default version...")
         await appendLog("> Executing: \(fallbackCommand)")
 
         // Second attempt: Try without version pinning
         let fallbackResult = await adminService.execute(fallbackCommand, via: session, timeout: 600)
 
-        await MainActor.run {
-            self.installLog += fallbackResult.output + "\n"
-        }
+        // Use clean logger
+        await appendLog(fallbackResult.output)
 
         if fallbackResult.exitCode == 0 {
             await MainActor.run { self.installProgress = 1.0 }
-            await appendLog("> Installed latest available version successfully")
+            await appendLog("> ✅ Installed default version successfully")
+            await appendLog("> (Note: The requested specific version was not found in the repositories, so the system default was used.)")
             return true
         } else {
             await appendLog("❌ Fallback installation also failed (exit code \(fallbackResult.exitCode))")
@@ -449,7 +445,10 @@ final class ServerInstallerViewModel: ObservableObject {
     
     @MainActor
     private func appendLog(_ text: String) {
-        self.installLog += "\(text)\n"
+        // Strip ANSI codes before logging to ensure clean UI
+        let cleanText = text.replacingOccurrences(of: "\u{1B}\\[[0-9;]*[mK]", with: "", options: .regularExpression)
+                            .replacingOccurrences(of: "\\[[0-9;]*m", with: "", options: .regularExpression)
+        self.installLog += "\(cleanText)\n"
     }
     
     @MainActor

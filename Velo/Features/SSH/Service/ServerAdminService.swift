@@ -15,6 +15,7 @@ final class ServerAdminService: ObservableObject {
     static let shared = ServerAdminService()
     
     private var engines: [String: ServerAdminTerminalEngine] = [:]
+    private var pendingConnections: [String: Task<ServerAdminTerminalEngine?, Never>] = [:]
     private let manager = SSHManager()
     
     private init() {}
@@ -28,21 +29,43 @@ final class ServerAdminService: ObservableObject {
         
         let key = "\(conn.username)@\(conn.host):\(conn.port)"
         
+        // Return existing engine if available
         if let existing = engines[key] {
             return existing
         }
         
-        let password = manager.getPassword(for: conn)
-        let engine = ServerAdminTerminalEngine()
-        
-        do {
-            try await engine.connect(using: conn, password: password)
-            engines[key] = engine
-            return engine
-        } catch {
-            print("❌ [ServerAdminService] Failed to initialize admin engine: \(error)")
-            return nil
+        // If there's already a pending connection for this key, wait for it
+        if let pendingTask = pendingConnections[key] {
+            return await pendingTask.value
         }
+        
+        // Create a new connection task
+        let task = Task<ServerAdminTerminalEngine?, Never> {
+            let password = manager.getPassword(for: conn)
+            let engine = ServerAdminTerminalEngine()
+            
+            do {
+                try await engine.connect(using: conn, password: password)
+                return engine
+            } catch {
+                print("❌ [ServerAdminService] Failed to initialize admin engine: \(error)")
+                return nil
+            }
+        }
+        
+        // Register the pending task
+        pendingConnections[key] = task
+        
+        // Wait for the connection
+        let result = await task.value
+        
+        // Clean up pending and store result
+        pendingConnections[key] = nil
+        if let engine = result {
+            engines[key] = engine
+        }
+        
+        return result
     }
     
     /// Execute a command using the dedicated admin engine

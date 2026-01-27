@@ -165,21 +165,34 @@ struct PHPFPMManager {
     private func detectActiveFPMService(via session: TerminalViewModel) async -> String {
         // First try to find a running FPM service
         let runningResult = await baseService.execute("systemctl list-units --type=service --state=running | grep -oE 'php[0-9.]+-fpm' | head -1", via: session, timeout: 10)
-        let runningService = runningResult.output.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+        let runningService = stripAnsiCodes(runningResult.output).trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
 
-        if !runningService.isEmpty {
+        if !runningService.isEmpty && runningService.hasPrefix("php") {
             return runningService
         }
 
         // Find any installed FPM service
         let installedResult = await baseService.execute("systemctl list-units --type=service --all | grep -oE 'php[0-9.]+-fpm' | head -1", via: session, timeout: 10)
-        let installedService = installedResult.output.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+        let installedService = stripAnsiCodes(installedResult.output).trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
 
-        if !installedService.isEmpty {
+        if !installedService.isEmpty && installedService.hasPrefix("php") {
             return installedService
         }
 
         // Fallback to generic php-fpm
         return "php-fpm"
+    }
+    
+    /// Strip ANSI escape codes from output
+    private func stripAnsiCodes(_ text: String) -> String {
+        var clean = text
+        // Remove ESC characters and sequences
+        clean = clean.replacingOccurrences(of: "\u{1B}", with: "")
+        // Filter control characters
+        clean = clean.filter { char in
+            if char.isNewline || char.isWhitespace { return true }
+            return char.asciiValue.map { $0 >= 32 } ?? true
+        }
+        return clean
     }
 }
