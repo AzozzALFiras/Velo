@@ -16,7 +16,7 @@ struct LogsSectionProvider: SectionProvider {
         state: ApplicationState,
         session: TerminalViewModel
     ) async throws {
-        let baseService = SSHBaseService.shared
+        let baseService = ServerAdminService.shared
         let logPaths = app.serviceConfig.logPaths
 
         // Populate available log files

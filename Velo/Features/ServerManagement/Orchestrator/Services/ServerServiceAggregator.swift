@@ -40,7 +40,7 @@ final class ServerServiceAggregator: ObservableObject {
             checkCmd += "echo \"VER_\(svc.uppercased())\" && \(svc) --version 2>/dev/null | head -n 1 || echo \"not installed\"\n"
         }
         
-        let result = await SSHBaseService.shared.execute(checkCmd, via: session, timeout: 20)
+        let result = await ServerAdminService.shared.execute(checkCmd, via: session, timeout: 20)
         return parseBatchStatus(result.output)
     }
     
@@ -218,7 +218,7 @@ final class ServerServiceAggregator: ObservableObject {
         case "postgresql":
             return await postgresql.restart(via: session)
         default:
-            let base = SSHBaseService.shared
+            let base = ServerAdminService.shared
             let result = await base.execute("sudo systemctl restart \(serviceName)", via: session, timeout: 30)
             return result.exitCode == 0
         }
@@ -238,7 +238,7 @@ final class ServerServiceAggregator: ObservableObject {
         case "postgresql":
             return await postgresql.stop(via: session)
         default:
-            let base = SSHBaseService.shared
+            let base = ServerAdminService.shared
             let result = await base.execute("sudo systemctl stop \(serviceName)", via: session, timeout: 30)
             return result.exitCode == 0
         }
@@ -258,7 +258,7 @@ final class ServerServiceAggregator: ObservableObject {
         case "postgresql":
             return await postgresql.start(via: session)
         default:
-            let base = SSHBaseService.shared
+            let base = ServerAdminService.shared
             let result = await base.execute("sudo systemctl start \(serviceName)", via: session, timeout: 30)
             return result.exitCode == 0
         }
@@ -273,7 +273,7 @@ final class ServerServiceAggregator: ObservableObject {
 
     /// Switch PHP version for a site
     func switchPHPVersion(forDomain domain: String, toVersion version: String, via session: TerminalViewModel) async -> Bool {
-        let base = SSHBaseService.shared
+        let base = ServerAdminService.shared
         let configPath = "/etc/nginx/sites-available/\(domain)"
         _ = await base.execute("sudo sed -i 's/php[0-9.]*-fpm.sock/php\(version)-fpm.sock/g' '\(configPath)'", via: session, timeout: 15)
 

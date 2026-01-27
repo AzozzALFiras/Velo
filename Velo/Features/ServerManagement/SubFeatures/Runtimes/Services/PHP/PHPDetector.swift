@@ -8,7 +8,7 @@
 import Foundation
 
 struct PHPDetector {
-    private let baseService = SSHBaseService.shared
+    private let baseService = ServerAdminService.shared
 
     /// Check if PHP is installed on the server
     func isInstalled(via session: TerminalViewModel) async -> Bool {

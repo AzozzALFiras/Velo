@@ -14,7 +14,7 @@ import Combine
 final class NginxService: ObservableObject, WebServerService {
     static let shared = NginxService()
 
-    let baseService = SSHBaseService.shared
+    let baseService = ServerAdminService.shared
     let serviceName = "nginx"
 
     // Sub-components
@@ -65,7 +65,7 @@ final class NginxService: ObservableObject, WebServerService {
         // 1. Collect all enabled files across all potential paths
         for path in enabledPaths {
             print("🔍 [NginxService] Collecting enabled sites from: \(path)")
-            let enabledResult = await baseService.execute("ls -1 --color=never '\(path)' 2>/dev/null", via: session, timeout: 5)
+            let enabledResult = await ServerAdminService.shared.execute("ls -1 --color=never '\(path)' 2>/dev/null", via: session, timeout: 5)
             let output = stripANSICodes(enabledResult.output.trimmingCharacters(in: .whitespacesAndNewlines))
             if !output.isEmpty {
                 let files = output.components(separatedBy: .newlines).map { $0.trimmingCharacters(in: .whitespaces) }
@@ -79,7 +79,7 @@ final class NginxService: ObservableObject, WebServerService {
         for availablePath in availablePaths {
             print("🔍 [NginxService] Scanning available path: \(availablePath)")
             
-            let result = await baseService.execute("ls -1 --color=never '\(availablePath)' 2>/dev/null", via: session, timeout: 10)
+            let result = await ServerAdminService.shared.execute("ls -1 --color=never '\(availablePath)' 2>/dev/null", via: session, timeout: 10)
             let output = stripANSICodes(result.output.trimmingCharacters(in: .whitespacesAndNewlines))
             
             guard !output.isEmpty && !output.contains("cannot access") else {
@@ -93,7 +93,7 @@ final class NginxService: ObservableObject, WebServerService {
                 let siteName = line.trimmingCharacters(in: .whitespaces)
                 guard isValidSiteConfig(siteName) else { continue }
                 
-                let configResult = await baseService.execute(
+                let configResult = await ServerAdminService.shared.execute(
                     "grep -Ei '^[^#]*(server_name|root|listen|fastcgi_pass|php|proxy_pass|ssl_certificate|index|include)' '\(availablePath)/\(siteName)' 2>/dev/null | head -40",
                     via: session, timeout: 10
                 )
@@ -169,32 +169,33 @@ final class NginxService: ObservableObject, WebServerService {
         let filePath = "\(configPath)/\(safeDomain)"
         
         // Check for existing file to determine if this is an update
-        let checkExists = await baseService.execute("test -f '\(filePath)' && echo 'YES'", via: session)
+        // Check for existing file via admin channel to determine if this is an update
+        let checkExists = await ServerAdminService.shared.execute("test -f '\(filePath)' && echo 'YES'", via: session)
         let isUpdate = checkExists.output.contains("YES")
         
         if isUpdate {
-            // Create backup
-            _ = await baseService.execute("sudo cp '\(filePath)' '\(filePath).bak'", via: session)
+            // Create backup via admin channel
+            _ = await ServerAdminService.shared.execute("sudo cp '\(filePath)' '\(filePath).bak'", via: session)
         }
         
-        // Write new config
-        let success = await baseService.writeFile(at: filePath, content: config, useSudo: true, via: session)
+        // Write new config via admin channel
+        let success = await ServerAdminService.shared.writeFile(at: filePath, content: config, useSudo: true, via: session)
         
         guard success else {
             if isUpdate {
                 // Restore backup if write failed
-                 _ = await baseService.execute("sudo mv '\(filePath).bak' '\(filePath)'", via: session)
+                 _ = await ServerAdminService.shared.execute("sudo mv '\(filePath).bak' '\(filePath)'", via: session)
             }
             throw ValidationError.fileWriteFailed
         }
 
-        // Enable site
+        // Enable site via admin channel
         let enableResult = await enableSite(domain: safeDomain, via: session)
         guard enableResult else {
              if isUpdate {
-                 _ = await baseService.execute("sudo mv '\(filePath).bak' '\(filePath)'", via: session)
+                 _ = await ServerAdminService.shared.execute("sudo mv '\(filePath).bak' '\(filePath)'", via: session)
              } else {
-                 _ = await baseService.execute("sudo rm -f '\(filePath)'", via: session, timeout: 10)
+                 _ = await ServerAdminService.shared.execute("sudo rm -f '\(filePath)'", via: session, timeout: 10)
              }
              throw ValidationError.symlinkFailed
         }
@@ -202,26 +203,26 @@ final class NginxService: ObservableObject, WebServerService {
         // Validate config
         let validation = await validateConfig(via: session)
         if !validation.isValid {
-            // Rollback
+            // Rollback via admin channel
             print("❌ Validation failed during create/update: \(validation.message)")
             
             if isUpdate {
                 // Restore backup
-                _ = await baseService.execute("sudo mv '\(filePath).bak' '\(filePath)'", via: session)
+                _ = await ServerAdminService.shared.execute("sudo mv '\(filePath).bak' '\(filePath)'", via: session)
                 // Re-enable/reload to ensure state consistency
                 _ = await enableSite(domain: safeDomain, via: session)
                 _ = await reload(via: session)
             } else {
                 // Was new, just delete
                 await disableSite(domain: safeDomain, via: session)
-                _ = await baseService.execute("sudo rm -f '\(filePath)'", via: session, timeout: 10)
+                _ = await ServerAdminService.shared.execute("sudo rm -f '\(filePath)'", via: session, timeout: 10)
             }
             throw ValidationError.nginxValidationFailed(message: validation.message)
         } else {
             // Success
             if isUpdate {
                 // Remove backup
-                _ = await baseService.execute("sudo rm -f '\(filePath).bak'", via: session)
+                _ = await ServerAdminService.shared.execute("sudo rm -f '\(filePath).bak'", via: session)
             }
             return await reload(via: session)
         }
@@ -234,27 +235,27 @@ final class NginxService: ObservableObject, WebServerService {
         // Get document root before deleting config
         var docRoot: String? = nil
         if deleteFiles {
-            let rootResult = await baseService.execute(
+            let rootResult = await ServerAdminService.shared.execute(
                 "grep -E '^[^#]*root' '\(enabledPath)/\(domain)' 2>/dev/null | head -1 | awk '{print $2}' | tr -d ';'",
                 via: session, timeout: 10
             )
             docRoot = rootResult.output.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
         }
 
-        // Disable and remove config
-        _ = await baseService.execute("sudo rm -f '\(enabledPath)/\(domain)'", via: session, timeout: 10)
-        _ = await baseService.execute("sudo rm -f '\(availablePath)/\(domain)'", via: session, timeout: 10)
+        // Disable and remove config via admin channel
+        _ = await ServerAdminService.shared.execute("sudo rm -f '\(enabledPath)/\(domain)'", via: session, timeout: 10)
+        _ = await ServerAdminService.shared.execute("sudo rm -f '\(availablePath)/\(domain)'", via: session, timeout: 10)
 
         // Delete files if requested
         if deleteFiles, let root = docRoot, !root.isEmpty && root != "/" && root != "/var" && root != "/var/www" {
-            _ = await baseService.execute("sudo rm -rf '\(root)'", via: session, timeout: 30)
+            _ = await ServerAdminService.shared.execute("sudo rm -rf '\(root)'", via: session, timeout: 30)
         }
 
         return await reload(via: session)
     }
 
     func reload(via session: TerminalViewModel) async -> Bool {
-        let result = await baseService.execute("sudo systemctl reload nginx", via: session, timeout: 10)
+        let result = await ServerAdminService.shared.execute("sudo systemctl reload nginx", via: session, timeout: 15)
         return result.exitCode == 0
     }
 
@@ -268,7 +269,7 @@ final class NginxService: ObservableObject, WebServerService {
             return true
         }
 
-        let result = await baseService.execute(
+        let result = await ServerAdminService.shared.execute(
             "sudo ln -sf '\(availablePath)/\(domain)' '\(enabledPath)/\(domain)' && echo 'LINKED'",
             via: session, timeout: 10
         )
@@ -288,7 +289,7 @@ final class NginxService: ObservableObject, WebServerService {
             return true
         }
 
-        let result = await baseService.execute("sudo rm -f '\(enabledPath)/\(domain)' && echo 'REMOVED'", via: session, timeout: 10)
+        let result = await ServerAdminService.shared.execute("sudo rm -f '\(enabledPath)/\(domain)' && echo 'REMOVED'", via: session, timeout: 10)
         return result.output.contains("REMOVED")
     }
 
@@ -494,14 +495,14 @@ final class NginxService: ObservableObject, WebServerService {
         ]
 
         for socketPath in possibleSockets {
-            let checkResult = await baseService.execute("test -S '\(socketPath)' && echo 'EXISTS'", via: session, timeout: 5)
+            let checkResult = await ServerAdminService.shared.execute("test -S '\(socketPath)' && echo 'EXISTS'", via: session, timeout: 5)
             if checkResult.output.contains("EXISTS") {
                 return socketPath
             }
         }
 
         // Fallback: search for any PHP-FPM socket
-        let findResult = await baseService.execute("find /var/run/php /run/php -name '*.sock' 2>/dev/null | head -1", via: session, timeout: 10)
+        let findResult = await ServerAdminService.shared.execute("find /var/run/php /run/php -name '*.sock' 2>/dev/null | head -1", via: session, timeout: 10)
         let foundSocket = findResult.output.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
         if !foundSocket.isEmpty && foundSocket.hasPrefix("/") {
             return foundSocket

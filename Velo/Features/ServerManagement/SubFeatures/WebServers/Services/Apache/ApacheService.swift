@@ -13,7 +13,7 @@ import Combine
 final class ApacheService: ObservableObject, WebServerService {
     static let shared = ApacheService()
 
-    let baseService = SSHBaseService.shared
+    let baseService = ServerAdminService.shared
     var serviceName: String {
         // Apache service name varies by OS
         return detectedServiceName ?? "apache2"
@@ -175,59 +175,59 @@ final class ApacheService: ObservableObject, WebServerService {
         let configPath = await pathResolver.getSitesAvailablePath(via: session)
         let filePath = "\(configPath)/\(safeDomain).conf"
         
-        // Check for existing file to determine if this is an update
-        let checkExists = await baseService.execute("test -f '\(filePath)' && echo 'YES'", via: session)
+        // Check for existing file via admin channel to determine if this is an update
+        let checkExists = await ServerAdminService.shared.execute("test -f '\(filePath)' && echo 'YES'", via: session)
         let isUpdate = checkExists.output.contains("YES")
         
         if isUpdate {
-             // Create backup
-             _ = await baseService.execute("sudo cp '\(filePath)' '\(filePath).bak'", via: session)
+             // Create backup via admin channel
+             _ = await ServerAdminService.shared.execute("sudo cp '\(filePath)' '\(filePath).bak'", via: session)
         }
         
-        let success = await baseService.writeFile(at: filePath, content: config, useSudo: true, via: session)
+        let success = await ServerAdminService.shared.writeFile(at: filePath, content: config, useSudo: true, via: session)
         
         guard success else { 
             if isUpdate {
                 // Restore backup if write failed
-                 _ = await baseService.execute("sudo mv '\(filePath).bak' '\(filePath)'", via: session)
+                 _ = await ServerAdminService.shared.execute("sudo mv '\(filePath).bak' '\(filePath)'", via: session)
             }
             throw ValidationError.fileWriteFailed
         }
 
-        // Enable site
+        // Enable site via admin channel
         let enableResult = await enableSite(domain: safeDomain, via: session)
         guard enableResult else { 
-             if isUpdate {
-                 _ = await baseService.execute("sudo mv '\(filePath).bak' '\(filePath)'", via: session)
-             } else {
-                 _ = await baseService.execute("sudo rm -f '\(filePath)'", via: session, timeout: 10)
-             }
-             throw ValidationError.symlinkFailed
+            if isUpdate {
+                _ = await ServerAdminService.shared.execute("sudo mv '\(filePath).bak' '\(filePath)'", via: session)
+            } else {
+                _ = await ServerAdminService.shared.execute("sudo rm -f '\(filePath)'", via: session, timeout: 10)
+            }
+            throw ValidationError.symlinkFailed
         }
 
         // Validate config
         let validation = await validateConfig(via: session)
         if !validation.isValid {
-            // Rollback
+            // Rollback via admin channel
             print("❌ Validation failed during create/update: \(validation.message)")
             
             if isUpdate {
                 // Restore backup
-                _ = await baseService.execute("sudo mv '\(filePath).bak' '\(filePath)'", via: session)
+                _ = await ServerAdminService.shared.execute("sudo mv '\(filePath).bak' '\(filePath)'", via: session)
                  // Re-enable to ensure state consistency
                 _ = await enableSite(domain: safeDomain, via: session)
                 _ = await reload(via: session)
             } else {
                 // Was new, just delete
                 await disableSite(domain: safeDomain, via: session)
-                _ = await baseService.execute("sudo rm -f '\(filePath)'", via: session, timeout: 10)
+                _ = await ServerAdminService.shared.execute("sudo rm -f '\(filePath)'", via: session, timeout: 10)
             }
             throw ValidationError.apacheValidationFailed(message: validation.message)
         } else {
              // Success
             if isUpdate {
                 // Remove backup
-                _ = await baseService.execute("sudo rm -f '\(filePath).bak'", via: session)
+                _ = await ServerAdminService.shared.execute("sudo rm -f '\(filePath).bak'", via: session)
             }
             return await reload(via: session)
         }
@@ -247,15 +247,15 @@ final class ApacheService: ObservableObject, WebServerService {
             docRoot = rootResult.output.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
         }
 
-        // Disable site first
+        // Disable site first via admin channel
         _ = await disableSite(domain: domain, via: session)
 
-        // Remove config
-        _ = await baseService.execute("sudo rm -f '\(availablePath)/\(domain).conf'", via: session, timeout: 10)
+        // Remove config via admin channel
+        _ = await ServerAdminService.shared.execute("sudo rm -f '\(availablePath)/\(domain).conf'", via: session, timeout: 10)
 
         // Delete files if requested
         if deleteFiles, let root = docRoot, !root.isEmpty && root != "/" && root != "/var" && root != "/var/www" {
-            _ = await baseService.execute("sudo rm -rf '\(root)'", via: session, timeout: 30)
+            _ = await ServerAdminService.shared.execute("sudo rm -rf '\(root)'", via: session, timeout: 30)
         }
 
         return await reload(via: session)
@@ -265,13 +265,13 @@ final class ApacheService: ObservableObject, WebServerService {
         let osType = await pathResolver.getOSType(via: session)
 
         if osType == .debian {
-            let result = await baseService.execute("sudo a2ensite '\(domain).conf' 2>&1 && echo 'ENABLED'", via: session, timeout: 15)
+            let result = await ServerAdminService.shared.execute("sudo a2ensite '\(domain).conf' 2>&1 && echo 'ENABLED'", via: session, timeout: 15)
             return result.output.contains("ENABLED") || result.output.contains("already enabled")
         } else {
-            // RHEL-style: sites are enabled by placing them in conf.d
+            // RHEL-style via admin channel
             let availablePath = await pathResolver.getSitesAvailablePath(via: session)
             let enabledPath = await pathResolver.getSitesEnabledPath(via: session)
-            let result = await baseService.execute(
+            let result = await ServerAdminService.shared.execute(
                 "sudo ln -sf '\(availablePath)/\(domain).conf' '\(enabledPath)/\(domain).conf' && echo 'LINKED'",
                 via: session, timeout: 10
             )
@@ -283,11 +283,11 @@ final class ApacheService: ObservableObject, WebServerService {
         let osType = await pathResolver.getOSType(via: session)
 
         if osType == .debian {
-            let result = await baseService.execute("sudo a2dissite '\(domain).conf' 2>&1 || true", via: session, timeout: 15)
-            return true // a2dissite doesn't fail if site doesn't exist
+            let result = await ServerAdminService.shared.execute("sudo a2dissite '\(domain).conf' 2>&1 || true", via: session, timeout: 15)
+            return true
         } else {
             let enabledPath = await pathResolver.getSitesEnabledPath(via: session)
-            let result = await baseService.execute("sudo rm -f '\(enabledPath)/\(domain).conf'", via: session, timeout: 10)
+            let result = await ServerAdminService.shared.execute("sudo rm -f '\(enabledPath)/\(domain).conf'", via: session, timeout: 10)
             return true
         }
     }

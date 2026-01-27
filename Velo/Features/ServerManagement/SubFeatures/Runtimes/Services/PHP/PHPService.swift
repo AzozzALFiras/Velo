@@ -13,7 +13,7 @@ import Combine
 final class PHPService: ObservableObject, RuntimeService {
     static let shared = PHPService()
 
-    let baseService = SSHBaseService.shared
+    let baseService = ServerAdminService.shared
 
     /// The systemd service name for the currently active PHP-FPM
     var serviceName: String {

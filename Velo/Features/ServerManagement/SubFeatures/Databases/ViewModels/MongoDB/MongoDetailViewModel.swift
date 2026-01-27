@@ -15,7 +15,8 @@ final class MongoDetailViewModel: ObservableObject {
     // MARK: - Dependencies
     weak var session: TerminalViewModel?
     public let service = MongoService.shared
-    public let baseService = SSHBaseService.shared
+    public let baseService = ServerAdminService.shared
+    var adminExecutor: ServerAdminExecutor?
     
     // MARK: - Published State
     

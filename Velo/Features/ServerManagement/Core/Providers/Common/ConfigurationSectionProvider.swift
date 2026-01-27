@@ -16,7 +16,7 @@ struct ConfigurationSectionProvider: SectionProvider {
         state: ApplicationState,
         session: TerminalViewModel
     ) async throws {
-        let baseService = SSHBaseService.shared
+        let baseService = ServerAdminService.shared
 
         let configPath = state.configPath.isEmpty ? app.serviceConfig.configPath : state.configPath
 

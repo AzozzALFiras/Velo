@@ -8,7 +8,7 @@
 import Foundation
 
 struct PostgreSQLVersionResolver {
-    private let baseService = SSHBaseService.shared
+    private let baseService = ServerAdminService.shared
 
     /// Get the installed PostgreSQL version
     func getVersion(via session: TerminalViewModel) async -> String? {

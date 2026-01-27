@@ -28,18 +28,26 @@ extension PostgresDetailViewModel {
     
     func installVersion(_ version: String) async {
         guard let session = session else { return }
-        
-        // Trigger installation
-        // For PostgreSQL, usually apt install postgresql-VER
-        
+
         isPerformingAction = true
+        installStatus = "Detecting OS..."
+
+        let osInfo = await SystemStatsService.shared.getOSInfo(via: session)
+        let pm = PackageManagerCommandBuilder.detect(from: osInfo.id)
+
         installStatus = "Installing PostgreSQL \(version)..."
-        
-        let cmd = "sudo DEBIAN_FRONTEND=noninteractive apt-get update && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y postgresql-\(version)"
-        _ = await baseService.execute(cmd, via: session)
-        
+        let cmd = PackageManagerCommandBuilder.installCommand(
+            packages: ["postgresql-\(version)"],
+            packageManager: pm,
+            withUpdate: true
+        )
+
+        _ = await ServerAdminService.shared.execute(cmd, via: session, timeout: 600)
+
         await loadData()
         isPerformingAction = false
         installStatus = ""
     }
+
+    // MARK: - Admin Service access is now handled via ServerAdminService.shared
 }

@@ -13,7 +13,7 @@ import Combine
 final class MySQLService: ObservableObject, DatabaseServerService {
     static let shared = MySQLService()
 
-    let baseService = SSHBaseService.shared
+    let baseService = ServerAdminService.shared
     let databaseType: DatabaseType = .mysql
 
     var serviceName: String {
@@ -115,24 +115,20 @@ final class MySQLService: ObservableObject, DatabaseServerService {
     func createDatabase(name: String, username: String?, password: String?, via session: TerminalViewModel) async -> Bool {
         let safeName = name.replacingOccurrences(of: "'", with: "")
 
-        // Create database
-        let createResult = await baseService.execute("mysql -e \"CREATE DATABASE \(safeName) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;\" 2>&1 && echo 'CREATED'", via: session, timeout: 15)
+        // Create database via admin channel
+        let createResult = await ServerAdminService.shared.execute("mysql -e \"CREATE DATABASE \(safeName) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;\" 2>&1 && echo 'CREATED'", via: session, timeout: 20)
         
         guard createResult.output.contains("CREATED") || createResult.output.contains("exists") else {
             return false
         }
 
-        // Create user if credentials provided
+        // Create user if credentials provided via admin channel
         if let user = username, !user.isEmpty, let pass = password, !pass.isEmpty {
             let safeUser = user.replacingOccurrences(of: "'", with: "")
             // Create user and grant privileges
-            // Use 2>&1 to capture errors and check for success echo
-            let userResult = await baseService.execute("mysql -e \"CREATE USER '\(safeUser)'@'localhost' IDENTIFIED BY '\(pass)'; GRANT ALL PRIVILEGES ON \(safeName).* TO '\(safeUser)'@'localhost'; FLUSH PRIVILEGES;\" 2>&1 && echo 'USER_CREATED'", via: session, timeout: 15)
+            let userResult = await ServerAdminService.shared.execute("mysql -e \"CREATE USER '\(safeUser)'@'localhost' IDENTIFIED BY '\(pass)'; GRANT ALL PRIVILEGES ON \(safeName).* TO '\(safeUser)'@'localhost'; FLUSH PRIVILEGES;\" 2>&1 && echo 'USER_CREATED'", via: session, timeout: 20)
             
             if !userResult.output.contains("USER_CREATED") && !userResult.output.contains("exists") {
-                // Log failure but don't fail the whole operation since DB was created?
-                // Better to return false or known error, but signature is Bool.
-                // For now, let's assume if DB created, it is success, but we should log this.
                 print("Failed to create user: \(userResult.output)")
             }
         }
@@ -142,7 +138,7 @@ final class MySQLService: ObservableObject, DatabaseServerService {
 
     func deleteDatabase(name: String, via session: TerminalViewModel) async -> Bool {
         let safeName = name.replacingOccurrences(of: "'", with: "")
-        let result = await baseService.execute("mysql -e \"DROP DATABASE \(safeName);\" 2>&1 && echo 'DROPPED'", via: session, timeout: 15)
+        let result = await ServerAdminService.shared.execute("mysql -e \"DROP DATABASE \(safeName);\" 2>&1 && echo 'DROPPED'", via: session, timeout: 20)
         return result.output.contains("DROPPED")
     }
 
@@ -159,15 +155,15 @@ final class MySQLService: ObservableObject, DatabaseServerService {
     // MARK: - User Management
 
     func changeRootPassword(newPassword: String, via session: TerminalViewModel) async -> Bool {
-        // This is a complex operation that varies by MySQL version, but we'll try the standard ALTER USER
-        let result = await baseService.execute("mysql -e \"ALTER USER 'root'@'localhost' IDENTIFIED BY '\(newPassword)'; FLUSH PRIVILEGES;\" && echo 'CHANGED'", via: session, timeout: 15)
+        // This is a complex operation via admin channel
+        let result = await ServerAdminService.shared.execute("mysql -e \"ALTER USER 'root'@'localhost' IDENTIFIED BY '\(newPassword)'; FLUSH PRIVILEGES;\" && echo 'CHANGED'", via: session, timeout: 20)
         return result.output.contains("CHANGED")
     }
 
     func createUser(username: String, password: String, host: String = "localhost", via session: TerminalViewModel) async -> Bool {
         let safeUser = username.replacingOccurrences(of: "'", with: "")
         let safeHost = host.replacingOccurrences(of: "'", with: "")
-        let result = await baseService.execute("mysql -e \"CREATE USER '\(safeUser)'@'\(safeHost)' IDENTIFIED BY '\(password)';\" && echo 'CREATED'", via: session, timeout: 15)
+        let result = await ServerAdminService.shared.execute("mysql -e \"CREATE USER '\(safeUser)'@'\(safeHost)' IDENTIFIED BY '\(password)';\" && echo 'CREATED'", via: session, timeout: 20)
         return result.output.contains("CREATED") || result.output.contains("exists")
     }
 
@@ -176,14 +172,13 @@ final class MySQLService: ObservableObject, DatabaseServerService {
         let safeUser = username.replacingOccurrences(of: "'", with: "")
         let safeHost = host.replacingOccurrences(of: "'", with: "")
         
-        let result = await baseService.execute("mysql -e \"GRANT ALL PRIVILEGES ON \(safeDb).* TO '\(safeUser)'@'\(safeHost)'; FLUSH PRIVILEGES;\" && echo 'GRANTED'", via: session, timeout: 15)
+        let result = await ServerAdminService.shared.execute("mysql -e \"GRANT ALL PRIVILEGES ON \(safeDb).* TO '\(safeUser)'@'\(safeHost)'; FLUSH PRIVILEGES;\" && echo 'GRANTED'", via: session, timeout: 20)
         return result.output.contains("GRANTED")
     }
 
     func deleteUser(username: String, via session: TerminalViewModel) async -> Bool {
         let safeUser = username.replacingOccurrences(of: "'", with: "")
-        // Default to localhost for simple deletion if not specified, or allow %
-        let result = await baseService.execute("mysql -e \"DROP USER '\(safeUser)'@'localhost';\" && echo 'DROPPED'", via: session, timeout: 15)
+        let result = await ServerAdminService.shared.execute("mysql -e \"DROP USER '\(safeUser)'@'localhost';\" && echo 'DROPPED'", via: session, timeout: 20)
         return result.output.contains("DROPPED")
     }
 
@@ -262,13 +257,13 @@ final class MySQLService: ObservableObject, DatabaseServerService {
 
     func optimizeDatabase(name: String, via session: TerminalViewModel) async -> Bool {
         let safeName = name.replacingOccurrences(of: "'", with: "")
-        let result = await baseService.execute("mysqlcheck -o \(safeName) 2>/dev/null && echo 'OPTIMIZED'", via: session, timeout: 60)
+        let result = await ServerAdminService.shared.execute("mysqlcheck -o \(safeName) 2>/dev/null && echo 'OPTIMIZED'", via: session, timeout: 120)
         return result.output.contains("OPTIMIZED") || result.output.contains("OK")
     }
 
     func repairDatabase(name: String, via session: TerminalViewModel) async -> Bool {
         let safeName = name.replacingOccurrences(of: "'", with: "")
-        let result = await baseService.execute("mysqlcheck -r \(safeName) 2>/dev/null && echo 'REPAIRED'", via: session, timeout: 60)
+        let result = await ServerAdminService.shared.execute("mysqlcheck -r \(safeName) 2>/dev/null && echo 'REPAIRED'", via: session, timeout: 120)
         return result.output.contains("REPAIRED") || result.output.contains("OK")
     }
 

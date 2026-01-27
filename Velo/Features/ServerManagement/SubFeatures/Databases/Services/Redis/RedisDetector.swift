@@ -27,7 +27,7 @@ struct RedisDetector {
     }
 
     private func checkBinary(via session: TerminalViewModel) async -> Bool {
-        let result = await SSHBaseService.shared.execute("which redis-server", via: session)
+        let result = await ServerAdminService.shared.execute("which redis-server", via: session)
         print("🔍 [RedisDetector] checkBinary output: '\(result.output)', exitCode: \(result.exitCode)")
         return result.exitCode == 0 && !result.output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }

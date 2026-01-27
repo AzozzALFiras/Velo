@@ -9,7 +9,7 @@ import Foundation
 
 /// Detects Python installation and configuration
 struct PythonDetector {
-    private let sshService = SSHBaseService.shared
+    private let sshService = ServerAdminService.shared
 
     func isInstalled(via session: TerminalViewModel) async -> Bool {
         let result = await sshService.execute("which python3 2>/dev/null", via: session, timeout: 5)

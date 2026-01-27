@@ -24,7 +24,7 @@ extension PHPDetailViewModel {
         }
         
         // Get binary path
-        let result = await SSHBaseService.shared.execute("which php 2>/dev/null", via: session, timeout: 5)
+        let result = await baseService.execute("which php 2>/dev/null", via: session, timeout: 5)
         let path = result.output.trimmingCharacters(in: .whitespacesAndNewlines)
         if !path.isEmpty {
             binaryPath = path
@@ -59,7 +59,7 @@ extension PHPDetailViewModel {
         ]
         
         for path in logPaths {
-            let result = await SSHBaseService.shared.execute("tail -100 '\(path)' 2>/dev/null", via: session, timeout: 10)
+            let result = await baseService.execute("tail -100 '\(path)' 2>/dev/null", via: session, timeout: 10)
             if !result.output.isEmpty && !result.output.contains("No such file") {
                 logContent = result.output
                 break
@@ -82,7 +82,7 @@ extension PHPDetailViewModel {
         phpInfoData = [:]
         
         // Get key PHP info values
-        let result = await SSHBaseService.shared.execute("php -i 2>/dev/null | head -200", via: session, timeout: 15)
+        let result = await baseService.execute("php -i 2>/dev/null | head -200", via: session, timeout: 15)
         phpInfoHTML = result.output
         
         // Parse the output into key-value pairs

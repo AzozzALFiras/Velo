@@ -27,16 +27,26 @@ extension RedisDetailViewModel {
     
     func installVersion(_ version: String) async {
         guard let session = session else { return }
-        
+
         isPerformingAction = true
+        installStatus = "Detecting OS..."
+
+        let osInfo = await SystemStatsService.shared.getOSInfo(via: session)
+        let pm = PackageManagerCommandBuilder.detect(from: osInfo.id)
+
         installStatus = "Installing Redis \(version)..."
-        
-        // Basic install command
-        let cmd = "sudo DEBIAN_FRONTEND=noninteractive apt-get update && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y redis-server"
-        _ = await baseService.execute(cmd, via: session)
-        
+        let cmd = PackageManagerCommandBuilder.installCommand(
+            packages: ["redis-server"],
+            packageManager: pm,
+            withUpdate: true
+        )
+
+        _ = await ServerAdminService.shared.execute(cmd, via: session, timeout: 600)
+
         await loadData()
         isPerformingAction = false
         installStatus = ""
     }
+
+    // MARK: - Admin Service access is now handled via ServerAdminService.shared
 }

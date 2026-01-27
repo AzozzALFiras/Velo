@@ -2,7 +2,7 @@ import Foundation
 
 /// Service for managing SSL certificates via Let's Encrypt (certbot) and custom certificates
 actor SSLService {
-    private let baseService = SSHBaseService.shared
+    private let baseService = ServerAdminService.shared
     
     static let shared = SSLService()
     

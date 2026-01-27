@@ -4,7 +4,7 @@ import Foundation
 /// This service manages a dedicated security configuration file included in nginx.conf
 actor NginxSecurityService {
     static let shared = NginxSecurityService()
-    private let baseService = SSHBaseService.shared
+    private let baseService = ServerAdminService.shared
     
     enum SecurityRule: String, CaseIterable {
         case ccDefense = "ccDefense"

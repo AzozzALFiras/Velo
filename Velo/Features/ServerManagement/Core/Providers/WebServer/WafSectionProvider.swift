@@ -9,7 +9,7 @@ struct WafSectionProvider: SectionProvider {
         state: ApplicationState,
         session: TerminalViewModel
     ) async throws {
-        let baseService = SSHBaseService.shared
+        let baseService = ServerAdminService.shared
         
         // 1. Fetch available sites if empty
         if state.wafSites.isEmpty {

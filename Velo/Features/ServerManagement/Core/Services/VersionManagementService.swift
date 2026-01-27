@@ -10,7 +10,7 @@ import Foundation
 /// Generic utilities for version management across all services
 struct VersionManagementService {
 
-    private static let sshService = SSHBaseService.shared
+    private static let sshService = ServerAdminService.shared
 
     // MARK: - Version Detection
 

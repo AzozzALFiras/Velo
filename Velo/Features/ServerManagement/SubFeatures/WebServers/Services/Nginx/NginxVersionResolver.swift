@@ -8,7 +8,7 @@
 import Foundation
 
 struct NginxVersionResolver {
-    private let baseService = SSHBaseService.shared
+    private let baseService = ServerAdminService.shared
 
     /// Get the installed Nginx version
     func getVersion(via session: TerminalViewModel) async -> String? {

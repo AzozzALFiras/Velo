@@ -19,7 +19,8 @@ final class PHPDetailViewModel: ObservableObject {
     
     weak var session: TerminalViewModel?
     public let phpService = PHPService.shared
-    public let baseService = SSHBaseService.shared
+    public let baseService = ServerAdminService.shared
+    var adminExecutor: ServerAdminExecutor?
     
     // MARK: - Published State
     

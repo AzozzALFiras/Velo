@@ -27,18 +27,26 @@ extension MongoDetailViewModel {
     
     func installVersion(_ version: String) async {
         guard let session = session else { return }
-        
+
         isPerformingAction = true
+        installStatus = "Detecting OS..."
+
+        let osInfo = await SystemStatsService.shared.getOSInfo(via: session)
+        let pm = PackageManagerCommandBuilder.detect(from: osInfo.id)
+
         installStatus = "Installing MongoDB \(version)..."
-        
-        // MongoDB install is slightly complex (add repo key, etc), assuming tool handles or simplest approach
-        // Simplified for Velo context:
-        // Assume script or direct install
-        let cmd = "sudo DEBIAN_FRONTEND=noninteractive apt-get update && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y mongodb-org"
-        _ = await baseService.execute(cmd, via: session)
-        
+        let cmd = PackageManagerCommandBuilder.installCommand(
+            packages: ["mongodb-org"],
+            packageManager: pm,
+            withUpdate: true
+        )
+
+        _ = await ServerAdminService.shared.execute(cmd, via: session, timeout: 600)
+
         await loadData()
         isPerformingAction = false
         installStatus = ""
     }
+
+    // MARK: - Admin Service access is now handled via ServerAdminService.shared
 }

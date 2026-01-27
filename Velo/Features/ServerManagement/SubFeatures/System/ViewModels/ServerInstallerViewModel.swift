@@ -15,8 +15,8 @@ final class ServerInstallerViewModel: ObservableObject {
     
     // MARK: - Dependencies
     weak var session: TerminalViewModel?
-    private let sshService = SSHBaseService.shared
     private let lifecycleManager = ApplicationLifecycleManager.shared
+    private let adminService = ServerAdminService.shared
 
     // MARK: - Published State
     @Published var availableCapabilities: [Capability] = []
@@ -246,21 +246,33 @@ final class ServerInstallerViewModel: ObservableObject {
             throw NSError(domain: "ServerInstaller", code: 1, userInfo: [NSLocalizedDescriptionKey: "No SSH session"])
         }
 
-        // Auto-inject non-interactive flags for known tools
+        // Auto-inject non-interactive flags for known tools.
+        // For apt commands, the PackageManagerCommandBuilder already includes the golden pattern
+        // when commands are built via the builder. For API-provided commands that may not have
+        // full flags, we add safety wrappers here.
         var effectiveCommand = command
         if command.contains("composer") {
             effectiveCommand = "export COMPOSER_ALLOW_SUPERUSER=1; " + effectiveCommand
         }
         if command.contains("apt") || command.contains("apt-get") {
-             if !effectiveCommand.contains("-y") {
-                 effectiveCommand = effectiveCommand.replacingOccurrences(of: "install", with: "install -y")
-             }
-             effectiveCommand = "export DEBIAN_FRONTEND=noninteractive; " + effectiveCommand
+            if !effectiveCommand.contains("-y") {
+                effectiveCommand = effectiveCommand.replacingOccurrences(of: "install", with: "install -y")
+            }
+            if !effectiveCommand.contains("-q") {
+                effectiveCommand = effectiveCommand.replacingOccurrences(of: "install -y", with: "install -y -q")
+            }
+            if !effectiveCommand.contains("--force-confdef") {
+                effectiveCommand += " -o Dpkg::Options::=\"--force-confdef\" -o Dpkg::Options::=\"--force-confold\""
+            }
+            if !effectiveCommand.contains("DEBIAN_FRONTEND") {
+                effectiveCommand = "export DEBIAN_FRONTEND=noninteractive; " + effectiveCommand
+            }
         }
 
-        // First attempt: Try the original versioned command
-        await appendLog("> Attempting versioned install...")
-        let result = await sshService.execute(effectiveCommand, via: session, timeout: 600)
+        // Use centralized admin service for isolated execution
+        // This ensures zero fallback to the UI terminal (SSHBaseService)
+        await appendLog("> Attempting install via dedicated admin channel...")
+        let result = await adminService.execute(effectiveCommand, via: session, timeout: 600)
 
         await MainActor.run {
             self.installLog += result.output + "\n"
@@ -278,19 +290,14 @@ final class ServerInstallerViewModel: ObservableObject {
             output.contains("has no installation candidate") ||
             output.contains("no match") ||
             output.contains("unable to locate") ||
-            output.contains("unable to locate") ||
             output.contains("not available") ||
             output.contains("e: version") ||
             output.contains("e: package")
         )
 
-        // Aggressive fallback: If we were trying to pin a version (contains "=" or similar) 
-        // and it failed, and we have a fallback command, we should strictly try the fallback.
-        // It is safer to install the repo version than to fail completely.
         let isPinnedVersion = command.contains("=") || (command.contains("install") && command.contains("-") && slug == "redis")
-        
+
         guard isPinnedVersion || isVersionError else {
-            // If it wasn't a pinned version install that failed, then it's a real system error (network, disk, etc)
             await appendLog("❌ Installation failed (exit code \(result.exitCode))")
             return false
         }
@@ -302,11 +309,11 @@ final class ServerInstallerViewModel: ObservableObject {
         }
 
         await appendLog("> ⚠️ Specific version not available in repository")
-        await appendLog("> 🔄 Retrying with latest available version...")
+        await appendLog("> Retrying with latest available version...")
         await appendLog("> Executing: \(fallbackCommand)")
 
         // Second attempt: Try without version pinning
-        let fallbackResult = await sshService.execute(fallbackCommand, via: session, timeout: 600)
+        let fallbackResult = await adminService.execute(fallbackCommand, via: session, timeout: 600)
 
         await MainActor.run {
             self.installLog += fallbackResult.output + "\n"
@@ -314,7 +321,7 @@ final class ServerInstallerViewModel: ObservableObject {
 
         if fallbackResult.exitCode == 0 {
             await MainActor.run { self.installProgress = 1.0 }
-            await appendLog("> ✅ Installed latest available version successfully")
+            await appendLog("> Installed latest available version successfully")
             return true
         } else {
             await appendLog("❌ Fallback installation also failed (exit code \(fallbackResult.exitCode))")
@@ -371,7 +378,7 @@ final class ServerInstallerViewModel: ObservableObject {
             throw NSError(domain: "ServerInstaller", code: 1, userInfo: [NSLocalizedDescriptionKey: "No SSH session"])
         }
 
-        let result = await sshService.execute(command, via: session, timeout: 600) // Longer timeout for installs
+        let result = await adminService.execute(command, via: session, timeout: 600)
         await MainActor.run {
             self.installLog += result.output + "\n"
             if result.exitCode == 0 {
@@ -485,7 +492,7 @@ final class ServerInstallerViewModel: ObservableObject {
         guard !serviceName.isEmpty else { return }
         
         await appendLog("> Enabling and starting \(serviceName)...")
-        _ = await sshService.execute("sudo systemctl enable \(serviceName) && sudo systemctl start \(serviceName)", via: session)
+        _ = await adminService.execute("sudo systemctl enable \(serviceName) && sudo systemctl start \(serviceName)", via: session)
     }
     
     private func getServiceName(for slug: String) -> String {
@@ -522,17 +529,28 @@ final class ServerInstallerViewModel: ObservableObject {
     }
     
     private func getGenericInstallCommand(slug: String, os: String) -> String? {
-        // Only safely fallback for Debian/Ubuntu environments where package names are predictable
-        guard os == "ubuntu" || os == "debian" else { return nil }
-        
+        // Map slug to package name(s)
+        let packages: [String]
         switch slug.lowercased() {
-        case "python": return "DEBIAN_FRONTEND=noninteractive apt-get update || true && DEBIAN_FRONTEND=noninteractive apt-get install -y python3"
-        case "redis": return "DEBIAN_FRONTEND=noninteractive apt-get update || true && DEBIAN_FRONTEND=noninteractive apt-get install -y redis-server"
-        case "postgresql", "postgres": return "DEBIAN_FRONTEND=noninteractive apt-get update || true && DEBIAN_FRONTEND=noninteractive apt-get install -y postgresql"
-        case "nginx": return "DEBIAN_FRONTEND=noninteractive apt-get update || true && DEBIAN_FRONTEND=noninteractive apt-get install -y nginx"
-        case "php": return "DEBIAN_FRONTEND=noninteractive apt-get update || true && DEBIAN_FRONTEND=noninteractive apt-get install -y php-fpm"
-        case "git": return "DEBIAN_FRONTEND=noninteractive apt-get update || true && DEBIAN_FRONTEND=noninteractive apt-get install -y git"
+        case "python", "python3":          packages = ["python3"]
+        case "redis":                       packages = ["redis-server"]
+        case "postgresql", "postgres":      packages = ["postgresql"]
+        case "nginx":                       packages = ["nginx"]
+        case "php", "php-fpm":              packages = ["php-fpm"]
+        case "git":                         packages = ["git"]
+        case "mysql":                       packages = ["mysql-server"]
+        case "mongodb", "mongo":            packages = ["mongodb-org"]
+        case "node", "nodejs":              packages = ["nodejs"]
         default: return nil
         }
+
+        let pm = PackageManagerCommandBuilder.detect(from: os)
+        return PackageManagerCommandBuilder.installCommand(
+            packages: packages,
+            packageManager: pm,
+            withUpdate: true
+        )
     }
+
+    // MARK: - Admin Service access is now handled via ServerAdminService.shared
 }

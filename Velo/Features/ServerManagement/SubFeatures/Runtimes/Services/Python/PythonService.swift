@@ -12,7 +12,7 @@ import Combine
 final class PythonService: ObservableObject, RuntimeService {
     static let shared = PythonService()
 
-    let baseService = SSHBaseService.shared
+    let baseService = ServerAdminService.shared
     private let detector = PythonDetector()
     private let versionResolver = PythonVersionResolver()
 

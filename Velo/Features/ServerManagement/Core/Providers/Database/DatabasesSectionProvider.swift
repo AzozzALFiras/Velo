@@ -16,7 +16,7 @@ struct DatabasesSectionProvider: SectionProvider {
         state: ApplicationState,
         session: TerminalViewModel
     ) async throws {
-        let baseService = SSHBaseService.shared
+        let baseService = ServerAdminService.shared
 
         switch app.id.lowercased() {
         case "mysql", "mariadb":
@@ -32,7 +32,7 @@ struct DatabasesSectionProvider: SectionProvider {
         }
     }
 
-    private func loadMySQLDatabases(state: ApplicationState, session: TerminalViewModel, baseService: SSHBaseService) async throws {
+    private func loadMySQLDatabases(state: ApplicationState, session: TerminalViewModel, baseService: ServerAdminService) async throws {
         // Get list of databases with sizes
         let result = await baseService.execute(
             """
@@ -74,7 +74,7 @@ struct DatabasesSectionProvider: SectionProvider {
         }
     }
 
-    private func loadPostgresDatabases(state: ApplicationState, session: TerminalViewModel, baseService: SSHBaseService) async throws {
+    private func loadPostgresDatabases(state: ApplicationState, session: TerminalViewModel, baseService: ServerAdminService) async throws {
         let result = await baseService.execute(
             """
             sudo -u postgres psql -c "SELECT datname, pg_size_pretty(pg_database_size(datname)) as size
@@ -104,7 +104,7 @@ struct DatabasesSectionProvider: SectionProvider {
         }
     }
 
-    private func loadMongoDatabases(state: ApplicationState, session: TerminalViewModel, baseService: SSHBaseService) async throws {
+    private func loadMongoDatabases(state: ApplicationState, session: TerminalViewModel, baseService: ServerAdminService) async throws {
         let result = await baseService.execute(
             "mongosh --quiet --eval 'db.adminCommand(\"listDatabases\").databases.forEach(d => print(d.name + \"\\t\" + d.sizeOnDisk))' 2>/dev/null",
             via: session
@@ -132,7 +132,7 @@ struct DatabasesSectionProvider: SectionProvider {
         }
     }
 
-    private func loadRedisDatabases(state: ApplicationState, session: TerminalViewModel, baseService: SSHBaseService) async throws {
+    private func loadRedisDatabases(state: ApplicationState, session: TerminalViewModel, baseService: ServerAdminService) async throws {
         // Redis uses numbered databases (0-15 by default)
         let result = await baseService.execute(
             "redis-cli INFO keyspace 2>/dev/null",

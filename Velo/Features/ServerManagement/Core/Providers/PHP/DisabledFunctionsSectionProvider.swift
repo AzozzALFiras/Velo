@@ -18,7 +18,7 @@ struct DisabledFunctionsSectionProvider: SectionProvider {
     ) async throws {
         guard app.id.lowercased() == "php" else { return }
 
-        let baseService = SSHBaseService.shared
+        let baseService = ServerAdminService.shared
 
         // Get disabled functions from PHP config
         let result = await baseService.execute(

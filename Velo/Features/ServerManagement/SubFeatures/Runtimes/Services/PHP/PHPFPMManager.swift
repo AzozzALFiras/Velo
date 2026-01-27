@@ -8,7 +8,7 @@
 import Foundation
 
 struct PHPFPMManager {
-    private let baseService = SSHBaseService.shared
+    private let baseService = ServerAdminService.shared
 
     // MARK: - Active FPM Operations
 
@@ -31,42 +31,42 @@ struct PHPFPMManager {
     /// Start the active/default PHP-FPM
     func startActiveFPM(via session: TerminalViewModel) async -> Bool {
         let serviceName = await detectActiveFPMService(via: session)
-        let result = await baseService.execute("sudo systemctl start \(serviceName) 2>&1 && echo 'STARTED'", via: session, timeout: 30)
+        let result = await ServerAdminService.shared.execute("sudo systemctl start \(serviceName) 2>&1 && echo 'STARTED'", via: session, timeout: 30)
         return result.output.contains("STARTED")
     }
 
     /// Stop the active/default PHP-FPM
     func stopActiveFPM(via session: TerminalViewModel) async -> Bool {
         let serviceName = await detectActiveFPMService(via: session)
-        let result = await baseService.execute("sudo systemctl stop \(serviceName) 2>&1 && echo 'STOPPED'", via: session, timeout: 30)
+        let result = await ServerAdminService.shared.execute("sudo systemctl stop \(serviceName) 2>&1 && echo 'STOPPED'", via: session, timeout: 30)
         return result.output.contains("STOPPED")
     }
 
     /// Restart the active/default PHP-FPM
     func restartActiveFPM(via session: TerminalViewModel) async -> Bool {
         let serviceName = await detectActiveFPMService(via: session)
-        let result = await baseService.execute("sudo systemctl restart \(serviceName) 2>&1 && echo 'RESTARTED'", via: session, timeout: 30)
+        let result = await ServerAdminService.shared.execute("sudo systemctl restart \(serviceName) 2>&1 && echo 'RESTARTED'", via: session, timeout: 30)
         return result.output.contains("RESTARTED")
     }
 
     /// Reload the active/default PHP-FPM configuration
     func reloadActiveFPM(via session: TerminalViewModel) async -> Bool {
         let serviceName = await detectActiveFPMService(via: session)
-        let result = await baseService.execute("sudo systemctl reload \(serviceName) 2>&1 && echo 'RELOADED'", via: session, timeout: 30)
+        let result = await ServerAdminService.shared.execute("sudo systemctl reload \(serviceName) 2>&1 && echo 'RELOADED'", via: session, timeout: 30)
         return result.output.contains("RELOADED")
     }
 
     /// Enable the active/default PHP-FPM to start on boot
     func enableActiveFPM(via session: TerminalViewModel) async -> Bool {
         let serviceName = await detectActiveFPMService(via: session)
-        let result = await baseService.execute("sudo systemctl enable \(serviceName) 2>&1 && echo 'ENABLED'", via: session, timeout: 30)
+        let result = await ServerAdminService.shared.execute("sudo systemctl enable \(serviceName) 2>&1 && echo 'ENABLED'", via: session, timeout: 30)
         return result.output.contains("ENABLED")
     }
 
     /// Disable the active/default PHP-FPM from starting on boot
     func disableActiveFPM(via session: TerminalViewModel) async -> Bool {
         let serviceName = await detectActiveFPMService(via: session)
-        let result = await baseService.execute("sudo systemctl disable \(serviceName) 2>&1 && echo 'DISABLED'", via: session, timeout: 30)
+        let result = await ServerAdminService.shared.execute("sudo systemctl disable \(serviceName) 2>&1 && echo 'DISABLED'", via: session, timeout: 30)
         return result.output.contains("DISABLED")
     }
 
@@ -75,21 +75,21 @@ struct PHPFPMManager {
     /// Start FPM for a specific PHP version
     func startFPM(version: String, via session: TerminalViewModel) async -> Bool {
         let serviceName = "php\(version)-fpm"
-        let result = await baseService.execute("sudo systemctl start \(serviceName) 2>&1 && echo 'STARTED'", via: session, timeout: 30)
+        let result = await ServerAdminService.shared.execute("sudo systemctl start \(serviceName) 2>&1 && echo 'STARTED'", via: session, timeout: 30)
         return result.output.contains("STARTED")
     }
 
     /// Stop FPM for a specific PHP version
     func stopFPM(version: String, via session: TerminalViewModel) async -> Bool {
         let serviceName = "php\(version)-fpm"
-        let result = await baseService.execute("sudo systemctl stop \(serviceName) 2>&1 && echo 'STOPPED'", via: session, timeout: 30)
+        let result = await ServerAdminService.shared.execute("sudo systemctl stop \(serviceName) 2>&1 && echo 'STOPPED'", via: session, timeout: 30)
         return result.output.contains("STOPPED")
     }
 
     /// Restart FPM for a specific PHP version
     func restartFPM(version: String, via session: TerminalViewModel) async -> Bool {
         let serviceName = "php\(version)-fpm"
-        let result = await baseService.execute("sudo systemctl restart \(serviceName) 2>&1 && echo 'RESTARTED'", via: session, timeout: 30)
+        let result = await ServerAdminService.shared.execute("sudo systemctl restart \(serviceName) 2>&1 && echo 'RESTARTED'", via: session, timeout: 30)
         return result.output.contains("RESTARTED")
     }
 

@@ -8,7 +8,7 @@
 import Foundation
 
 struct MySQLVersionResolver {
-    private let baseService = SSHBaseService.shared
+    private let baseService = ServerAdminService.shared
 
     /// Get the installed MySQL/MariaDB version
     func getVersion(via session: TerminalViewModel) async -> String? {

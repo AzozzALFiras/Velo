@@ -15,7 +15,8 @@ final class PostgresDetailViewModel: ObservableObject {
     // MARK: - Dependencies
     weak var session: TerminalViewModel?
     public let service = PostgreSQLService.shared
-    public let baseService = SSHBaseService.shared
+    public let baseService = ServerAdminService.shared
+    var adminExecutor: ServerAdminExecutor?
     
     // MARK: - Published State
     

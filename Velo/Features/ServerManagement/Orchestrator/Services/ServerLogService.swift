@@ -13,7 +13,7 @@ import Combine
 final class ServerLogService: ObservableObject {
     static let shared = ServerLogService()
     
-    private let baseService = SSHBaseService.shared
+    private let baseService = ServerAdminService.shared
     
     private init() {}
     

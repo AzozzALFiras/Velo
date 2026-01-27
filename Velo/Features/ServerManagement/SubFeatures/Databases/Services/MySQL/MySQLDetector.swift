@@ -8,7 +8,7 @@
 import Foundation
 
 struct MySQLDetector {
-    private let baseService = SSHBaseService.shared
+    private let baseService = ServerAdminService.shared
 
     /// Detect MySQL/MariaDB installation and return details
     func detect(via session: TerminalViewModel) async -> (installed: Bool, serviceName: String?, isMariaDB: Bool) {

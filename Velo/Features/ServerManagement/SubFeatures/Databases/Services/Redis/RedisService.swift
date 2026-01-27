@@ -12,7 +12,7 @@ import Combine
 final class RedisService: ObservableObject, DatabaseServerService {
     static let shared = RedisService()
 
-    let baseService = SSHBaseService.shared
+    let baseService = ServerAdminService.shared
     let databaseType: DatabaseType = .redis
     
     // Sub-components

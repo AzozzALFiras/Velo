@@ -12,7 +12,7 @@ struct MongoVersionResolver {
     func getVersion(via session: TerminalViewModel) async -> String? {
         // Run mongod --version
         // Output example: db version v4.4.6
-        let result = await SSHBaseService.shared.execute("mongod --version", via: session)
+        let result = await ServerAdminService.shared.execute("mongod --version", via: session)
         guard result.exitCode == 0 else { return nil }
         
         let output = result.output

@@ -12,7 +12,7 @@ import Combine
 final class MongoService: ObservableObject, DatabaseServerService {
     static let shared = MongoService()
 
-    let baseService = SSHBaseService.shared
+    let baseService = ServerAdminService.shared
     let databaseType: DatabaseType = .mongo
     
     // Sub-components

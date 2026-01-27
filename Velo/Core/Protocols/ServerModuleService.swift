@@ -35,8 +35,8 @@ enum ValidationError: Error, LocalizedError {
 
 /// Base protocol that all server module services must conform to
 protocol ServerModuleService {
-    /// The SSH base service used for command execution
-    var baseService: SSHBaseService { get }
+    /// The Server Admin service used for command execution
+    var baseService: ServerAdminService { get }
 
     /// Check if this software is installed on the server
     func isInstalled(via session: TerminalViewModel) async -> Bool
@@ -204,23 +204,23 @@ struct PackageManagerInfo {
 
 extension ControllableService {
     func start(via session: TerminalViewModel) async -> Bool {
-        let result = await baseService.execute("sudo systemctl start \(serviceName)", via: session, timeout: 30)
+        let result = await baseService.execute("sudo systemctl start \(serviceName)", via: session, timeout: 60)
         return await isRunning(via: session)
     }
 
     func stop(via session: TerminalViewModel) async -> Bool {
-        let result = await baseService.execute("sudo systemctl stop \(serviceName)", via: session, timeout: 30)
+        let result = await baseService.execute("sudo systemctl stop \(serviceName)", via: session, timeout: 60)
         let running = await isRunning(via: session)
         return !running
     }
 
     func restart(via session: TerminalViewModel) async -> Bool {
-        let result = await baseService.execute("sudo systemctl restart \(serviceName)", via: session, timeout: 30)
+        let result = await baseService.execute("sudo systemctl restart \(serviceName)", via: session, timeout: 60)
         return await isRunning(via: session)
     }
 
     func reload(via session: TerminalViewModel) async -> Bool {
-        let result = await baseService.execute("sudo systemctl reload \(serviceName)", via: session, timeout: 30)
+        let result = await baseService.execute("sudo systemctl reload \(serviceName)", via: session, timeout: 60)
         return result.exitCode == 0
     }
 

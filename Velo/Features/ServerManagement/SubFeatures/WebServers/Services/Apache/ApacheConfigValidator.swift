@@ -8,7 +8,7 @@
 import Foundation
 
 struct ApacheConfigValidator {
-    private let baseService = SSHBaseService.shared
+    private let baseService = ServerAdminService.shared
 
     /// Validate the Apache configuration
     func validate(via session: TerminalViewModel) async -> (isValid: Bool, message: String) {

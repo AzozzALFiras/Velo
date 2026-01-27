@@ -13,7 +13,7 @@ import Combine
 final class PostgreSQLService: ObservableObject, DatabaseServerService {
     static let shared = PostgreSQLService()
 
-    let baseService = SSHBaseService.shared
+    let baseService = ServerAdminService.shared
     let databaseType: DatabaseType = .postgres
     let serviceName = "postgresql"
 

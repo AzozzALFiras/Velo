@@ -16,7 +16,7 @@ struct ConfigFileSectionProvider: SectionProvider {
         state: ApplicationState,
         session: TerminalViewModel
     ) async throws {
-        let baseService = SSHBaseService.shared
+        let baseService = ServerAdminService.shared
         var configPath = app.serviceConfig.configPath
 
         // Determine config path based on app type if not specified

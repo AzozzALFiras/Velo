@@ -26,7 +26,7 @@ class NodeDetailViewModel: ObservableObject {
         isLoading = true
         
         // 1. Check Node Version
-        let result = await SSHBaseService.shared.execute("node -v", via: session)
+        let result = await ServerAdminService.shared.execute("node -v", via: session)
         if result.exitCode == 0 {
             version = result.output.trimmingCharacters(in: .whitespacesAndNewlines)
             isRunning = true
@@ -36,7 +36,7 @@ class NodeDetailViewModel: ObservableObject {
         }
         
         // 2. Check NPM Version
-        let npmResult = await SSHBaseService.shared.execute("npm -v", via: session)
+        let npmResult = await ServerAdminService.shared.execute("npm -v", via: session)
         if npmResult.exitCode == 0 {
             npmVersion = npmResult.output.trimmingCharacters(in: .whitespacesAndNewlines)
         }
@@ -51,7 +51,7 @@ class NodeDetailViewModel: ObservableObject {
         guard let session = session else { return }
         
         // npm list -g --json --depth=0
-        let result = await SSHBaseService.shared.execute("npm list -g --json --depth=0", via: session)
+        let result = await ServerAdminService.shared.execute("npm list -g --json --depth=0", via: session)
         if let data = result.output.data(using: .utf8),
            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
            let dependencies = json["dependencies"] as? [String: [String: Any]] {

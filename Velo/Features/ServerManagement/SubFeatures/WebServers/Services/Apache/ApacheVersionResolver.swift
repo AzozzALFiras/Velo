@@ -8,7 +8,7 @@
 import Foundation
 
 struct ApacheVersionResolver {
-    private let baseService = SSHBaseService.shared
+    private let baseService = ServerAdminService.shared
 
     /// Get the installed Apache version
     func getVersion(via session: TerminalViewModel) async -> String? {

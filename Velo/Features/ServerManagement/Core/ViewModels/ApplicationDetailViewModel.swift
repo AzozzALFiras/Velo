@@ -148,7 +148,7 @@ final class ApplicationDetailViewModel: ObservableObject {
         
         // Extended binary search
         var finalBinaryPath = ""
-        let directWhich = await SSHBaseService.shared.execute("which \(binaryName) 2>/dev/null", via: session)
+        let directWhich = await ServerAdminService.shared.execute("which \(binaryName) 2>/dev/null", via: session)
         
         if !directWhich.output.isEmpty && directWhich.exitCode == 0 {
             finalBinaryPath = directWhich.output.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -156,7 +156,7 @@ final class ApplicationDetailViewModel: ObservableObject {
             // Fallback: Check common paths
             let commonPaths = ["/usr/sbin/\(binaryName)", "/usr/bin/\(binaryName)", "/usr/local/bin/\(binaryName)", "/usr/local/sbin/\(binaryName)", "/bin/\(binaryName)", "/sbin/\(binaryName)"]
             let checkCmd = "ls " + commonPaths.joined(separator: " ") + " 2>/dev/null | head -n 1"
-            let fallbackResult = await SSHBaseService.shared.execute(checkCmd, via: session)
+            let fallbackResult = await ServerAdminService.shared.execute(checkCmd, via: session)
             
             if !fallbackResult.output.isEmpty {
                  finalBinaryPath = fallbackResult.output.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -167,7 +167,7 @@ final class ApplicationDetailViewModel: ObservableObject {
         
         // If no binary path found yet, and a specific path is configured, check if that path exists
         if state.binaryPath.isEmpty && !app.serviceConfig.binaryPath.isEmpty {
-             let existCheck = await SSHBaseService.shared.execute("[ -f \(app.serviceConfig.binaryPath) ] && echo 'yes'", via: session)
+             let existCheck = await ServerAdminService.shared.execute("[ -f \(app.serviceConfig.binaryPath) ] && echo 'yes'", via: session)
              if existCheck.output.contains("yes") {
                  state.binaryPath = app.serviceConfig.binaryPath
              }
@@ -232,7 +232,7 @@ final class ApplicationDetailViewModel: ObservableObject {
                 return (true, "\(self.app.name) started successfully")
             } else {
                 // Try to get error details
-                let status = await SSHBaseService.shared.execute(
+                let status = await ServerAdminService.shared.execute(
                     "sudo systemctl status \(self.app.serviceConfig.serviceName) --no-pager -l -n 10",
                     via: session
                 )
@@ -266,7 +266,7 @@ final class ApplicationDetailViewModel: ObservableObject {
                 await self.loadServiceStatus()
                 return (true, "\(self.app.name) restarted successfully")
             } else {
-                let status = await SSHBaseService.shared.execute(
+                let status = await ServerAdminService.shared.execute(
                     "sudo systemctl status \(self.app.serviceConfig.serviceName) --no-pager -l -n 10",
                     via: session
                 )
@@ -292,7 +292,7 @@ final class ApplicationDetailViewModel: ObservableObject {
                 }
 
                 if !testCommand.isEmpty {
-                    let testResult = await SSHBaseService.shared.execute(testCommand, via: session)
+                    let testResult = await ServerAdminService.shared.execute(testCommand, via: session)
                     if testResult.exitCode != 0 {
                         return (false, "Config test failed: \(testResult.output)")
                     }
@@ -314,7 +314,7 @@ final class ApplicationDetailViewModel: ObservableObject {
             guard !configPath.isEmpty else { return (false, "Config path not set") }
 
             // Read current config
-            let readResult = await SSHBaseService.shared.execute("cat '\(configPath)'", via: session)
+            let readResult = await ServerAdminService.shared.execute("cat '\(configPath)'", via: session)
             var content = readResult.output
 
             // Replace using regex based on config format
@@ -329,7 +329,7 @@ final class ApplicationDetailViewModel: ObservableObject {
                 )
 
                 if newContent != content {
-                    let saveResult = await SSHBaseService.shared.writeFile(
+                    let saveResult = await ServerAdminService.shared.writeFile(
                         at: configPath,
                         content: newContent,
                         useSudo: true,
@@ -356,7 +356,7 @@ final class ApplicationDetailViewModel: ObservableObject {
             let configPath = self.state.configPath
             guard !configPath.isEmpty else { return (false, "Config path not set") }
 
-            let saveResult = await SSHBaseService.shared.writeFile(
+            let saveResult = await ServerAdminService.shared.writeFile(
                 at: configPath,
                 content: self.state.configFileContent,
                 useSudo: true,
@@ -377,7 +377,7 @@ final class ApplicationDetailViewModel: ObservableObject {
                     }
 
                     if !testCommand.isEmpty {
-                        let testResult = await SSHBaseService.shared.execute(testCommand, via: session)
+                        let testResult = await ServerAdminService.shared.execute(testCommand, via: session)
                         if testResult.exitCode != 0 {
                             return (false, "Config saved but validation failed: \(testResult.output)")
                         }
@@ -403,7 +403,7 @@ final class ApplicationDetailViewModel: ObservableObject {
         }
 
         // Determine OS
-        let osResult = await SSHBaseService.shared.execute(
+        let osResult = await ServerAdminService.shared.execute(
             "cat /etc/os-release | grep ^ID= | cut -d= -f2 | tr -d '\"'",
             via: session
         )
@@ -481,7 +481,7 @@ final class ApplicationDetailViewModel: ObservableObject {
                 // We'll trust the modified command for now, but handle the specific lock error in output.
             }
 
-            let result = await SSHBaseService.shared.execute(command, via: session, timeout: 600) // Increased timeout
+            let result = await ServerAdminService.shared.execute(command, via: session, timeout: 600) // Increased timeout
 
             if result.exitCode != 0 {
                 // Allow "apt-get update" to fail (often network issues) but warn
@@ -533,7 +533,7 @@ final class ApplicationDetailViewModel: ObservableObject {
                  let ver = version.version.replacingOccurrences(of: "PHP", with: "").trimmingCharacters(in: .whitespaces)
                  
                  let cmd = "sudo update-alternatives --set php /usr/bin/php\(ver) && sudo update-alternatives --set php-fpm /usr/sbin/php-fpm\(ver) 2>/dev/null"
-                 let result = await SSHBaseService.shared.execute(cmd, via: session)
+                 let result = await ServerAdminService.shared.execute(cmd, via: session)
                  
                  if result.exitCode == 0 {
                      await self.loadData() // Reload all info
@@ -594,7 +594,7 @@ final class ApplicationDetailViewModel: ObservableObject {
              let configPath = "/etc/nginx/conf.d/error_pages.conf"
              
              // Simple implementation: Read, Filter out old code, Append new
-             let read = await SSHBaseService.shared.execute("cat \(configPath)", via: session)
+             let read = await ServerAdminService.shared.execute("cat \(configPath)", via: session)
              let content = read.output
              
              var lines = content.components(separatedBy: "\n").filter {
@@ -617,7 +617,7 @@ final class ApplicationDetailViewModel: ObservableObject {
              
              let newContent = lines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
              
-             let written = await SSHBaseService.shared.writeFile(
+             let written = await ServerAdminService.shared.writeFile(
                  at: configPath,
                  content: newContent,
                  useSudo: true,
@@ -629,9 +629,9 @@ final class ApplicationDetailViewModel: ObservableObject {
                  await applyGlobalErrorPagePatch(via: session)
                  
                  // Test and Reload
-                 let test = await SSHBaseService.shared.execute("sudo nginx -t", via: session)
+                 let test = await ServerAdminService.shared.execute("sudo nginx -t", via: session)
                  if test.exitCode == 0 {
-                     _ = await SSHBaseService.shared.execute("sudo systemctl reload nginx", via: session)
+                     _ = await ServerAdminService.shared.execute("sudo systemctl reload nginx", via: session)
                      await self.loadSectionData()
                      return (true, "Error page for \(code) updated and sites patched")
                  } else {
@@ -665,14 +665,14 @@ final class ApplicationDetailViewModel: ObservableObject {
         
         for path in paths {
             // List files
-            let ls = await SSHBaseService.shared.execute("ls -1 \(path)/*.conf", via: session)
+            let ls = await ServerAdminService.shared.execute("ls -1 \(path)/*.conf", via: session)
             let files = ls.output.components(separatedBy: "\n").filter { hasExtension($0, "conf") }
             
             for file in files {
                 let filePath = file.trimmingCharacters(in: .whitespaces)
                 guard !filePath.isEmpty else { continue }
                 
-                let read = await SSHBaseService.shared.execute("cat '\(filePath)'", via: session)
+                let read = await ServerAdminService.shared.execute("cat '\(filePath)'", via: session)
                 let content = read.output
                 
                 // Check if meaningful server block exists and not already patched
@@ -686,7 +686,7 @@ final class ApplicationDetailViewModel: ObservableObject {
                         let insertionPoint = range.upperBound
                         newContent.insert(contentsOf: locationBlock, at: insertionPoint)
                         
-                        _ = await SSHBaseService.shared.writeFile(at: filePath, content: newContent, useSudo: true, via: session)
+                        _ = await ServerAdminService.shared.writeFile(at: filePath, content: newContent, useSudo: true, via: session)
                     }
                 }
             }
@@ -703,14 +703,14 @@ final class ApplicationDetailViewModel: ObservableObject {
         guard let session = session else { return "" }
         // Determine absolute path. If it's a relative URL, assume mapped to /usr/share/nginx/html
         let fsPath = resolveFileSystemPath(for: path)
-        let result = await SSHBaseService.shared.execute("cat '\(fsPath)'", via: session)
+        let result = await ServerAdminService.shared.execute("cat '\(fsPath)'", via: session)
         return result.output
     }
     
     func saveErrorPageContent(path: String, content: String) async -> Bool {
         guard let session = session else { return false }
         let fsPath = resolveFileSystemPath(for: path)
-        return await SSHBaseService.shared.writeFile(at: fsPath, content: content, useSudo: true, via: session)
+        return await ServerAdminService.shared.writeFile(at: fsPath, content: content, useSudo: true, via: session)
     }
     
     func createDefaultErrorPage(code: String) async -> String? {
@@ -722,11 +722,11 @@ final class ApplicationDetailViewModel: ObservableObject {
         let urlPath = "/custom_errors/\(fileName)"
         
         // Ensure directory
-        _ = await SSHBaseService.shared.execute("sudo mkdir -p \(targetDir)", via: session)
+        _ = await ServerAdminService.shared.execute("sudo mkdir -p \(targetDir)", via: session)
         
         // Write default template
         let template = defaultErrorTemplate(code: code)
-        let written = await SSHBaseService.shared.writeFile(at: fullPath, content: template, useSudo: true, via: session)
+        let written = await ServerAdminService.shared.writeFile(at: fullPath, content: template, useSudo: true, via: session)
         
         if written {
             // Update config to point to it
@@ -802,21 +802,21 @@ final class ApplicationDetailViewModel: ObservableObject {
             let configPath = "/etc/nginx/conf.d/security_rules.conf"
             
             // simple check if already blocked
-            let check = await SSHBaseService.shared.execute("grep 'deny \(ip);' \(configPath)", via: session)
+            let check = await ServerAdminService.shared.execute("grep 'deny \(ip);' \(configPath)", via: session)
             if check.exitCode == 0 {
                 return (true, "IP \(ip) is already blocked")
             }
             
             // Append deny rule
             let cmd = "echo 'deny \(ip); # Blocked via Velo WAF' | sudo tee -a \(configPath)"
-            let result = await SSHBaseService.shared.execute(cmd, via: session)
+            let result = await ServerAdminService.shared.execute(cmd, via: session)
             
             if result.exitCode == 0 {
                 // PATCH: Ensure security_rules.conf is included
                 await applySecurityConfigPatch(via: session)
                 
                 // Reload
-                _ = await SSHBaseService.shared.execute("sudo systemctl reload nginx", via: session)
+                _ = await ServerAdminService.shared.execute("sudo systemctl reload nginx", via: session)
                 return (true, "IP \(ip) blocked successfully")
             }
             return (false, "Failed to block IP")
@@ -831,16 +831,16 @@ final class ApplicationDetailViewModel: ObservableObject {
             let configPath = "/etc/nginx/conf.d/security_rules.conf"
             
             // Read, Filter, Write
-            let read = await SSHBaseService.shared.execute("cat \(configPath)", via: session)
+            let read = await ServerAdminService.shared.execute("cat \(configPath)", via: session)
             let lines = read.output.components(separatedBy: .newlines)
             
             let newLines = lines.filter { !$0.contains("deny \(ip);") }
             let newContent = newLines.joined(separator: "\n")
             
-            let written = await SSHBaseService.shared.writeFile(at: configPath, content: newContent, useSudo: true, via: session)
+            let written = await ServerAdminService.shared.writeFile(at: configPath, content: newContent, useSudo: true, via: session)
             
             if written {
-                _ = await SSHBaseService.shared.execute("sudo systemctl reload nginx", via: session)
+                _ = await ServerAdminService.shared.execute("sudo systemctl reload nginx", via: session)
                 return (true, "IP \(ip) unblocked")
             }
             return (false, "Failed to unblock IP")
@@ -859,55 +859,17 @@ final class ApplicationDetailViewModel: ObservableObject {
         let includeDirective = "include /etc/nginx/conf.d/security_rules.conf;"
         
         for path in globalPaths {
-             let read = await SSHBaseService.shared.execute("cat \(path)", via: session)
+             let read = await ServerAdminService.shared.execute("cat \(path)", via: session)
              if read.exitCode == 0 && !read.output.contains("security_rules.conf") {
                  if let range = read.output.range(of: "http {") {
                       var newContent = read.output
                       let insertionPoint = range.upperBound
                       newContent.insert(contentsOf: "\n    \(includeDirective)\n", at: insertionPoint)
-                      _ = await SSHBaseService.shared.writeFile(at: path, content: newContent, useSudo: true, via: session)
+                      _ = await ServerAdminService.shared.writeFile(at: path, content: newContent, useSudo: true, via: session)
                  }
              }
         }
         
-        // 2. VHost Injection (Aggressive) - DISABLED causing syntax errors
-        // Many panels (like aaPanel) don't include conf.d in their vhost configs manually.
-        // We force inject the security rules into every site's server block.
-        
-        // DISABLED LOGIC START
-        // let vhostDirs = [
-        //    "/etc/nginx/sites-enabled",
-        //    "/etc/nginx/conf.d",
-        //    "/www/server/panel/vhost/nginx",
-        //    "/usr/local/nginx/conf/vhost"
-        // ]
-        //
-        // for dir in vhostDirs {
-        //    let ls = await SSHBaseService.shared.execute("ls -1 \(dir)/*.conf", via: session)
-        //    let files = ls.output.components(separatedBy: "\n").filter { hasExtension($0, "conf") }
-        //    
-        //    for file in files {
-        //        let filePath = file.trimmingCharacters(in: .whitespaces)
-        //        guard !filePath.isEmpty, !filePath.hasSuffix("security_rules.conf") else { continue }
-        //        
-        //        let read = await SSHBaseService.shared.execute("cat '\(filePath)'", via: session)
-        //        let content = read.output
-        //        
-        //        // If contains "server {" and doesn't already include our rules
-        //        if content.contains("server {") && !content.contains("security_rules.conf") {
-        //            
-        //            // Inject at start of server block
-        //            if let range = content.range(of: "server {") {
-        //                var newContent = content
-        //                let insertionPoint = range.upperBound
-        //                newContent.insert(contentsOf: "\n    \(includeDirective)\n", at: insertionPoint)
-        //                
-        //                _ = await SSHBaseService.shared.writeFile(at: filePath, content: newContent, useSudo: true, via: session)
-        //            }
-        //        }
-        //    }
-        // }
-        // DISABLED LOGIC END
     }
     
     func repairVHostConfigs() async -> String {
@@ -923,7 +885,7 @@ final class ApplicationDetailViewModel: ObservableObject {
             result += "\n[Attempt \(attempt)] Checking configuration...\n"
             
             // 1. Run nginx -t
-            let test = await SSHBaseService.shared.execute("sudo nginx -t", via: session)
+            let test = await ServerAdminService.shared.execute("sudo nginx -t", via: session)
             
             if test.exitCode == 0 {
                 result += "✅ Configuration is valid!\n"
@@ -949,7 +911,7 @@ final class ApplicationDetailViewModel: ObservableObject {
                     result += "⚠️ Detected error in file: \(filePath) at line \(lineNumber)\n"
                     
                     // 3. Attempt Fix
-                    let read = await SSHBaseService.shared.execute("cat '\(filePath)'", via: session)
+                    let read = await ServerAdminService.shared.execute("cat '\(filePath)'", via: session)
                     if read.exitCode == 0 {
                         var lines = read.output.components(separatedBy: .newlines)
                         
@@ -964,7 +926,7 @@ final class ApplicationDetailViewModel: ObservableObject {
                                 lines.remove(at: targetLineIndex)
                                 
                                 let newContent = lines.joined(separator: "\n")
-                                let write = await SSHBaseService.shared.writeFile(at: filePath, content: newContent, useSudo: true, via: session)
+                                let write = await ServerAdminService.shared.writeFile(at: filePath, content: newContent, useSudo: true, via: session)
                                 if write {
                                     result += "✅ Fixed file: \(filePath)\n"
                                 } else {
@@ -999,12 +961,12 @@ final class ApplicationDetailViewModel: ObservableObject {
         
         // Final Start Attempt
         result += "\nAttempting to start Nginx...\n"
-        let reload = await SSHBaseService.shared.execute("sudo systemctl start nginx", via: session)
+        let reload = await ServerAdminService.shared.execute("sudo systemctl start nginx", via: session)
         if reload.exitCode == 0 {
              result += "✅ Nginx started successfully.\n"
         } else {
              result += "❌ Failed to start Nginx: \(reload.output)\n"
-             let status = await SSHBaseService.shared.execute("systemctl status nginx --no-pager", via: session)
+             let status = await ServerAdminService.shared.execute("systemctl status nginx --no-pager", via: session)
              result += "\nStatus Output:\n\(status.output)"
         }
         
@@ -1031,7 +993,7 @@ final class ApplicationDetailViewModel: ObservableObject {
         
         // Gather all config files
         for dir in configDirs {
-             let ls = await SSHBaseService.shared.execute("ls -1 \(dir)/*.conf", via: session)
+             let ls = await ServerAdminService.shared.execute("ls -1 \(dir)/*.conf", via: session)
              if ls.exitCode == 0 {
                  let files = ls.output.components(separatedBy: "\n").filter { hasExtension($0, "conf") }
                  filesToScan.append(contentsOf: files.map { $0.trimmingCharacters(in: .whitespaces) })
@@ -1046,7 +1008,7 @@ final class ApplicationDetailViewModel: ObservableObject {
         for filePath in filesToScan {
              guard !filePath.isEmpty, !filePath.hasSuffix("security_rules.conf") else { continue }
              
-             let read = await SSHBaseService.shared.execute("cat '\(filePath)'", via: session)
+             let read = await ServerAdminService.shared.execute("cat '\(filePath)'", via: session)
              if read.exitCode == 0 && read.output.contains("security_rules.conf") {
                  
                  // Use Regex replacement
@@ -1058,14 +1020,14 @@ final class ApplicationDetailViewModel: ObservableObject {
                  
                  // Only write if changed
                  if newContent != read.output {
-                     _ = await SSHBaseService.shared.writeFile(at: filePath, content: newContent, useSudo: true, via: session)
+                     _ = await ServerAdminService.shared.writeFile(at: filePath, content: newContent, useSudo: true, via: session)
                  }
              }
         }
         
         // Failsafe: Truncate security_rules.conf to be empty
         // This ensures that even if 'include' remains somewhere, the file is empty/valid and won't crash Nginx.
-        _ = await SSHBaseService.shared.writeFile(at: "/etc/nginx/conf.d/security_rules.conf", content: "# Neutralized by Velo Repair\n", useSudo: true, via: session)
+        _ = await ServerAdminService.shared.writeFile(at: "/etc/nginx/conf.d/security_rules.conf", content: "# Neutralized by Velo Repair\n", useSudo: true, via: session)
     }
 
     // MARK: - WAF Pagination
@@ -1111,7 +1073,7 @@ final class ApplicationDetailViewModel: ObservableObject {
         
         // 1. Check Config Inclusion
         report += "\n[1] Checking Config Inclusion:\n"
-        let checkInclude = await SSHBaseService.shared.execute("sudo nginx -T 2>/dev/null | grep 'security_rules.conf'", via: session)
+        let checkInclude = await ServerAdminService.shared.execute("sudo nginx -T 2>/dev/null | grep 'security_rules.conf'", via: session)
         if checkInclude.output.contains("security_rules.conf") {
             report += "✅ security_rules.conf is included in the active configuration.\n"
         } else {
@@ -1120,7 +1082,7 @@ final class ApplicationDetailViewModel: ObservableObject {
         
         // 2. Check File Content
         report += "\n[2] Checking Rule File:\n"
-        let checkFile = await SSHBaseService.shared.execute("cat /etc/nginx/conf.d/security_rules.conf", via: session)
+        let checkFile = await ServerAdminService.shared.execute("cat /etc/nginx/conf.d/security_rules.conf", via: session)
         if checkFile.exitCode == 0 {
             report += "File exists. Content:\n\(checkFile.output.trimmingCharacters(in: .whitespacesAndNewlines))\n"
         } else {
@@ -1130,16 +1092,16 @@ final class ApplicationDetailViewModel: ObservableObject {
         // 3. Check Recent Traffic (Real IP Detection)
         report += "\n[3] Recent Access Logs (Last 5):\n"
         // Try to find access log
-        let findLog = await SSHBaseService.shared.execute("find /var/log/nginx /www/wwwlogs -name 'access.log' 2>/dev/null | head -n 1", via: session)
+        let findLog = await ServerAdminService.shared.execute("find /var/log/nginx /www/wwwlogs -name 'access.log' 2>/dev/null | head -n 1", via: session)
         let logPath = findLog.output.trimmingCharacters(in: .whitespacesAndNewlines)
         
         if !logPath.isEmpty {
             report += "Log found at: \(logPath)\n"
-            let logTail = await SSHBaseService.shared.execute("tail -n 5 \(logPath)", via: session)
+            let logTail = await ServerAdminService.shared.execute("tail -n 5 \(logPath)", via: session)
             report += logTail.output
         } else {
              // Fallback to checking config for log path
-             let configLog = await SSHBaseService.shared.execute("nginx -T 2>/dev/null | grep 'access_log' | head -n 1", via: session)
+             let configLog = await ServerAdminService.shared.execute("nginx -T 2>/dev/null | grep 'access_log' | head -n 1", via: session)
              report += "Could not find standard log. Config says: \(configLog.output.trimmingCharacters(in: .whitespacesAndNewlines))\n"
         }
         

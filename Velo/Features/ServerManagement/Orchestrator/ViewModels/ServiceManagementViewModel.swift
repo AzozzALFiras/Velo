@@ -20,7 +20,7 @@ final class ServiceManagementViewModel: ObservableObject {
     private let phpService = PHPService.shared
     private let mysqlService = MySQLService.shared
     private let postgresService = PostgreSQLService.shared
-    private let baseService = SSHBaseService.shared
+    private let baseService = ServerAdminService.shared
 
     // MARK: - Published State
 

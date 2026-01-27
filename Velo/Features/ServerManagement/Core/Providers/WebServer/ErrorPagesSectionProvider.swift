@@ -13,7 +13,7 @@ struct ErrorPagesSectionProvider: SectionProvider {
         guard app.id == "nginx" else { return }
 
         let configPath = "/etc/nginx/conf.d/error_pages.conf"
-        let baseService = SSHBaseService.shared
+        let baseService = ServerAdminService.shared
 
         // Ensure file exists
         let check = await baseService.execute("test -f \(configPath)", via: session)

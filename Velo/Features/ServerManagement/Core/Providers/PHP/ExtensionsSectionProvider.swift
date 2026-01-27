@@ -18,7 +18,7 @@ struct ExtensionsSectionProvider: SectionProvider {
     ) async throws {
         guard app.id.lowercased() == "php" else { return }
 
-        let baseService = SSHBaseService.shared
+        let baseService = ServerAdminService.shared
 
         // Get loaded extensions
         let result = await baseService.execute("php -m 2>/dev/null", via: session)

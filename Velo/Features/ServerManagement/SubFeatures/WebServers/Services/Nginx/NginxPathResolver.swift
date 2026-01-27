@@ -8,7 +8,7 @@
 import Foundation
 
 struct NginxPathResolver {
-    private let baseService = SSHBaseService.shared
+    private let baseService = ServerAdminService.shared
 
     // Default paths for different distributions
     private let debianPaths = NginxPaths(

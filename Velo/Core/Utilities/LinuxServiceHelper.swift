@@ -12,9 +12,8 @@ final class LinuxServiceHelper {
     
     /// Execute a standard systemctl command
     static func executeAction(_ action: ServiceAction, serviceName: String, via session: TerminalViewModel) async -> Bool {
-        let sshBase = SSHBaseService.shared
         let cmd = "sudo systemctl \(action.rawValue) \(serviceName)"
-        let result = await sshBase.execute(cmd, via: session, timeout: 30)
+        let result = await ServerAdminService.shared.execute(cmd, via: session, timeout: 30)
         
         // Some actions like start/stop don't return output on success, 
         // so we check the exit code.
@@ -23,17 +22,15 @@ final class LinuxServiceHelper {
     
     /// Check if a service is active
     static func isActive(serviceName: String, via session: TerminalViewModel) async -> Bool {
-        let sshBase = SSHBaseService.shared
         let cmd = "systemctl is-active \(serviceName) 2>/dev/null"
-        let result = await sshBase.execute(cmd, via: session, timeout: 10)
+        let result = await ServerAdminService.shared.execute(cmd, via: session, timeout: 10)
         return result.output.trimmingCharacters(in: .whitespacesAndNewlines) == "active"
     }
     
     /// Get detailed status message
     static func getStatusMessage(serviceName: String, via session: TerminalViewModel) async -> String {
-        let sshBase = SSHBaseService.shared
         let cmd = "systemctl status \(serviceName) --no-pager 2>/dev/null"
-        let result = await sshBase.execute(cmd, via: session, timeout: 10)
+        let result = await ServerAdminService.shared.execute(cmd, via: session, timeout: 10)
         return result.output
     }
     
@@ -41,13 +38,12 @@ final class LinuxServiceHelper {
     
     /// Check if a service exists (is loaded or enabled)
     static func serviceExists(serviceName: String, via session: TerminalViewModel) async -> Bool {
-        let sshBase = SSHBaseService.shared
         // Check loaded state
-        let loadedCheck = await sshBase.execute("systemctl list-units --full -all | grep -F \"\(serviceName).service\"", via: session, timeout: 5)
+        let loadedCheck = await ServerAdminService.shared.execute("systemctl list-units --full -all | grep -F \"\(serviceName).service\"", via: session, timeout: 5)
         if !loadedCheck.output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return true }
         
         // Check unit file
-        let fileCheck = await sshBase.execute("systemctl list-unit-files | grep -F \"\(serviceName).service\"", via: session, timeout: 5)
+        let fileCheck = await ServerAdminService.shared.execute("systemctl list-unit-files | grep -F \"\(serviceName).service\"", via: session, timeout: 5)
         return !fileCheck.output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
     

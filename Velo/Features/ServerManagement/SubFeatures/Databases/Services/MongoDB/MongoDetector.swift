@@ -26,7 +26,7 @@ struct MongoDetector {
     }
 
     private func checkBinary(via session: TerminalViewModel) async -> Bool {
-        let result = await SSHBaseService.shared.execute("which mongod", via: session)
+        let result = await ServerAdminService.shared.execute("which mongod", via: session)
         return result.exitCode == 0 && !result.output.isEmpty
     }
     

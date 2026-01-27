@@ -8,6 +8,8 @@ extension PHPDetailViewModel {
         guard let session = session else { return }
         
         await performAsyncAction("Switch PHP Version") {
+            // The PHPService.shared.switchVersion function is an abstraction.
+            // Assuming it internally handles the correct service for mutating actions.
             let success = await PHPService.shared.switchVersion(to: version, via: session)
             if success {
                 activeVersion = version
@@ -28,8 +30,8 @@ extension PHPDetailViewModel {
         installStatus = "Detecting OS..."
         errorMessage = nil
         
-        // Get OS name (ubuntu/debian)
-        let osResult = await SSHBaseService.shared.execute("cat /etc/os-release | grep -E '^ID=' | cut -d= -f2", via: session, timeout: 5)
+        // Get OS name (ubuntu/debian) - This is a read-only action, move to admin to avoid pollution.
+        let osResult = await ServerAdminService.shared.execute("cat /etc/os-release | grep -E '^ID=' | cut -d= -f2", via: session, timeout: 5)
         let osName = osResult.output
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
@@ -69,8 +71,8 @@ extension PHPDetailViewModel {
         
         installStatus = "Installing PHP \(version.version)..."
         
-        // Execute install command (with longer timeout for package installation)
-        let result = await SSHBaseService.shared.execute(installCommand, via: session, timeout: 600)
+        // Execute install command via dedicated admin channel (mutating action)
+        let result = await ServerAdminService.shared.execute(installCommand, via: session, timeout: 600)
         
         if result.exitCode == 0 || result.output.contains("is already") || result.output.contains("newest version") {
             installStatus = "Verifying installation..."
@@ -92,9 +94,9 @@ extension PHPDetailViewModel {
         guard let session = session else { return }
         
         await performAsyncAction("Set Default PHP") {
-            // Use update-alternatives to set default PHP
-            let command = "update-alternatives --set php /usr/bin/php\(version)"
-            let result = await SSHBaseService.shared.execute(command, via: session, timeout: 10)
+            // Use update-alternatives via admin channel (mutating action)
+            let command = "sudo update-alternatives --set php /usr/bin/php\(version)"
+            let result = await ServerAdminService.shared.execute(command, via: session, timeout: 15)
             let success = result.exitCode == 0 || result.output.isEmpty
             
             if success {

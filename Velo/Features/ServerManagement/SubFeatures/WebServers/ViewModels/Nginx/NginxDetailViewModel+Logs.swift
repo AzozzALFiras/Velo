@@ -9,7 +9,7 @@ extension NginxDetailViewModel {
         // Default error log path
         let logPath = "/var/log/nginx/error.log"
         
-        let result = await SSHBaseService.shared.execute("tail -n 100 \(logPath)", via: session)
+        let result = await ServerAdminService.shared.execute("tail -n 100 \(logPath)", via: session)
         if result.exitCode == 0 {
             logContent = result.output
         } else {

@@ -10,7 +10,8 @@ final class MySQLDetailViewModel: ObservableObject {
     // MARK: - Dependencies
     weak var session: TerminalViewModel?
     public let service = MySQLService.shared
-    public let baseService = SSHBaseService.shared
+    public let baseService = ServerAdminService.shared
+    var adminExecutor: ServerAdminExecutor?
     
     // MARK: - Published State
     

@@ -29,7 +29,7 @@ extension NginxDetailViewModel {
             ("gzip", "Gzip Compression", "Enable/Disable gzip compression (on/off)")
         ]
         
-        let fileContentResult = await SSHBaseService.shared.execute("cat \(configPath)", via: session)
+        let fileContentResult = await ServerAdminService.shared.execute("cat \(configPath)", via: session)
         let content = fileContentResult.output
         
         for (key, name, desc) in directives {
@@ -64,7 +64,7 @@ extension NginxDetailViewModel {
         isPerformingAction = true
         
         // 1. Read file
-        let readResult = await SSHBaseService.shared.execute("cat \(configPath)", via: session)
+        let readResult = await ServerAdminService.shared.execute("cat \(configPath)", via: session)
         var content = readResult.output
         
         // 2. Replace using regex
@@ -83,10 +83,10 @@ extension NginxDetailViewModel {
             
             if newContent != content {
                 // 3. Save
-                let saveResult = await SSHBaseService.shared.writeFile(at: configPath, content: newContent, useSudo: true, via: session)
+                let saveResult = await ServerAdminService.shared.writeFile(at: configPath, content: newContent, useSudo: true, via: session)
                 if saveResult {
                     // 4. Test & Reload
-                    let testResult = await SSHBaseService.shared.execute("sudo nginx -t", via: session)
+                    let testResult = await ServerAdminService.shared.execute("sudo nginx -t", via: session)
                     if testResult.exitCode == 0 {
                         _ = await service.reload(via: session)
                         successMessage = "Value updated to '\(newValue)'"
@@ -117,7 +117,7 @@ extension NginxDetailViewModel {
         let primaryPath = configPath.isEmpty ? "/etc/nginx/nginx.conf" : configPath
         
         // 1. Try reading with sudo (cat)
-        var result = await SSHBaseService.shared.execute("sudo cat '\(primaryPath)'", via: session)
+        var result = await ServerAdminService.shared.execute("sudo cat '\(primaryPath)'", via: session)
         
         // 2. Fallback to common aaPanel/other paths if empty or error
         if result.output.isEmpty || result.output.contains("No such file") {
@@ -129,7 +129,7 @@ extension NginxDetailViewModel {
              
              for path in fallbacks {
                  if path == primaryPath { continue }
-                 let fallbackResult = await SSHBaseService.shared.execute("sudo cat '\(path)'", via: session)
+                 let fallbackResult = await ServerAdminService.shared.execute("sudo cat '\(path)'", via: session)
                  if !fallbackResult.output.isEmpty && !fallbackResult.output.contains("No such file") {
                      result = fallbackResult
                      // Update configPath to the one found so we save back to correct place
@@ -155,11 +155,11 @@ extension NginxDetailViewModel {
         isSavingConfig = true
         
         // Save
-        let saveResult = await SSHBaseService.shared.writeFile(at: configPath, content: configFileContent, useSudo: true, via: session)
+        let saveResult = await ServerAdminService.shared.writeFile(at: configPath, content: configFileContent, useSudo: true, via: session)
         
         if saveResult {
             // Test
-            let testResult = await SSHBaseService.shared.execute("sudo nginx -t", via: session)
+            let testResult = await ServerAdminService.shared.execute("sudo nginx -t", via: session)
             if testResult.exitCode == 0 {
                 _ = await service.reload(via: session)
                 successMessage = "Configuration saved and reloaded"

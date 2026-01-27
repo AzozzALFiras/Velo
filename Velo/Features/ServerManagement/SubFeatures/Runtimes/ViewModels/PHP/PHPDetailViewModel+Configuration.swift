@@ -54,7 +54,7 @@ extension PHPDetailViewModel {
         // Use grep to extract only non-empty, non-comment lines
         // This is MUCH faster and won't freeze the UI
         let command = "grep -v '^[[:space:]]*;' '\(configPath)' 2>/dev/null | grep -v '^[[:space:]]*$' | grep -v '^\\['"
-        let result = await SSHBaseService.shared.execute(command, via: session, timeout: 10)
+        let result = await baseService.execute(command, via: session, timeout: 10)
         configFileContent = result.output
         
         isLoadingConfigFile = false
@@ -67,7 +67,7 @@ extension PHPDetailViewModel {
         isLoadingConfigFile = true
         
         // Increase timeout for large file
-        let result = await SSHBaseService.shared.execute("cat '\(configPath)' 2>/dev/null", via: session, timeout: 30)
+        let result = await baseService.execute("cat '\(configPath)' 2>/dev/null", via: session, timeout: 30)
         configFileContent = result.output
         
         isLoadingConfigFile = false
@@ -86,7 +86,7 @@ extension PHPDetailViewModel {
         let escapedValue = value.replacingOccurrences(of: "/", with: "\\/")
         let command = "sed -i 's/^\\s*\(key)\\s*=.*/\(key) = \(escapedValue)/' '\(configPath)'"
         
-        let result = await SSHBaseService.shared.execute(command, via: session, timeout: 10)
+        let result = await baseService.execute(command, via: session, timeout: 10)
         
         if result.exitCode == 0 {
             successMessage = "Updated \(key) successfully"
@@ -124,17 +124,17 @@ extension PHPDetailViewModel {
         if lines.count <= 50 {
             // Small file - write directly using cat with heredoc
             let writeCommand = "cat > '\(tempPath)' << 'ENDOFCONFIG'\n\(configFileContent)\nENDOFCONFIG"
-            let result = await SSHBaseService.shared.execute(writeCommand, via: session, timeout: 15)
+            let result = await baseService.execute(writeCommand, via: session, timeout: 15)
             
             if result.exitCode == 0 || result.output.isEmpty {
                 // Move to final location
-                let moveResult = await SSHBaseService.shared.execute("mv '\(tempPath)' '\(configPath)'", via: session, timeout: 5)
+                let moveResult = await baseService.execute("mv '\(tempPath)' '\(configPath)'", via: session, timeout: 5)
                 success = moveResult.exitCode == 0 || !moveResult.output.contains("error")
             }
         } else {
             // Larger file - write line by line
             // First clear/create the temp file
-            _ = await SSHBaseService.shared.execute("> '\(tempPath)'", via: session, timeout: 5)
+            _ = await baseService.execute("> '\(tempPath)'", via: session, timeout: 5)
             
             // Write in chunks of 20 lines
             let chunkSize = 20
@@ -147,7 +147,7 @@ extension PHPDetailViewModel {
                 let escapedChunk = chunk.replacingOccurrences(of: "'", with: "'\\''")
                 
                 let appendCommand = "echo '\(escapedChunk)' >> '\(tempPath)'"
-                let result = await SSHBaseService.shared.execute(appendCommand, via: session, timeout: 10)
+                let result = await baseService.execute(appendCommand, via: session, timeout: 10)
                 
                 if result.exitCode != 0 && result.output.contains("error") {
                     success = false
@@ -158,7 +158,7 @@ extension PHPDetailViewModel {
             
             if success {
                 // Move to final location
-                let moveResult = await SSHBaseService.shared.execute("mv '\(tempPath)' '\(configPath)'", via: session, timeout: 5)
+                let moveResult = await baseService.execute("mv '\(tempPath)' '\(configPath)'", via: session, timeout: 5)
                 success = moveResult.exitCode == 0 || !moveResult.output.contains("error")
             }
         }
@@ -170,7 +170,7 @@ extension PHPDetailViewModel {
         } else {
             errorMessage = "Failed to save configuration"
             // Cleanup temp file
-            _ = await SSHBaseService.shared.execute("rm -f '\(tempPath)'", via: session, timeout: 5)
+            _ = await baseService.execute("rm -f '\(tempPath)'", via: session, timeout: 5)
         }
         
         isSavingConfigFile = false
@@ -189,7 +189,7 @@ extension PHPDetailViewModel {
         let escapedValue = newValue.replacingOccurrences(of: "/", with: "\\/")
         let command = "sudo sed -i 's/^\\(;\\?\\s*\\)\\(\(key)\\s*=\\s*\\).*/\\2\(escapedValue)/' '\(configPath)'"
         
-        let result = await SSHBaseService.shared.execute(command, via: session, timeout: 10)
+        let result = await baseService.execute(command, via: session, timeout: 10)
         
         let success = result.exitCode == 0
         
@@ -214,7 +214,7 @@ extension PHPDetailViewModel {
         
         isLoadingDisabledFunctions = true
         
-        let result = await SSHBaseService.shared.execute("php -r \"echo ini_get('disable_functions');\" 2>/dev/null", via: session, timeout: 10)
+        let result = await baseService.execute("php -r \"echo ini_get('disable_functions');\" 2>/dev/null", via: session, timeout: 10)
         let functions = result.output.trimmingCharacters(in: .whitespacesAndNewlines)
         
         if !functions.isEmpty && functions != "no value" {
@@ -244,7 +244,7 @@ extension PHPDetailViewModel {
         // Escape characters for sed
         let escapedNewValue = newValue.replacingOccurrences(of: "/", with: "\\/")
         let command = "sudo sed -i 's/^\\(disable_functions\\s*=\\s*\\).*/\\1\(escapedNewValue)/' '\(configPath)'"
-        let result = await SSHBaseService.shared.execute(command, via: session, timeout: 10)
+        let result = await baseService.execute(command, via: session, timeout: 10)
         
         if result.exitCode == 0 {
             disabledFunctions = newList
@@ -274,7 +274,7 @@ extension PHPDetailViewModel {
             // Update php.ini
             let escapedNewValue = newValue.replacingOccurrences(of: "/", with: "\\/")
             let command = "sudo sed -i 's/^\\(disable_functions\\s*=\\s*\\).*/\\1\(escapedNewValue)/' '\(configPath)'"
-            let result = await SSHBaseService.shared.execute(command, via: session, timeout: 10)
+            let result = await baseService.execute(command, via: session, timeout: 10)
             
             if result.exitCode == 0 {
                 disabledFunctions = newList.sorted()

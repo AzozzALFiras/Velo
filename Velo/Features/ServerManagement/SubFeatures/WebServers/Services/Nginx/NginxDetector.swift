@@ -8,7 +8,7 @@
 import Foundation
 
 struct NginxDetector {
-    private let baseService = SSHBaseService.shared
+    private let baseService = ServerAdminService.shared
 
     /// Check if Nginx is installed on the server
     func isInstalled(via session: TerminalViewModel) async -> Bool {

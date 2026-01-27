@@ -9,7 +9,7 @@ import Foundation
 
 /// Detects Node.js installation and configuration
 struct NodeDetector {
-    private let sshService = SSHBaseService.shared
+    private let sshService = ServerAdminService.shared
 
     func isInstalled(via session: TerminalViewModel) async -> Bool {
         let result = await sshService.execute("which node 2>/dev/null", via: session, timeout: 5)

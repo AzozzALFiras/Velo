@@ -19,7 +19,7 @@ final class QuickAccessService {
     private let apacheDetector = ApacheDetector()
     private let apachePathResolver = ApachePathResolver()
     
-    private let baseService = SSHBaseService.shared
+    private let baseService = ServerAdminService.shared
     
     private init() {}
     

@@ -9,7 +9,7 @@ struct BlockedIpsSectionProvider: SectionProvider {
         state: ApplicationState,
         session: TerminalViewModel
     ) async throws {
-        let baseService = SSHBaseService.shared
+        let baseService = ServerAdminService.shared
         let configPath = "/etc/nginx/conf.d/security_rules.conf"
         
         let result = await baseService.execute("cat \(configPath)", via: session)

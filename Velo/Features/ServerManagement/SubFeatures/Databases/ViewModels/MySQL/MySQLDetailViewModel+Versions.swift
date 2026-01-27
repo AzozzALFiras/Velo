@@ -20,25 +20,21 @@ extension MySQLDetailViewModel {
     /// Install a new MySQL version from API
     func installVersion(_ version: CapabilityVersion) async {
         guard let session = session else { return }
-        
+
         isInstallingVersion = true
         installingVersionName = version.version
         installStatus = "Detecting OS..."
         errorMessage = nil
-        
-        // Get OS name (ubuntu/debian)
-        let osResult = await SSHBaseService.shared.execute("cat /etc/os-release | grep -E '^ID=' | cut -d= -f2", via: session, timeout: 5)
-        let osName = osResult.output
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-            .replacingOccurrences(of: "\"", with: "")
-        
+
+        // Detect OS using centralized service
+        let osInfo = await SystemStatsService.shared.getOSInfo(via: session)
+        let osName = osInfo.id.isEmpty ? "ubuntu" : osInfo.id.lowercased()
+
         print("[MySQLDetailVM] Detected OS: '\(osName)', installCommands: \(version.installCommands ?? [:])")
-        
+
         installStatus = "Preparing installation..."
-        
-        // Get install commands from API
-        // Helper to resolve instruction
+
+        // Resolve install commands from API
         func resolve(_ instruction: InstallInstruction?) -> [String]? {
             guard let instruction = instruction else { return nil }
             switch instruction {
@@ -59,31 +55,31 @@ extension MySQLDetailViewModel {
             installStatus = ""
             return
         }
-        
+
         let installCommand = commandsList.joined(separator: " && ")
-        
+
         print("[MySQLDetailVM] Executing install command: \(installCommand.prefix(100))...")
-        
+
         installStatus = "Installing MySQL \(version.version)..."
-        
-        // Execute install command (with longer timeout for database installation)
-        // 1200 seconds = 20 minutes (compilation can be slow if source, or large binary download)
-        let result = await SSHBaseService.shared.execute(installCommand, via: session, timeout: 1200)
-        
+
+        // Execute via centralized admin service
+        let result = await ServerAdminService.shared.execute(installCommand, via: session, timeout: 1200)
+
         if result.exitCode == 0 || result.output.contains("is already") || result.output.contains("newest version") {
             installStatus = "Verifying installation..."
             successMessage = "MySQL \(version.version) installed successfully"
-            
-            // Reload everything to catch the new version and status
-            try? await Task.sleep(nanoseconds: 2_000_000_000) // 2s wait for service to stabilize
+
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
             await loadData()
         } else {
             errorMessage = "Failed to install MySQL \(version.version)"
             print("[MySQLDetailVM] Install error: \(result.output.suffix(200))")
         }
-        
+
         isInstallingVersion = false
         installingVersionName = ""
         installStatus = ""
     }
+
+    // MARK: - Admin Service access is now handled via ServerAdminService.shared
 }

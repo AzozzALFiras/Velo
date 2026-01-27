@@ -17,7 +17,7 @@ struct UsersSectionProvider: SectionProvider {
         state: ApplicationState,
         session: TerminalViewModel
     ) async throws {
-        let baseService = SSHBaseService.shared
+        let baseService = ServerAdminService.shared
 
         switch app.id.lowercased() {
         case "mysql", "mariadb":
@@ -31,7 +31,7 @@ struct UsersSectionProvider: SectionProvider {
         }
     }
 
-    private func loadMySQLUsers(state: ApplicationState, session: TerminalViewModel, baseService: SSHBaseService) async throws {
+    private func loadMySQLUsers(state: ApplicationState, session: TerminalViewModel, baseService: ServerAdminService) async throws {
         let result = await baseService.execute(
             "mysql -e \"SELECT User, Host FROM mysql.user;\" 2>/dev/null",
             via: session
@@ -63,7 +63,7 @@ struct UsersSectionProvider: SectionProvider {
         }
     }
 
-    private func loadPostgresUsers(state: ApplicationState, session: TerminalViewModel, baseService: SSHBaseService) async throws {
+    private func loadPostgresUsers(state: ApplicationState, session: TerminalViewModel, baseService: ServerAdminService) async throws {
         let result = await baseService.execute(
             "sudo -u postgres psql -c \"SELECT usename, usesuper, usecreatedb FROM pg_user;\" -t 2>/dev/null",
             via: session
@@ -95,7 +95,7 @@ struct UsersSectionProvider: SectionProvider {
         }
     }
 
-    private func loadMongoUsers(state: ApplicationState, session: TerminalViewModel, baseService: SSHBaseService) async throws {
+    private func loadMongoUsers(state: ApplicationState, session: TerminalViewModel, baseService: ServerAdminService) async throws {
         let result = await baseService.execute(
             "mongosh admin --quiet --eval 'db.getUsers().forEach(u => print(u.user + \"\\t\" + u.roles.map(r => r.role).join(\",\")))' 2>/dev/null",
             via: session

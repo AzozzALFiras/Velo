@@ -12,7 +12,7 @@ import Combine
 final class NodeService: ObservableObject, RuntimeService {
     static let shared = NodeService()
 
-    let baseService = SSHBaseService.shared
+    let baseService = ServerAdminService.shared
     private let detector = NodeDetector()
     private let versionResolver = NodeVersionResolver()
 

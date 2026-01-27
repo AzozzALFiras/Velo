@@ -18,7 +18,7 @@ struct PHPInfoSectionProvider: SectionProvider {
     ) async throws {
         guard app.id.lowercased() == "php" else { return }
 
-        let baseService = SSHBaseService.shared
+        let baseService = ServerAdminService.shared
 
         // Get PHP info as HTML
         let htmlResult = await baseService.execute(

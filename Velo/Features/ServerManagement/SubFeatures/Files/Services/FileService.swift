@@ -12,7 +12,7 @@ import Foundation
 final class FileService {
     static let shared = FileService()
 
-    private let sshBase = SSHBaseService.shared
+    private let sshBase = ServerAdminService.shared
 
     private init() {}
 

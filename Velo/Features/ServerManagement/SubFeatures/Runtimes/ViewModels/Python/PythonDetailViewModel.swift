@@ -25,7 +25,7 @@ class PythonDetailViewModel: ObservableObject {
         isLoading = true
         
         // 1. Check Python Version
-        let result = await SSHBaseService.shared.execute("python3 --version", via: session)
+        let result = await ServerAdminService.shared.execute("python3 --version", via: session)
         if result.exitCode == 0 {
             version = result.output.trimmingCharacters(in: .whitespacesAndNewlines)
             isRunning = true
@@ -45,7 +45,7 @@ class PythonDetailViewModel: ObservableObject {
     func loadGlobalPackages() async {
         guard let session = session else { return }
         
-        let result = await SSHBaseService.shared.execute("pip3 list --format=json", via: session)
+        let result = await ServerAdminService.shared.execute("pip3 list --format=json", via: session)
         if let data = result.output.data(using: .utf8),
            let packages = try? JSONDecoder().decode([PythonPackageJSON].self, from: data) {
             

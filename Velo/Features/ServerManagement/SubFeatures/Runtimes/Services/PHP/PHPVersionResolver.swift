@@ -8,7 +8,7 @@
 import Foundation
 
 struct PHPVersionResolver {
-    private let baseService = SSHBaseService.shared
+    private let baseService = ServerAdminService.shared
 
     /// Get the currently active PHP version
     func getActiveVersion(via session: TerminalViewModel) async -> String? {
@@ -42,20 +42,20 @@ struct PHPVersionResolver {
         let checkResult = await baseService.execute("which update-alternatives 2>/dev/null", via: session, timeout: 5)
 
         if !checkResult.output.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines).isEmpty {
-            // Use update-alternatives for Debian/Ubuntu
-            let result = await baseService.execute("""
+            // Use update-alternatives via admin channel
+            let result = await ServerAdminService.shared.execute("""
                 sudo update-alternatives --set php /usr/bin/php\(version) 2>&1 && echo 'SWITCHED'
             """, via: session, timeout: 15)
 
             if result.output.contains("SWITCHED") {
                 // Also switch php-fpm if available
-                _ = await baseService.execute("sudo update-alternatives --set php-fpm /usr/sbin/php-fpm\(version) 2>/dev/null || true", via: session, timeout: 10)
+                _ = await ServerAdminService.shared.execute("sudo update-alternatives --set php-fpm /usr/sbin/php-fpm\(version) 2>/dev/null || true", via: session, timeout: 10)
                 return true
             }
         }
 
-        // Manual symlink approach as fallback
-        let symlinkResult = await baseService.execute("""
+        // Manual symlink approach via admin channel
+        let symlinkResult = await ServerAdminService.shared.execute("""
             sudo ln -sf /usr/bin/php\(version) /usr/bin/php && echo 'LINKED'
         """, via: session, timeout: 10)
 

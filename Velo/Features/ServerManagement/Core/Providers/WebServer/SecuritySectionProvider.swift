@@ -16,7 +16,7 @@ struct SecuritySectionProvider: SectionProvider {
         state: ApplicationState,
         session: TerminalViewModel
     ) async throws {
-        let baseService = SSHBaseService.shared
+        let baseService = ServerAdminService.shared
 
         switch app.id.lowercased() {
         case "nginx":
@@ -28,7 +28,7 @@ struct SecuritySectionProvider: SectionProvider {
         }
     }
 
-    private func loadNginxSecurity(state: ApplicationState, session: TerminalViewModel, baseService: SSHBaseService) async throws {
+    private func loadNginxSecurity(state: ApplicationState, session: TerminalViewModel, baseService: ServerAdminService) async throws {
         // Use the dedicated NginxSecurityService for consistent status and stats
         let service = NginxSecurityService.shared
         
@@ -44,7 +44,7 @@ struct SecuritySectionProvider: SectionProvider {
         }
     }
 
-    private func loadApacheSecurity(state: ApplicationState, session: TerminalViewModel, baseService: SSHBaseService) async throws {
+    private func loadApacheSecurity(state: ApplicationState, session: TerminalViewModel, baseService: ServerAdminService) async throws {
         var securityRulesStatus: [String: Bool] = [:]
 
         // Check Apache security modules and configurations

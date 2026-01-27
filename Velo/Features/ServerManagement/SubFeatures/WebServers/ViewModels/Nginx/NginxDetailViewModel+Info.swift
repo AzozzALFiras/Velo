@@ -9,7 +9,7 @@ extension NginxDetailViewModel {
         isLoadingInfo = true
         
         // nginx -V (capital V) shows version and configure arguments
-        let result = await SSHBaseService.shared.execute("\(binaryPath) -V 2>&1", via: session)
+        let result = await ServerAdminService.shared.execute("\(binaryPath) -V 2>&1", via: session)
         let output = result.output
         
         // Parse arguments
@@ -39,7 +39,7 @@ extension NginxDetailViewModel {
         let endpoints = ["http://127.0.0.1/nginx_status", "http://127.0.0.1/stub_status", "http://127.0.0.1/status"]
         
         for endpoint in endpoints {
-            let result = await SSHBaseService.shared.execute("curl -s \(endpoint)", via: session, timeout: 5)
+            let result = await ServerAdminService.shared.execute("curl -s \(endpoint)", via: session, timeout: 5)
             if !result.output.isEmpty && result.output.contains("Active connections") {
                 parseStubStatus(result.output)
                 break

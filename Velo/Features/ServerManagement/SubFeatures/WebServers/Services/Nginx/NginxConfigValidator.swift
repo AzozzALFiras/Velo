@@ -8,7 +8,7 @@
 import Foundation
 
 struct NginxConfigValidator {
-    private let baseService = SSHBaseService.shared
+    private let baseService = ServerAdminService.shared
 
     /// Validate the Nginx configuration
     func validate(via session: TerminalViewModel) async -> (isValid: Bool, message: String) {

@@ -15,7 +15,8 @@ final class RedisDetailViewModel: ObservableObject {
     // MARK: - Dependencies
     weak var session: TerminalViewModel?
     public let service = RedisService.shared
-    public let baseService = SSHBaseService.shared
+    public let baseService = ServerAdminService.shared
+    var adminExecutor: ServerAdminExecutor?
     
     // MARK: - Published State
     

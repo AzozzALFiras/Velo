@@ -9,7 +9,7 @@ import Foundation
 
 /// Manages Node.js version detection and switching
 struct NodeVersionResolver {
-    private let sshService = SSHBaseService.shared
+    private let sshService = ServerAdminService.shared
     private let detector = NodeDetector()
 
     var detectionStrategy: VersionDetectionStrategy {

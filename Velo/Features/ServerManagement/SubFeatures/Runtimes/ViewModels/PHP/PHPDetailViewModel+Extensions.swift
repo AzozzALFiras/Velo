@@ -37,27 +37,30 @@ extension PHPDetailViewModel {
     
     func installExtension(_ name: String) async -> Bool {
         guard let session = session else { return false }
-        
+
         isInstallingExtension = true
         errorMessage = nil
-        
+
+        // Detect OS and package manager
+        let osInfo = await SystemStatsService.shared.getOSInfo(via: session)
+        let pm = PackageManagerCommandBuilder.detect(from: osInfo.id)
+
         let packageName = "php\(activeVersion)-\(name)"
-        
-        // Try install
-        let command = "DEBIAN_FRONTEND=noninteractive apt-get install -y \(packageName)"
-        let result = await SSHBaseService.shared.execute(command, via: session, timeout: 300)
-        
+        let cmd = PackageManagerCommandBuilder.installCommand(packages: [packageName], packageManager: pm)
+
+        // Use centralized admin service
+        let result = await ServerAdminService.shared.execute(cmd, via: session, timeout: 300)
+
         if result.exitCode == 0 {
             successMessage = "Extension \(name) installed successfully"
-            // Reload extensions
             await loadExtensions()
-            // Reload FPM
             _ = await PHPService.shared.reload(via: session)
             isInstallingExtension = false
             return true
         } else {
             // Try generic name if versioned failed (e.g. php-redis)
-            let resultGeneric = await SSHBaseService.shared.execute("DEBIAN_FRONTEND=noninteractive apt-get install -y php-\(name)", via: session, timeout: 300)
+            let genericCmd = PackageManagerCommandBuilder.installCommand(packages: ["php-\(name)"], packageManager: pm)
+            let resultGeneric = await ServerAdminService.shared.execute(genericCmd, via: session, timeout: 300)
             if resultGeneric.exitCode == 0 {
                 successMessage = "Extension \(name) installed successfully"
                 await loadExtensions()
@@ -65,10 +68,12 @@ extension PHPDetailViewModel {
                 isInstallingExtension = false
                 return true
             }
-            
+
             errorMessage = "Failed to install \(name)"
             isInstallingExtension = false
             return false
         }
     }
+
+    // MARK: - Admin Service access is now handled via ServerAdminService.shared
 }

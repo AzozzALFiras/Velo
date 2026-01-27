@@ -16,7 +16,7 @@ struct StatusSectionProvider: SectionProvider {
         state: ApplicationState,
         session: TerminalViewModel
     ) async throws {
-        let baseService = SSHBaseService.shared
+        let baseService = ServerAdminService.shared
 
         switch app.id.lowercased() {
         case "nginx":
@@ -37,7 +37,7 @@ struct StatusSectionProvider: SectionProvider {
 
     // MARK: - Nginx Status
 
-    private func loadNginxStatus(state: ApplicationState, session: TerminalViewModel, baseService: SSHBaseService) async throws {
+    private func loadNginxStatus(state: ApplicationState, session: TerminalViewModel, baseService: ServerAdminService) async throws {
         // Try nginx stub_status
         let result = await baseService.execute(
             "curl -s http://127.0.0.1/nginx_status 2>/dev/null || curl -s http://localhost/nginx_status 2>/dev/null",
@@ -122,7 +122,7 @@ struct StatusSectionProvider: SectionProvider {
 
     // MARK: - MySQL Status
 
-    private func loadMySQLStatus(state: ApplicationState, session: TerminalViewModel, baseService: SSHBaseService) async throws {
+    private func loadMySQLStatus(state: ApplicationState, session: TerminalViewModel, baseService: ServerAdminService) async throws {
         let result = await baseService.execute(
             """
             mysql -e "SHOW GLOBAL STATUS WHERE Variable_name IN ('Uptime', 'Threads_connected', 'Questions', 'Slow_queries', 'Open_tables', 'Queries');" 2>/dev/null
@@ -184,7 +184,7 @@ struct StatusSectionProvider: SectionProvider {
 
     // MARK: - PostgreSQL Status
 
-    private func loadPostgresStatus(state: ApplicationState, session: TerminalViewModel, baseService: SSHBaseService) async throws {
+    private func loadPostgresStatus(state: ApplicationState, session: TerminalViewModel, baseService: ServerAdminService) async throws {
         // PostgreSQL doesn't have a built-in status like MySQL
         // We could query pg_stat_activity, etc.
         let result = await baseService.execute(
@@ -197,7 +197,7 @@ struct StatusSectionProvider: SectionProvider {
 
     // MARK: - Redis Status
 
-    private func loadRedisStatus(state: ApplicationState, session: TerminalViewModel, baseService: SSHBaseService) async throws {
+    private func loadRedisStatus(state: ApplicationState, session: TerminalViewModel, baseService: ServerAdminService) async throws {
         let result = await baseService.execute("redis-cli INFO 2>/dev/null", via: session)
 
         guard result.exitCode == 0 else { return }
@@ -208,7 +208,7 @@ struct StatusSectionProvider: SectionProvider {
 
     // MARK: - PHP-FPM Status
 
-    private func loadPHPFPMStatus(state: ApplicationState, session: TerminalViewModel, baseService: SSHBaseService) async throws {
+    private func loadPHPFPMStatus(state: ApplicationState, session: TerminalViewModel, baseService: ServerAdminService) async throws {
         // Try to get FPM status from status page
         let result = await baseService.execute(
             "curl -s http://127.0.0.1/fpm-status 2>/dev/null || curl -s 'http://localhost/fpm-status?full' 2>/dev/null",
@@ -273,7 +273,7 @@ struct StatusSectionProvider: SectionProvider {
 
     // MARK: - Generic Status
 
-    private func loadGenericStatus(for app: ApplicationDefinition, state: ApplicationState, session: TerminalViewModel, baseService: SSHBaseService) async throws {
+    private func loadGenericStatus(for app: ApplicationDefinition, state: ApplicationState, session: TerminalViewModel, baseService: ServerAdminService) async throws {
         let serviceName = app.serviceConfig.serviceName
         guard !serviceName.isEmpty else { return }
 

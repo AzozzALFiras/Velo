@@ -9,7 +9,7 @@ import Foundation
 
 /// Manages Python version detection and switching
 struct PythonVersionResolver {
-    private let sshService = SSHBaseService.shared
+    private let sshService = ServerAdminService.shared
 
     let detectionStrategy = VersionDetectionStrategy.binaryPattern(pattern: "python3*")
     let switchStrategy = VersionSwitchStrategy.updateAlternatives(

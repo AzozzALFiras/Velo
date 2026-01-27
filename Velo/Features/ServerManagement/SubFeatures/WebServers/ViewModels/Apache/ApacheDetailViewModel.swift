@@ -18,7 +18,7 @@ class ApacheDetailViewModel: ObservableObject {
     func loadStatus() async {
         guard let session = session else { return }
         // Simple check for now
-        let result = await SSHBaseService.shared.execute("systemctl is-active apache2", via: session)
+        let result = await ServerAdminService.shared.execute("systemctl is-active apache2", via: session)
         isRunning = result.output.trimmingCharacters(in: .whitespacesAndNewlines) == "active"
     }
     
@@ -40,7 +40,7 @@ class ApacheDetailViewModel: ObservableObject {
         errorMessage = nil
         successMessage = nil
         
-        let result = await SSHBaseService.shared.execute(command, via: session)
+        let result = await ServerAdminService.shared.execute(command, via: session)
         
         if result.exitCode == 0 {
             successMessage = "\(name) successful"

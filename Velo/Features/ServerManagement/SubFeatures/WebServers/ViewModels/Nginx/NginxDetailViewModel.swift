@@ -7,6 +7,7 @@ class NginxDetailViewModel: ObservableObject {
     // Dependencies
     let session: TerminalViewModel?
     let service = NginxService.shared
+    var adminExecutor: ServerAdminExecutor?
     
     // State
     @Published var selectedSection: NginxDetailSection = .service

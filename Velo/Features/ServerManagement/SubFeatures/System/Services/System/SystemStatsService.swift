@@ -13,7 +13,7 @@ import Combine
 final class SystemStatsService: ObservableObject {
     static let shared = SystemStatsService()
 
-    private let baseService = SSHBaseService.shared
+    private let baseService = ServerAdminService.shared
 
     private init() {}
 

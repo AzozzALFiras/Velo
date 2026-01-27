@@ -18,7 +18,7 @@ struct FPMProfileSectionProvider: SectionProvider {
     ) async throws {
         guard app.id.lowercased() == "php" else { return }
 
-        let baseService = SSHBaseService.shared
+        let baseService = ServerAdminService.shared
 
         // Get active PHP version
         let versionResult = await baseService.execute(

@@ -240,6 +240,28 @@ final class SSHManager: ObservableObject {
     }
 }
 
+// MARK: - Connection Lookup
+
+extension SSHManager {
+    /// Find the SSHConnection matching an active terminal session.
+    /// Parses the session's `activeSSHConnectionString` ("user@host" or "user@host:port")
+    /// and matches it against saved connections.
+    func findConnection(for session: TerminalViewModel) -> SSHConnection? {
+        guard let connStr = session.activeSSHConnectionString else { return nil }
+        let parts = connStr.components(separatedBy: "@")
+        guard parts.count == 2 else { return nil }
+
+        let username = parts[0]
+        let hostAndPort = parts[1]
+        let host = hostAndPort.components(separatedBy: ":").first ?? hostAndPort
+
+        return connections.first {
+            $0.host.lowercased() == host.lowercased() &&
+            $0.username.lowercased() == username.lowercased()
+        }
+    }
+}
+
 // MARK: - Environment Key
 struct SSHManagerKey: EnvironmentKey {
     @MainActor

@@ -138,7 +138,7 @@ final class WebsitesViewModel: ObservableObject {
         var webServerUsed = "Static"
 
         // Create document root and index file first
-        let baseService = SSHBaseService.shared
+        let baseService = ServerAdminService.shared
         var defaultRoot = "/var/www"
         
         if hasNginx {
@@ -425,7 +425,7 @@ final class WebsitesViewModel: ObservableObject {
             return false
         }
 
-        let baseService = SSHBaseService.shared
+        let baseService = ServerAdminService.shared
 
         // Update nginx config to use new PHP-FPM socket
         let configPath = "/etc/nginx/sites-available/\(website.domain)"
@@ -444,7 +444,7 @@ final class WebsitesViewModel: ObservableObject {
     // MARK: - Private Helpers
 
     private func createDefaultIndexFile(at path: String, domain: String, framework: String, session: TerminalViewModel) async {
-        let baseService = SSHBaseService.shared
+        let baseService = ServerAdminService.shared
 
         let fileName: String
         let content: String

@@ -23,7 +23,7 @@ extension NginxDetailViewModel {
         // Typically nginx binary is at /usr/sbin/nginx, config at /etc/nginx/nginx.conf
         // We can verify this with `which nginx` and `nginx -t`
         
-        let whichResult = await SSHBaseService.shared.execute("which nginx", via: session)
+        let whichResult = await ServerAdminService.shared.execute("which nginx", via: session)
         if !whichResult.output.isEmpty {
             binaryPath = whichResult.output.trimmingCharacters(in: .whitespacesAndNewlines)
         }
@@ -33,14 +33,14 @@ extension NginxDetailViewModel {
         guard let session = session else { return }
         
         await performAsyncAction("Start Nginx") {
-            let result = await SSHBaseService.shared.execute("sudo systemctl start nginx", via: session, timeout: 10)
+            let result = await ServerAdminService.shared.execute("sudo systemctl start nginx", via: session, timeout: 15)
             
             if result.exitCode == 0 {
                 await loadServiceStatus()
                 return (true, "nginx.msg.started".localized)
             } else {
                 // Fetch status to understand why it failed
-                let status = await SSHBaseService.shared.execute("sudo systemctl status nginx --no-pager -l -n 10", via: session)
+                let status = await ServerAdminService.shared.execute("sudo systemctl status nginx --no-pager -l -n 10", via: session)
                 let cleanOutput = stripANSICodes(status.output)
                 return (false, "Failed to start Nginx: \(cleanOutput)")
             }
@@ -51,7 +51,7 @@ extension NginxDetailViewModel {
         guard let session = session else { return }
         
         await performAsyncAction("Stop Nginx") {
-            let result = await SSHBaseService.shared.execute("sudo systemctl stop nginx", via: session, timeout: 10)
+            let result = await ServerAdminService.shared.execute("sudo systemctl stop nginx", via: session, timeout: 15)
             let success = result.exitCode == 0
             
             if success {
@@ -66,14 +66,14 @@ extension NginxDetailViewModel {
         guard let session = session else { return }
         
         await performAsyncAction("Restart Nginx") {
-            let result = await SSHBaseService.shared.execute("sudo systemctl restart nginx", via: session, timeout: 15)
+            let result = await ServerAdminService.shared.execute("sudo systemctl restart nginx", via: session, timeout: 20)
             
             if result.exitCode == 0 {
                 await loadServiceStatus()
                 return (true, "nginx.msg.restarted".localized)
             } else {
                 // Fetch status to understand why it failed
-                let status = await SSHBaseService.shared.execute("sudo systemctl status nginx --no-pager -l -n 10", via: session)
+                let status = await ServerAdminService.shared.execute("sudo systemctl status nginx --no-pager -l -n 10", via: session)
                 let cleanOutput = stripANSICodes(status.output)
                 return (false, "Failed to restart Nginx: \(cleanOutput)")
             }
@@ -85,12 +85,12 @@ extension NginxDetailViewModel {
         
         await performAsyncAction("Reload Nginx") {
             // Test config first
-            let testResult = await SSHBaseService.shared.execute("sudo nginx -t", via: session)
+            let testResult = await ServerAdminService.shared.execute("sudo nginx -t", via: session)
             guard testResult.exitCode == 0 else {
                 return (false, "Config check failed: \(testResult.output)")
             }
             
-            let result = await SSHBaseService.shared.execute("sudo systemctl reload nginx", via: session, timeout: 10)
+            let result = await ServerAdminService.shared.execute("sudo systemctl reload nginx", via: session, timeout: 15)
             let success = result.exitCode == 0
             
             return (success, success ? "nginx.msg.reloaded".localized : "nginx.err.reload".localized)

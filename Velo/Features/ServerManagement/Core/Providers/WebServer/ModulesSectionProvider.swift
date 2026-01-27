@@ -16,7 +16,7 @@ struct ModulesSectionProvider: SectionProvider {
         state: ApplicationState,
         session: TerminalViewModel
     ) async throws {
-        let baseService = SSHBaseService.shared
+        let baseService = ServerAdminService.shared
 
         switch app.id.lowercased() {
         case "nginx":
@@ -28,7 +28,7 @@ struct ModulesSectionProvider: SectionProvider {
         }
     }
 
-    private func loadNginxModules(state: ApplicationState, session: TerminalViewModel, baseService: SSHBaseService) async throws {
+    private func loadNginxModules(state: ApplicationState, session: TerminalViewModel, baseService: ServerAdminService) async throws {
         // Get nginx compile-time modules
         let result = await baseService.execute("nginx -V 2>&1", via: session)
 
@@ -87,7 +87,7 @@ struct ModulesSectionProvider: SectionProvider {
         }
     }
 
-    private func loadApacheModules(state: ApplicationState, session: TerminalViewModel, baseService: SSHBaseService) async throws {
+    private func loadApacheModules(state: ApplicationState, session: TerminalViewModel, baseService: ServerAdminService) async throws {
         // Get Apache loaded modules
         let result = await baseService.execute("apache2ctl -M 2>/dev/null || httpd -M 2>/dev/null", via: session)
 

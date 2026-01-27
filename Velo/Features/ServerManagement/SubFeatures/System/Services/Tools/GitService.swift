@@ -6,7 +6,7 @@ final class GitService: ObservableObject, ServerModuleService {
     @Published var statusUpdate: Bool = false
     static let shared = GitService()
     
-    let baseService = SSHBaseService.shared
+    let baseService = ServerAdminService.shared
     
     private init() {}
     

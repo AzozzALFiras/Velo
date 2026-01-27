@@ -17,7 +17,7 @@ struct ServiceSectionProvider: SectionProvider {
         session: TerminalViewModel
     ) async throws {
         let resolver = ServiceResolver.shared
-        let baseService = SSHBaseService.shared
+        let baseService = ServerAdminService.shared
 
         guard let service = resolver.resolve(for: app.id) else {
             throw SectionProviderError.serviceNotFound(app.id)
@@ -69,7 +69,7 @@ struct ServiceSectionProvider: SectionProvider {
             binaryCommand = "which \(app.id)"
         }
 
-        let whichResult = await baseService.execute(binaryCommand, via: session)
+        let whichResult = await ServerAdminService.shared.execute(binaryCommand, via: session)
         if !whichResult.output.isEmpty && whichResult.exitCode == 0 {
             await MainActor.run {
                 state.binaryPath = whichResult.output.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -90,7 +90,7 @@ struct ServiceSectionProvider: SectionProvider {
         state: ApplicationState,
         session: TerminalViewModel
     ) async {
-        let baseService = SSHBaseService.shared
+        let baseService = ServerAdminService.shared
 
         switch app.id.lowercased() {
         case "nginx":
@@ -106,7 +106,7 @@ struct ServiceSectionProvider: SectionProvider {
 
     private func loadNginxStatus(state: ApplicationState, session: TerminalViewModel) async {
         // Check nginx stub_status if available
-        let statusResult = await SSHBaseService.shared.execute(
+        let statusResult = await ServerAdminService.shared.execute(
             "curl -s http://127.0.0.1/nginx_status 2>/dev/null || echo 'not_available'",
             via: session
         )
@@ -173,7 +173,7 @@ struct ServiceSectionProvider: SectionProvider {
 
     private func loadPHPFPMStatus(state: ApplicationState, session: TerminalViewModel) async {
         // Get active PHP version
-        let versionResult = await SSHBaseService.shared.execute(
+        let versionResult = await ServerAdminService.shared.execute(
             "php -r 'echo PHP_MAJOR_VERSION.\".\".PHP_MINOR_VERSION;'",
             via: session
         )
@@ -186,7 +186,7 @@ struct ServiceSectionProvider: SectionProvider {
         }
 
         // Get installed versions
-        let versionsResult = await SSHBaseService.shared.execute(
+        let versionsResult = await ServerAdminService.shared.execute(
             "ls -1 /etc/php/ 2>/dev/null | sort -V",
             via: session
         )
