@@ -72,7 +72,7 @@ struct SystemInfoBar: View {
             Spacer()
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 8)
+        .frame(height: 50) // Fixed height for exact alignment with Sidebar
         .background(ColorTokens.layer1)
     }
 
@@ -95,6 +95,10 @@ struct StatPill: View {
     let value: String
     let color: Color
 
+    private var isWarningOrError: Bool {
+        color == ColorTokens.warning || color == ColorTokens.error
+    }
+
     var body: some View {
         HStack(spacing: 4) {
             Image(systemName: icon)
@@ -103,12 +107,17 @@ struct StatPill: View {
 
             Text(value)
                 .font(.system(size: 10, weight: .medium, design: .monospaced))
-                .foregroundStyle(ColorTokens.textSecondary)
+                .foregroundStyle(isWarningOrError ? ColorTokens.textPrimary : ColorTokens.textSecondary)
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
-        .background(color.opacity(0.1))
+        .background(isWarningOrError ? color.opacity(0.15) : Color.clear)
         .clipShape(Capsule())
+        // Add subtle border for all states for definition without heavy background
+        .overlay(
+            Capsule()
+                .stroke( isWarningOrError ? color.opacity(0.3) : ColorTokens.border.opacity(0.5), lineWidth: 0.5)
+        )
         .help("\(label): \(value)")
     }
 }

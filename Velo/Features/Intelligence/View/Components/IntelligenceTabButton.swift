@@ -22,24 +22,24 @@ struct IntelligenceTabButton: View {
             VStack(spacing: 2) {
                 ZStack(alignment: .topTrailing) {
                     Image(systemName: tab.icon)
-                        .font(.system(size: 14, weight: .medium))
+                        .font(.system(size: 11, weight: .medium)) // Reduced from 14
 
                     if hasNotification {
                         Circle()
                             .fill(ColorTokens.error)
-                            .frame(width: 6, height: 6)
-                            .offset(x: 4, y: -2)
+                            .frame(width: 5, height: 5)
+                            .offset(x: 3, y: -2)
                     }
                 }
 
                 Text(tab.label)
-                    .font(.system(size: 9, weight: .medium))
+                    .font(.system(size: 8, weight: .medium)) // Reduced from 9
                     .lineLimit(1)
             }
             .foregroundStyle(isSelected ? ColorTokens.accentPrimary : ColorTokens.textTertiary)
-            .frame(width: 60, height: 44)
+            .frame(width: 44, height: 36) // Reduced from 60x44 to be more compact
             .background(isSelected ? ColorTokens.layer2 : .clear)
-            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .clipShape(RoundedRectangle(cornerRadius: 6))
         }
         .buttonStyle(.plain)
         .help(tab.label)

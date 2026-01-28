@@ -59,10 +59,11 @@ final class ANSIParser {
         var result = AttributedString()
         var currentAttributes = TextAttributes()
         
-        // Regex to match ANSI escape sequences (CSI and simple)
-        // \x1B\[[0-?]*[ -/]*[@-~]
-        let ansiPattern = "\\x1B\\[[0-?]*[ -/]*[@-~]"
-        guard let regex = try? NSRegularExpression(pattern: ansiPattern) else {
+        // Regex to match ANSI escape sequences
+        // CSI: \x1B\[[0-?]*[ -/]*[@-~]
+        // OSC: \x1B\][0-9]*;.*?(?:\x07|\x1B\\)
+        let ansiPattern = "(\\x1B\\[[0-?]*[ -/]*[@-~])|(\\x1B\\][0-9]*;.*?(?:\\x07|\\x1B\\\\))"
+        guard let regex = try? NSRegularExpression(pattern: ansiPattern, options: []) else {
             return AttributedString(input)
         }
         
@@ -112,12 +113,10 @@ final class ANSIParser {
     // MARK: - Strip ANSI Codes
     /// Remove all ANSI escape sequences from a string
     func stripANSI(_ input: String) -> String {
-        // Matches CSI sequences (Start with ESC [, then optional parameter bytes, then intermediate bytes, then final byte)
-        // Also matches simple escapes if needed, but primarily CSI.
-        // Regex: \x1B\[[0-?]*[ -/]*[@-~]
-        let pattern = "\\x1B\\[[0-?]*[ -/]*[@-~]"
+        // Matches CSI sequences (ESC [ ...) and OSC sequences (ESC ] ...)
+        let pattern = "(\\x1B\\[[0-?]*[ -/]*[@-~])|(\\x1B\\][0-9]*;.*?(?:\\x07|\\x1B\\\\))"
         
-        guard let regex = try? NSRegularExpression(pattern: pattern) else {
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else {
             return input
         }
         let range = NSRange(input.startIndex..., in: input)

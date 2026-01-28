@@ -101,14 +101,17 @@ struct WorkspaceRoot: View {
             } detail: {
                 // Main Content Area - System Info + Sessions + Workspace + Intelligence Panel
                 VStack(spacing: 0) {
-                    // System Info Bar
+                // System Info Bar
                     SystemInfoBar(
                         monitor: systemMonitor,
                         isSSH: isCurrentSessionSSH,
                         serverName: currentSSHServerName
                     )
+
+                    Divider()
+                        .background(ColorTokens.border)
                     
-                    // Session Tabs
+                    // Session Tabs (Shows below divider, only if multiple sessions)
                     SessionTabsBar(
                         sessions: tabManager.sessions,
                         activeSessionId: tabManager.activeSessionId,
@@ -120,8 +123,7 @@ struct WorkspaceRoot: View {
                         onNewSession: { tabManager.addSession() }
                     )
                     
-                    Divider()
-                        .background(ColorTokens.border)
+                    // Main workspace area or specialized panel
                     
                     // Main workspace area or specialized panel
                     if sidebarSection == .git {

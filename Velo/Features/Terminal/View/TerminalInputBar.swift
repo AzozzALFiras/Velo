@@ -60,25 +60,26 @@ struct TerminalInputBar: View {
                 .transition(.opacity.combined(with: .move(edge: .bottom)))
             }
 
-            Divider()
-                .background(ColorTokens.border)
-
             HStack(spacing: 12) {
                 // Directory Badge - tap to show files
-                Button(action: onShowFiles) {
-                    HStack(spacing: 5) {
-                        Image(systemName: isSSHActive ? "network" : "folder.fill")
-                            .font(.system(size: 9))
-                        Text(displayDirectory)
-                            .font(.system(size: 10, weight: .medium, design: .monospaced))
+                // Directory Badge - tap to show files
+                // HIDE when SSH is active to reduce redundancy (as requested)
+                if !isSSHActive {
+                    Button(action: onShowFiles) {
+                        HStack(spacing: 5) {
+                            Image(systemName: "folder.fill")
+                                .font(.system(size: 9))
+                            Text(displayDirectory)
+                                .font(.system(size: 10, weight: .medium, design: .monospaced))
+                        }
+                        .foregroundStyle(ColorTokens.accentPrimary)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 5)
+                        .background(ColorTokens.accentPrimary.opacity(0.1))
+                        .clipShape(Capsule())
                     }
-                    .foregroundStyle(isSSHActive ? ColorTokens.accentSecondary : ColorTokens.accentPrimary)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 5)
-                    .background((isSSHActive ? ColorTokens.accentSecondary : ColorTokens.accentPrimary).opacity(0.1))
-                    .clipShape(Capsule())
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
 
                 // Input mode indicator (for password/interactive prompts)
                 if inputMode != .normal {
@@ -189,7 +190,7 @@ struct TerminalInputBar: View {
                 }
             }
             .padding(.horizontal, 16)
-            .padding(.vertical, 12)
+            .frame(height: 50) // Fixed height 50pt
             .background(ColorTokens.layer0)
         }
         .animation(.easeOut(duration: 0.15), value: showingAutocomplete)

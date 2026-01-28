@@ -119,10 +119,15 @@ struct WorkspaceSidebar: View {
             
             Spacer()
             
+            Divider()
+                .background(ColorTokens.border)
+            
             // Footer - Theme toggle
             sidebarFooter
+                .frame(height: 50)
         }
         .background(ColorTokens.layer1)
+        .ignoresSafeArea(.all, edges: .bottom)
     }
     
     // MARK: - Header
@@ -148,7 +153,7 @@ struct WorkspaceSidebar: View {
             .help("workspace.newSession".localized)
         }
         .padding(.horizontal, 14)
-        .padding(.vertical, 12)
+        .frame(height: 50) // Fixed height for alignment with SystemInfoBar
     }
     
     // MARK: - Quick Actions
@@ -339,8 +344,8 @@ struct WorkspaceSidebar: View {
             .buttonStyle(.plain)
         }
         .padding(.horizontal, 14)
-        .padding(.vertical, 12)
-        .background(ColorTokens.layer0)
+        // Fixed height handled by parent
+        .background(Color.clear)
     }
     
     // MARK: - Helpers
@@ -454,7 +459,7 @@ struct SidebarButton: View {
                 }
             }
             .padding(.horizontal, 8)
-            .padding(.vertical, 6)
+            .padding(.vertical, 8) // Increased from 6 to 8 for better hit area and spacing
             .background(isActive ? ColorTokens.accentPrimary.opacity(0.15) : (isHovered ? ColorTokens.layer2 : .clear))
             .clipShape(RoundedRectangle(cornerRadius: 6))
             .overlay(
@@ -506,7 +511,7 @@ struct SessionRow: View {
                 }
             }
             .padding(.horizontal, 8)
-            .padding(.vertical, 6)
+            .padding(.vertical, 8) // Increased from 6 to 8
             .background(
                 isActive ? ColorTokens.accentPrimary.opacity(0.15) :
                     (isHovered ? ColorTokens.layer2 : .clear)

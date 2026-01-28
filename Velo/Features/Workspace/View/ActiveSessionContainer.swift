@@ -115,6 +115,9 @@ struct ActiveSessionContainer: View {
             }
 
             // Integrated Command Bar spanning both columns
+            Divider()
+                .background(ColorTokens.border)
+            
             TerminalInputBar(
                 inputText: $session.inputText,
                 isExecuting: $session.isExecuting,

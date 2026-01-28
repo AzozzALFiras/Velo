@@ -20,50 +20,52 @@ struct SessionTabsBar: View {
     var onNewSession: () -> Void
     
     var body: some View {
-        HStack(spacing: 0) {
-            // Sessions tabs
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 2) {
-                    ForEach(sessions) { session in
-                        SessionTab(
-                            session: session,
-                            isActive: session.id == activeSessionId,
-                            onSelect: { onSelectSession(session.id) },
-                            onClose: { onCloseSession(session.id) }
-                        )
+        Group {
+            if sessions.count > 1 {
+                HStack(spacing: 0) {
+                    // Sessions tabs
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 2) {
+                            ForEach(sessions) { session in
+                                SessionTab(
+                                    session: session,
+                                    isActive: session.id == activeSessionId,
+                                    onSelect: { onSelectSession(session.id) },
+                                    onClose: { onCloseSession(session.id) }
+                                )
+                            }
+                        }
+                        .padding(.horizontal, 8)
                     }
+                    
+                    Spacer()
+
+                    // SSH Server Management Button
+                    if let activeId = activeSessionId,
+                       let activeSession = sessions.first(where: { $0.id == activeId }) {
+                        SSHAdminButton(session: activeSession)
+                    }
+
+                    // New session button
+                    Button(action: onNewSession) {
+                        Image(systemName: "plus")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(ColorTokens.textTertiary)
+                            .frame(width: 24, height: 24)
+                            .background(ColorTokens.layer2)
+                            .clipShape(RoundedRectangle(cornerRadius: 4))
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.trailing, 8)
+                    .help("workspace.newSession".localized)
                 }
-                .padding(.horizontal, 8)
+                .frame(height: 32)
+                .background(ColorTokens.layer1)
+                .overlay(alignment: .bottom) {
+                    Divider()
+                        .background(ColorTokens.borderSubtle)
+                }
             }
-            
-            Spacer()
-
-            // SSH Server Management Button
-            // We use a dedicated view to ensure it observes the active session's state changes
-            if let activeId = activeSessionId,
-               let activeSession = sessions.first(where: { $0.id == activeId }) {
-                SSHAdminButton(session: activeSession)
-            }
-
-
-            // New session button
-            Button(action: onNewSession) {
-                Image(systemName: "plus")
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(ColorTokens.textTertiary)
-                    .frame(width: 24, height: 24)
-                    .background(ColorTokens.layer2)
-                    .clipShape(RoundedRectangle(cornerRadius: 4))
-            }
-            .buttonStyle(.plain)
-            .padding(.trailing, 8)
-            .help("workspace.newSession".localized)
-        }
-        .frame(height: 32)
-        .background(ColorTokens.layer1)
-        .overlay(alignment: .bottom) {
-            Divider()
-                .background(ColorTokens.borderSubtle)
         }
     }
 }
@@ -121,7 +123,8 @@ private struct SessionTab: View {
     
     private var sessionDisplayName: String {
         if session.isSSHActive {
-            return "session.tab.ssh".localized
+            // detailed name (user@host)
+            return session.title
         }
         // Show last directory component for local sessions
         return session.currentDirectory.components(separatedBy: "/").last ?? "session.tab.local".localized
