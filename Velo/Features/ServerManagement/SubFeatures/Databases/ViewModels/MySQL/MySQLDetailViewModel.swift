@@ -149,4 +149,11 @@ final class MySQLDetailViewModel: ObservableObject {
         
         isPerformingAction = false
     }
+
+    // MARK: - ANSI Stripping
+
+    func stripANSI(_ input: String) -> String {
+        let pattern = "\\x1B\\[[0-9;]*[mGKHF]|\\[\\d*(;\\d+)*m"
+        return input.replacingOccurrences(of: pattern, with: "", options: .regularExpression)
+    }
 }

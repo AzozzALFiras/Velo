@@ -815,12 +815,79 @@ final class TerminalViewModel: ObservableObject, Identifiable {
             } else {
                 print("⚠️ [TerminalVM] Invalid __save_file_encoded__ format. Parts count: \(parts.count)")
             }
-            return
         }
         
         // For regular commands, execute them
         inputText = command
         executeCommand()
+    }
+    
+    // MARK: - SSH Connection
+    
+    /// Establishes an SSH connection with a clean UI presentation
+    func connectToSSH(host: String, user: String, port: Int, keyPath: String?, password: String?) {
+        // 1. Construct the actual command
+        var sshCommand = "ssh -tt"
+        if port != 22 {
+            sshCommand += " -p \(port)"
+        }
+        if let keyPath = keyPath, !keyPath.isEmpty {
+            sshCommand += " -i \(keyPath)"
+        }
+        sshCommand += " \(user)@\(host)"
+        
+        // 2. Set active command so isSSHActive becomes true
+        activeCommand = sshCommand
+        isExecuting = true
+        activeInsightTab = .files // Switch to files tab for SSH as it's useful
+        
+        // 3. Create a friendly "Connecting..." block instead of showing raw command
+        let displayCommand = "Connecting to \(user)@\(host)..."
+        
+        let block = CommandBlock(
+            command: displayCommand,
+            status: .running,
+            workingDirectory: currentDirectory
+        )
+        blocks.append(block)
+        
+        // 4. Store password for the auto-injector (if provided)
+        // Reset state first
+        sshPasswordInjected = false
+        
+        // If password provided, make sure we have it ready for the detector
+        // We don't manually inject here; we let handleSSHPasswordPrompt do it
+        // when it sees "Password:"
+        
+        // 5. Execute via PTY
+        Task {
+            do {
+                _ = try await terminalEngine.executePTY(sshCommand)
+                
+                // Session finished (disconnected)
+                await MainActor.run {
+                    isExecuting = false
+                    if let lastBlock = self.blocks.last, lastBlock.id == block.id {
+                        lastBlock.complete(exitCode: self.lastExitCode)
+                        if self.lastExitCode == 0 {
+                            lastBlock.appendOutput(text: "Backend session disconnected.", isError: false)
+                        } else {
+                            lastBlock.appendOutput(text: "Connection terminated unexpectedly (code \(self.lastExitCode)).", isError: true)
+                        }
+                    }
+                }
+            } catch {
+                errorMessage = error.localizedDescription
+                await MainActor.run {
+                    isExecuting = false
+                    if let lastBlock = self.blocks.last, lastBlock.id == block.id {
+                        lastBlock.appendOutput(text: error.localizedDescription, isError: true)
+                        lastBlock.status = .error
+                        lastBlock.endTime = Date()
+                    }
+                }
+            }
+        }
     }
     
     // MARK: - Private Methods

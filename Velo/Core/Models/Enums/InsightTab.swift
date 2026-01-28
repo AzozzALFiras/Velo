@@ -12,6 +12,7 @@ public enum InsightTab: String, CaseIterable, Identifiable, Sendable {
     case chat = "AI Chat"
     case history = "History"
     case errors = "Errors"
+    case files = "Files"
     
     public var id: String { self.rawValue }
     
@@ -21,6 +22,7 @@ public enum InsightTab: String, CaseIterable, Identifiable, Sendable {
         case .chat: return "bubble.left.and.bubble.right"
         case .history: return "clock"
         case .errors: return "exclamationmark.triangle"
+        case .files: return "folder"
         }
     }
 }

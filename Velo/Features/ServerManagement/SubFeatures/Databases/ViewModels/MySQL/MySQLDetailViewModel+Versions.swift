@@ -67,13 +67,25 @@ extension MySQLDetailViewModel {
 
         if result.exitCode == 0 || result.output.contains("is already") || result.output.contains("newest version") {
             installStatus = "Verifying installation..."
-            successMessage = "MySQL \(version.version) installed successfully"
+
+            // Verify the installed version matches what was requested
+            let verifyResult = await ServerAdminService.shared.execute("mysql --version 2>&1", via: session, timeout: 10)
+            let installedVersion = verifyResult.output.trimmingCharacters(in: .whitespacesAndNewlines)
+
+            if installedVersion.contains(version.version) || version.version.isEmpty {
+                successMessage = "MySQL \(version.version) installed successfully"
+            } else {
+                // Version mismatch: requested version was not actually installed
+                let detected = installedVersion.isEmpty ? "unknown" : installedVersion
+                errorMessage = "Version mismatch: requested \(version.version) but server reports: \(detected). The requested version may not be available in the server's repositories."
+            }
 
             try? await Task.sleep(nanoseconds: 2_000_000_000)
             await loadData()
         } else {
-            errorMessage = "Failed to install MySQL \(version.version)"
-            print("[MySQLDetailVM] Install error: \(result.output.suffix(200))")
+            let cleanOutput = stripANSI(result.output)
+            errorMessage = "Failed to install MySQL \(version.version): \(cleanOutput.suffix(300))"
+            print("[MySQLDetailVM] Install error: \(cleanOutput.suffix(200))")
         }
 
         isInstallingVersion = false

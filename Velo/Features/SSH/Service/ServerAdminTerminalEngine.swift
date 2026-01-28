@@ -231,9 +231,13 @@ actor ServerAdminTerminalEngine {
                  fortified = fortified.replacingOccurrences(of: "apt-get update &&", with: "apt-get update || true &&")
                  fortified = fortified.replacingOccurrences(of: "apt update &&", with: "apt update || true &&")
              }
-             
-             // Wrap with || true to continue even if apt has non-critical errors
-             fortified = "(" + fortified + ") || true"
+
+             // Only mask exit code for pure update commands (no install/remove/purge).
+             // Install commands must preserve real exit codes so callers can detect failures.
+             let isModifyCommand = lowerCmd.contains("install") || lowerCmd.contains("remove") || lowerCmd.contains("purge")
+             if !isModifyCommand {
+                 fortified = "(" + fortified + ") || true"
+             }
              
              finalCommand = fortified
         } else if isYum {

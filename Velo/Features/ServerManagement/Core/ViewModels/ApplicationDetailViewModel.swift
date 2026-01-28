@@ -449,37 +449,12 @@ final class ApplicationDetailViewModel: ObservableObject {
                 state.installStatus = "Step \(index + 1)/\(osCommands.count): Running..."
             }
             
-            // SANITIZE AND FORTIFY COMMANDS
-            var command = originalCommand
-            
-            // 1. Force non-interactive for apt/dpkg
-            // We inject the variable directly before the command to ensure it survives 'sudo' (which often drops env vars)
-            // transforming "sudo apt install" -> "sudo DEBIAN_FRONTEND=noninteractive apt install"
-            if command.contains("apt") || command.contains("dpkg") {
-                let targets = ["apt-get", "apt ", "dpkg"]
-                for target in targets {
-                    if command.contains(target) && !command.contains("DEBIAN_FRONTEND=noninteractive " + target) {
-                        command = command.replacingOccurrences(of: target, with: "DEBIAN_FRONTEND=noninteractive " + target)
-                    }
-                }
-                
-                // Ensure -y is used for install/upgrade/remove
-                if (command.contains("install") || command.contains("upgrade") || command.contains("remove")) && !command.contains("-y") {
-                     command = command + " -y"
-                }
-                // Fix for interactions: pass -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold"
-                if command.contains("apt-get") && !command.contains("force-conf") {
-                    command = command + " -o Dpkg::Options::=\"--force-confdef\" -o Dpkg::Options::=\"--force-confold\""
-                }
-            }
-            
-            // 2. Add wait for lock if apt
-            if command.contains("apt") {
-                // Prepend a wait for lock check (simple version)
-                // "while fuser /var/lib/dpkg/lock >/dev/null 2>&1 ; do sleep 1 ; done; " is risky if user doesn't have fuser
-                // Better to just rely on APT's acquire-retries if possible, but that's config.
-                // We'll trust the modified command for now, but handle the specific lock error in output.
-            }
+            // Defer all APT/DNF fortification to ServerAdminTerminalEngine's centralized logic.
+            // The engine handles: DEBIAN_FRONTEND, -y, -q, --force-confdef/confold,
+            // hook disabling (cnf-update-db), apt update || true rewrite, and exit code preservation.
+            // Manual injection here was causing the engine to skip its fortification block entirely
+            // (engine checks !contains("DEBIAN_FRONTEND") to avoid double-wrapping).
+            let command = originalCommand
 
             let result = await ServerAdminService.shared.execute(command, via: session, timeout: 600) // Increased timeout
 
@@ -499,7 +474,7 @@ final class ApplicationDetailViewModel: ObservableObject {
                     if result.output.contains("Could not get lock") || result.output.contains("Resource temporarily unavailable") {
                         errorMessage = "System update in progress. Please wait a moment and try again."
                     } else {
-                        errorMessage = "Installation failed: \(result.output)" // Show output in error
+                        errorMessage = "Installation failed: \(self.stripANSI(result.output))"
                     }
                 }
                 print("[Install] Command failed: \(command)")

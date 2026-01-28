@@ -20,52 +20,72 @@ final class ServerAdminService: ObservableObject {
     
     private init() {}
     
-    /// Get or create an admin engine for a given terminal session
+    /// Get or create an admin engine for a given terminal session.
+    /// Includes automatic retry logic to handle transient connection timeouts.
     func getEngine(for terminal: TerminalViewModel) async -> ServerAdminTerminalEngine? {
         guard let conn = manager.findConnection(for: terminal) else {
             print("❌ [ServerAdminService] Could not find connection for terminal \(terminal.id)")
             return nil
         }
-        
+
         let key = "\(conn.username)@\(conn.host):\(conn.port)"
-        
+
         // Return existing engine if available
         if let existing = engines[key] {
             return existing
         }
-        
+
         // If there's already a pending connection for this key, wait for it
         if let pendingTask = pendingConnections[key] {
             return await pendingTask.value
         }
-        
-        // Create a new connection task
+
+        // Create a new connection task with retry logic
+        let maxAttempts = 3
         let task = Task<ServerAdminTerminalEngine?, Never> {
             let password = manager.getPassword(for: conn)
-            let engine = ServerAdminTerminalEngine()
-            
-            do {
-                try await engine.connect(using: conn, password: password)
-                return engine
-            } catch {
-                print("❌ [ServerAdminService] Failed to initialize admin engine: \(error)")
-                return nil
+
+            for attempt in 1...maxAttempts {
+                let engine = ServerAdminTerminalEngine()
+
+                do {
+                    try await engine.connect(using: conn, password: password)
+                    if attempt > 1 {
+                        print("✅ [ServerAdminService] Admin engine connected on attempt \(attempt)/\(maxAttempts)")
+                    }
+                    return engine
+                } catch {
+                    print("❌ [ServerAdminService] Admin engine connection attempt \(attempt)/\(maxAttempts) failed: \(error)")
+                    if attempt < maxAttempts {
+                        print("🔄 [ServerAdminService] Retrying in 3 seconds...")
+                        try? await Task.sleep(nanoseconds: 3_000_000_000)
+                    }
+                }
             }
+
+            print("❌ [ServerAdminService] All \(maxAttempts) connection attempts failed")
+            return nil
         }
-        
+
         // Register the pending task
         pendingConnections[key] = task
-        
+
         // Wait for the connection
         let result = await task.value
-        
+
         // Clean up pending and store result
         pendingConnections[key] = nil
         if let engine = result {
             engines[key] = engine
         }
-        
+
         return result
+    }
+
+    /// Pre-warm the admin engine connection.
+    /// Call before firing parallel detection tasks to avoid race conditions.
+    func ensureConnected(for terminal: TerminalViewModel) async -> Bool {
+        return await getEngine(for: terminal) != nil
     }
     
     /// Execute a command using the dedicated admin engine

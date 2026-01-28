@@ -90,27 +90,7 @@ final class TabManager: ObservableObject {
         activeSessionId = newSession.id
         
         // Build and execute SSH command
-        var sshCommand = "ssh -tt"  // -tt forces TTY allocation
-        if port != 22 {
-            sshCommand += " -p \(port)"
-        }
-        if let keyPath = keyPath, !keyPath.isEmpty {
-            sshCommand += " -i \(keyPath)"
-        }
-        sshCommand += " \(user)@\(host)"
-        
-        // Execute SSH command in the new session
-        Task {
-            try? await Task.sleep(for: .milliseconds(100))
-            newSession.inputText = sshCommand
-            newSession.executeCommand()
-            
-            // If password is provided, wait for password prompt and send it
-            if let password = password, !password.isEmpty {
-                // Wait for SSH to prompt for password (typically 1-3 seconds)
-                try? await Task.sleep(for: .seconds(2))
-                engine.sendInput(password + "\n")
-            }
-        }
+        // Use the new clean connection method
+        newSession.connectToSSH(host: host, user: user, port: port, keyPath: keyPath, password: password)
     }
 }

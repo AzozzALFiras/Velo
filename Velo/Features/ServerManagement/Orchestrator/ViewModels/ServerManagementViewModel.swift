@@ -143,9 +143,19 @@ final class ServerManagementViewModel: ObservableObject {
     func loadAllData(force: Bool = false) async {
         guard !dataLoadedOnce || force else { return }
         isLoading = true
-        
+
         AppLogger.shared.log("Starting full server analysis...", level: .info)
-        
+
+        // Pre-warm the admin engine connection before parallel tasks.
+        // Without this, a transient timeout on the first connection attempt
+        // causes ALL parallel detection tasks to fail simultaneously.
+        if let session = session {
+            let connected = await ServerAdminService.shared.ensureConnected(for: session)
+            if !connected {
+                AppLogger.shared.log("Admin engine connection failed — detection results may be incomplete", level: .warning)
+            }
+        }
+
         // Parallel load
         async let overview: () = overviewVM.loadData()
         async let sites: () = websitesVM.loadWebsites()
